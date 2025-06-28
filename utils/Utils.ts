@@ -63,8 +63,8 @@ const safeRequire = (moduleName: string) => {
     }
 };
 
-// Funções para importação dinâmica de dependências peer
-const getApplication = () => safeRequire('expo-application');
+// Funções para importação de dependências
+import * as Application from 'expo-application';
 const getSplashScreen = () => safeRequire('expo-splash-screen');
 const getReactNative = () => safeRequire('react-native');
 
@@ -217,8 +217,6 @@ const Utils = {
 
     checkForRequiredUpdateAsync: async (remoteConfigSettings: RemoteConfigSettings) => {
         try {
-            const Application = getApplication();
-            if (!Application) return;
 
             const version = parseFloat(Application.nativeApplicationVersion);
             const minVersion = parseFloat(remoteConfigSettings.min_version.toString())

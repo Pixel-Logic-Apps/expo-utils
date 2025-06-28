@@ -45,14 +45,11 @@ npm install https://github.com/Pixel-Logic-Apps/expo-utils.git --legacy-peer-dep
 
 [📖 **Guia completo de instalação e troubleshooting**](./examples/instalacao-e-solucoes.md)
 
-**💡 Peer Dependencies**: Este projeto usa `peerDependencies` para `react-native`, `expo-application` e `expo-splash-screen`. Em projetos Expo/React Native, você provavelmente já tem essas dependências:
+**💡 Dependências**: Este projeto inclui `expo-application` e `expo-build-properties` como dependências obrigatórias. Apenas `expo-splash-screen` é peer dependency opcional:
 
 ```bash
-# React Native (obrigatório)
-npm install react-native
-
-# Expo modules (opcionais, mas recomendados)
-npm install expo-application expo-splash-screen
+# Peer dependency opcional (recomendada)
+npm install expo-splash-screen
 ```
 
 ### 2. Configuração no _layout.tsx
@@ -196,15 +193,11 @@ Este projeto usa **peer dependencies** para `react-native`, `expo-application` e
 
 ### Resolvendo Erros de TypeScript
 
-Se você vir erros como `Cannot find module 'react-native'` ou `Cannot find module 'expo-splash-screen'`, use uma das soluções:
+Se você vir erros como `Cannot find module 'expo-splash-screen'`, instale a peer dependency opcional:
 
-**Opção 1: Instalar as peer dependencies (Recomendado)**
+**Instalar expo-splash-screen (Recomendado)**
 ```bash
-# Obrigatórias
-npm install react-native
-
-# Opcionais (para funcionalidades específicas)
-npm install expo-application expo-splash-screen
+npm install expo-splash-screen
 ```
 
 **Opção 2: Incluir os tipos mock no seu tsconfig.json**

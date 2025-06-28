@@ -72,9 +72,9 @@ npx expo install expo-router@latest
 
 **Soluções:**
 
-#### 1. Instalar peer dependencies necessárias
+#### 1. Instalar peer dependency opcional
 ```bash
-npm install expo-application expo-splash-screen
+npm install expo-splash-screen
 ```
 
 #### 2. Ignorar peer dependencies opcionais
@@ -94,12 +94,13 @@ Adicione no seu `package.json`:
 
 ### Versões Mínimas Suportadas
 
-| Dependência | Versão Mínima | Seu Projeto |
-|-------------|---------------|-------------|
-| React | >=16.8.0 | ✅ Compatível |
-| React Native | >=0.60.0 | ✅ Compatível |
-| expo-application | >=6.0.0 | ✅ Compatível |
-| expo-splash-screen | >=0.29.0 | ✅ Compatível |
+| Dependência | Versão | Status |
+|-------------|---------|--------|
+| React | >=16.8.0 | Peer Dependency |
+| React Native | >=0.60.0 | Peer Dependency |
+| expo-application | ^6.1.4 | ✅ Incluída |
+| expo-build-properties | >=0.12.0 | ✅ Incluída |
+| expo-splash-screen | >=0.29.0 | Peer Optional |
 
 ### Comando de Diagnóstico
 
