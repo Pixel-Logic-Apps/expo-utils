@@ -10,12 +10,14 @@ import * as Updates from 'expo-updates';
 import { AppEventsLogger, Settings } from 'react-native-fbsdk-next';
 import Purchases from 'react-native-purchases';
 
+import { getLocalizedMessages } from './i18n';
+
 // Helper para imports dinâmicos seguros de peer dependencies
 const dynamicImport = async (moduleName: string) => {
     try {
         return await import(moduleName);
     } catch (error) {
-        console.warn(`${moduleName} não encontrado. Certifique-se de que está instalado no seu projeto.`);
+        console.warn(`${moduleName} not found. Make sure it's installed in your project.`);
         return null;
     }
 };
@@ -24,9 +26,6 @@ const dynamicImport = async (moduleName: string) => {
 const getApplication = () => dynamicImport('expo-application');
 const getSplashScreen = () => dynamicImport('expo-splash-screen');
 const getReactNative = () => dynamicImport('react-native');
-
-
-
 
 
 const Utils = {
@@ -90,7 +89,7 @@ const Utils = {
                 : purchasesConfig?.[1]?.iosApiKey;
 
             if (!apiKey) {
-                console.warn('RevenueCat API key não encontrada no app.config. Configure o plugin react-native-purchases.');
+                console.warn('RevenueCat API key not found in app.config. Configure the react-native-purchases plugin.');
                 return;
             }
             
@@ -109,7 +108,7 @@ const Utils = {
             const appID = fbConfig?.[1]?.appID;
             
             if (!appID) {
-                console.warn('Facebook App ID não encontrado no app.config. Configure o plugin react-native-fbsdk-next.');
+                console.warn('Facebook App ID not found in app.config. Configure the react-native-fbsdk-next plugin.');
                 return;
             }
             Settings.setAppID(appID);
@@ -119,7 +118,7 @@ const Utils = {
             AppEventsLogger.logEvent("app_started")
             AppEventsLogger.logEvent("fb_mobile_launch_source")
         } catch (error) {
-            console.error('Error initializing Facebook SDK:', error);
+            console.error('Error setting up Facebook SDK:', error);
         }
     },
 
@@ -129,7 +128,8 @@ const Utils = {
             
             getMessaging(getApp()).onMessage(async (remoteMessage) => {
                 if (remoteMessage.notification && ReactNative?.Alert) {
-                    ReactNative.Alert.alert("Nova Mensagem", remoteMessage.notification.body);
+                    const messages = getLocalizedMessages();
+                    ReactNative.Alert.alert(messages.newMessage, remoteMessage.notification.body);
                 }
             });
             
@@ -169,13 +169,14 @@ const Utils = {
             const ReactNative = await getReactNative();
             if (!ReactNative?.Alert || !ReactNative?.Platform) return;
 
+            const messages = getLocalizedMessages();
             const AsyncAlert = async () =>
                 new Promise((resolve) => {
                     ReactNative.Alert.alert(
-                        'Atualização Necessária',
-                        'Uma nova versão está disponível. Por favor, atualize para continuar usando o aplicativo.',
+                        messages.updateRequired,
+                        messages.updateMessage,
                         [{
-                            text: 'Atualizar Agora',
+                            text: messages.updateNow,
                             onPress: () => {
                                 const url = ReactNative.Platform.OS === 'android' ?
                                     "https://play.google.com/store/apps/details?id=" + Application.applicationId :

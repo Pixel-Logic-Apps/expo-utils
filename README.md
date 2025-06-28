@@ -130,6 +130,19 @@ const appConfig = {
 }
 ```
 
+## Usando Apenas as Traduções
+
+Se você quiser usar apenas o sistema de internacionalização:
+
+```typescript
+import { getLocalizedMessages } from 'expo-utils';
+
+const messages = getLocalizedMessages();
+Alert.alert(messages.updateRequired, messages.updateMessage);
+```
+
+[📖 **Guia completo de traduções**](./examples/usando-traducoes.md)
+
 ### 5. Declarações Globais
 
 As variáveis globais devem ser declaradas no `_layout.tsx` de cada app, não na classe Utils:
@@ -260,12 +273,14 @@ interface RemoteConfigSettings {
 expo-utils/
 ├── utils/
 │   ├── Utils.ts               # Utilitários principais (com imports dinâmicos)
+│   ├── i18n.ts                # Sistema de traduções (12 idiomas)
 │   └── types.ts               # Interfaces TypeScript
 ├── types/
 │   └── peer-deps.d.ts         # Tipos mock para peer dependencies
 ├── examples/
 │   ├── _layout.tsx            # Exemplo de uso
 │   ├── projeto-usando-expo-utils.md # Guia completo
+│   ├── usando-traducoes.md    # Guia de traduções
 │   └── app.config.exemplo.js  # Configuração de exemplo
 ├── docs/
 │   └── alternative-approaches.md # Abordagens alternativas
