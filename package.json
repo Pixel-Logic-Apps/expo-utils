@@ -29,8 +29,8 @@
     "type": "commonjs",
     "types": "./index.d.ts",
     "peerDependencies": {
-        "expo-application": "^6.0.2",
-        "expo-splash-screen": "^0.29.14",
+        "expo-application": ">=6.0.2",
+        "expo-splash-screen": ">=0.29.14",
         "react": ">=16.8.0",
         "react-native": ">=0.60.0"
     },
