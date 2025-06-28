@@ -10,15 +10,7 @@ function withRequiredPlugins(config, props = {}) {
 
   // Lista de todos os plugins do Firebase que seu módulo suporta.
   const firebasePlugins = [
-    // O plugin principal do app, que recebe a configuração dos arquivos.
-    ['@react-native-firebase/app', firebaseProps],
-    // Os outros módulos do Firebase. Eles não precisam de configuração
-    // individual, apenas precisam ser listados para o autolinking nativo.
-    '@react-native-firebase/analytics',
-    '@react-native-firebase/auth',
-    '@react-native-firebase/firestore',
-    '@react-native-firebase/messaging',
-    '@react-native-firebase/remote-config',
+    '@react-native-firebase/app'
   ];
 
   // Adicionamos também os outros plugins que já estavam aqui.
