@@ -64,7 +64,6 @@ const safeRequire = (moduleName: string) => {
 };
 
 // Funções para importação de dependências
-import * as Application from 'expo-application';
 const getSplashScreen = () => safeRequire('expo-splash-screen');
 const getReactNative = () => safeRequire('react-native');
 
