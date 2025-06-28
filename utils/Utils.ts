@@ -214,6 +214,7 @@ const Utils = {
 
     checkForRequiredUpdateAsync: async (remoteConfigSettings: RemoteConfigSettings) => {
         try {
+            if (!Application.nativeApplicationVersion) return;
 
             const version = parseFloat(Application.nativeApplicationVersion);
             const minVersion = parseFloat(remoteConfigSettings.min_version.toString())
