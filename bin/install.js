@@ -209,6 +209,50 @@ function handleSkadnetworkFlag() {
     console.log(chalk.green('✅ SKAdNetworkItems setup complete.'));
 }
 
+function handleFirebasePlaceholdersFlag() {
+    console.log(chalk.cyan('🔥 Creating Firebase placeholder files...'));
+    const config = getAppConfig();
+    if (!config) return;
+
+    const androidPackage = config.expo?.android?.package || 'com.placeholder.app';
+    const iosBundleId = config.expo?.ios?.bundleIdentifier || 'com.placeholder.app';
+    
+    const moduleDir = path.dirname(require.resolve('expo-utils/package.json'));
+
+    // --- Android Placeholder ---
+    const googleServicesJsonPath = path.join(projectRoot, 'google-services.json');
+    if (!fs.existsSync(googleServicesJsonPath)) {
+        const templatePath = path.join(moduleDir, 'templates', 'google-services.template.json');
+        if (fs.existsSync(templatePath)) {
+            const template = fs.readFileSync(templatePath, 'utf-8');
+            const content = template.replace('${androidPackage}', androidPackage);
+            fs.writeFileSync(googleServicesJsonPath, content);
+            console.log(chalk.green(`  -> Created placeholder google-services.json`));
+        } else {
+            console.error(chalk.red('❌ google-services.template.json not found in expo-utils module.'));
+        }
+    } else {
+        console.log(chalk.yellow(`  -> File google-services.json already exists. Skipping.`));
+    }
+
+    // --- iOS Placeholder ---
+    const googleServicesPlistPath = path.join(projectRoot, 'GoogleService-Info.plist');
+    if (!fs.existsSync(googleServicesPlistPath)) {
+        const templatePath = path.join(moduleDir, 'templates', 'GoogleService-Info.template.plist');
+        if (fs.existsSync(templatePath)) {
+            const template = fs.readFileSync(templatePath, 'utf-8');
+            const content = template.replace('${iosBundleId}', iosBundleId);
+            fs.writeFileSync(googleServicesPlistPath, content);
+            console.log(chalk.green(`  -> Created placeholder GoogleService-Info.plist`));
+        } else {
+            console.error(chalk.red('❌ GoogleService-Info.template.plist not found in expo-utils module.'));
+        }
+    } else {
+        console.log(chalk.yellow(`  -> File GoogleService-Info.plist already exists. Skipping.`));
+    }
+    console.log(chalk.green('✅ Firebase placeholder step complete.'));
+}
+
 // --- Main Execution ---
 
 async function main() {
@@ -222,6 +266,7 @@ async function main() {
     if (args.includes('--new')) {
         console.log(chalk.magenta.bold('🚀 New project setup! Running all scaffolding steps...'));
         // The order here can be important
+        handleFirebasePlaceholdersFlag();
         handleConfigFlag();
         handleSrcAppFlag(); // Better to move 'app' before trying to modify its contents
         handleLayoutFlag();
@@ -235,6 +280,7 @@ async function main() {
         if (args.includes('--srcapp')) handleSrcAppFlag();
         if (args.includes('--languages')) handleLanguagesFlag();
         if (args.includes('--skadnetwork')) handleSkadnetworkFlag();
+        if (args.includes('--firebase-placeholders')) handleFirebasePlaceholdersFlag();
     }
     
     console.log(chalk.bold.magenta('\n✨ All done! ✨'));

@@ -1,6 +1,89 @@
-# Expo Utils
+# expo-utils
 
-Biblioteca de utilitários e dependências padronizadas para projetos mobile com React Native e Expo.
+`expo-utils` é uma ferramenta de linha de comando (CLI) projetada para acelerar a criação e configuração de novos projetos Expo. Com um único comando, você pode instalar um conjunto de bibliotecas essenciais, configurar plugins nativos, criar arquivos de template e estruturar seu projeto, economizando horas de configuração manual.
+
+## O Problema que Resolve
+
+Configurar um novo projeto React Native com todas as ferramentas necessárias (Firebase, AdMob, Facebook SDK, etc.) é um processo repetitivo e sujeito a erros. Este módulo automatiza 90% desse trabalho, permitindo que você se concentre no desenvolvimento do seu aplicativo desde o primeiro minuto.
+
+## Instalação e Uso Rápido
+
+Siga estes passos para configurar um novo projeto em minutos.
+
+### Passo 1: Crie um Novo App Expo
+
+Primeiro, crie um projeto Expo em branco. O template padrão com `expo-router` é recomendado.
+
+```bash
+npx create-expo-app@latest MeuNovoApp
+cd MeuNovoApp
+```
+
+### Passo 2: Instale o `expo-utils`
+
+Instale este módulo como uma dependência de desenvolvimento. Se você clonou este repositório localmente, use o caminho do arquivo.
+
+```bash
+# Se estiver usando um caminho local
+npm install https://github.com/Pixel-Logic-Apps/expo-utils.git
+
+# Se estivesse publicado no npm
+# npm install --save-dev expo-utils
+```
+
+### Passo 3: Execute o Instalador Automático
+
+Este é o comando principal. Ele executa todos os passos de configuração de uma só vez.
+
+```bash
+npx expo-utils-install --new
+```
+
+Este comando irá:
+1.  Instalar todas as dependências necessárias (`peerDependencies`).
+2.  Criar arquivos de configuração placeholder para o Firebase (`google-services.json` e `GoogleService-Info.plist`).
+3.  Adicionar e configurar os plugins do AdMob e Facebook SDK no seu `app.json`.
+4.  Mover a pasta `app` para `src/app` para uma melhor estrutura.
+5.  Substituir o `_layout.tsx` por um template que já inclui a lógica de inicialização.
+6.  Criar uma pasta `languages` com arquivos de tradução de exemplo.
+7.  Adicionar os `SKAdNetworkItems` necessários para o iOS no `app.json`.
+
+### Passo 4: Atualize as Chaves e IDs
+
+Após a execução do script, abra o arquivo `app.json`. Você verá que os plugins foram adicionados com valores de placeholder. **Substitua esses valores pelos seus IDs e chaves reais** do AdMob e Facebook.
+
+Além disso, **substitua os arquivos placeholder** `google-services.json` e `GoogleService-Info.plist` pelos arquivos reais do seu projeto Firebase.
+
+### Passo 5: Rode o Projeto
+
+Agora seu projeto está pronto para ser executado.
+
+```bash
+npx expo run:ios
+# ou
+npx expo run:android
+```
+
+---
+
+## Comandos Disponíveis
+
+A ferramenta oferece granularidade para executar apenas os passos que você precisa.
+
+### `npx expo-utils-install`
+Executado sem argumentos, o script apenas verifica e instala as dependências faltantes.
+
+### `npx expo-utils-install --new`
+O comando principal. Executa todos os passos de scaffolding listados abaixo em uma ordem lógica. Ideal para projetos novos.
+
+### Flags Individuais
+
+-   `--config`: Adiciona e configura os plugins `react-native-google-mobile-ads` e `react-native-fbsdk-next` no `app.json`.
+-   `--layout`: Substitui o arquivo `_layout.tsx` (`app/_layout.tsx` ou `src/app/_layout.tsx`) por um template padrão.
+-   `--srcapp`: Move a pasta `app` para `src/app`.
+-   `--languages`: Cria a pasta `languages` com arquivos de tradução de exemplo e a adiciona aos `assetBundlePatterns` no `app.json`.
+-   `--skadnetwork`: Adiciona uma lista de `SKAdNetworkItems` comuns ao `infoPlist` do iOS no `app.json`.
+-   `--firebase-placeholders`: Cria arquivos `google-services.json` e `GoogleService-Info.plist` genéricos na raiz do projeto para permitir que o build inicial funcione.
 
 ## Sobre o Projeto
 
@@ -309,7 +392,7 @@ Veja o arquivo `examples/_layout.tsx` para um exemplo completo de implementaçã
 - `react-native-purchases` - SDK para compras in-app
 - `react-native-fbsdk-next` - SDK do Facebook
 
-**Resultado**: Biblioteca otimizada que não duplica as dependências principais do seu projeto! 🎉
+**Resultado**: Biblioteca otimizada que não duplica as dependências principais do seu projeto! ��
 
 ## Licença
 
