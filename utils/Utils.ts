@@ -1,8 +1,49 @@
-import { getApp } from "@react-native-firebase/app";
-import { getRemoteConfig } from "@react-native-firebase/remote-config";
+// Firebase imports com fallback seguro
+const getFirebaseApp = () => {
+    try {
+        const { getApp } = require("@react-native-firebase/app");
+        return getApp();
+    } catch (error) {
+        console.warn("Firebase app not configured. Some features will be disabled.");
+        return null;
+    }
+};
+
+const getFirebaseRemoteConfig = () => {
+    try {
+        const { getRemoteConfig } = require("@react-native-firebase/remote-config");
+        return getRemoteConfig;
+    } catch (error) {
+        console.warn("Firebase remote config not configured.");
+        return null;
+    }
+};
+
+const getFirebaseAnalytics = () => {
+    try {
+        const { getAnalytics, logEvent } = require('@react-native-firebase/analytics');
+        return { getAnalytics, logEvent };
+    } catch (error) {
+        console.warn("Firebase analytics not configured.");
+        return { getAnalytics: () => null, logEvent: () => {} };
+    }
+};
+
+const getFirebaseMessaging = () => {
+    try {
+        const { getMessaging } = require('@react-native-firebase/messaging');
+        return getMessaging;
+    } catch (error) {
+        console.warn("Firebase messaging not configured.");
+        return () => ({ 
+            onMessage: () => {},
+            requestPermission: () => Promise.resolve(),
+            subscribeToTopic: () => Promise.resolve()
+        });
+    }
+};
+
 import { AppConfig, RemoteConfigSettings } from './types';
-import { getAnalytics, logEvent } from '@react-native-firebase/analytics';
-import { getMessaging } from '@react-native-firebase/messaging';
 // Dependências são importadas dinamicamente
 import { requestTrackingPermissionsAsync } from "expo-tracking-transparency";
 import * as Updates from 'expo-updates';
@@ -30,7 +71,18 @@ const getReactNative = () => safeRequire('react-native');
 
 const Utils = {
     getRemoteConfigSettings: async (): Promise<RemoteConfigSettings> => {
-        const remoteConfig = getRemoteConfig(getApp());
+        const app = getFirebaseApp();
+        const getRemoteConfig = getFirebaseRemoteConfig();
+        
+        if (!app || !getRemoteConfig) {
+            console.warn("Firebase not configured, using default settings");
+            return {
+                is_ads_enabled: false,
+                min_version: 1.0
+            } as any;
+        }
+
+        const remoteConfig = getRemoteConfig(app);
         await remoteConfig.setConfigSettings({ minimumFetchIntervalMillis: 0 });
         await remoteConfig.setDefaults({
             settings: JSON.stringify({ is_ads_enabled: false }),
@@ -59,18 +111,31 @@ const Utils = {
 
     didUpdate: async () => {
         try {
-            const analytics = getAnalytics(getApp());
-            logEvent(analytics, "checking_update");
+            const app = getFirebaseApp();
+            const { getAnalytics, logEvent } = getFirebaseAnalytics();
+            
+            if (app && getAnalytics) {
+                const analytics = getAnalytics(app);
+                logEvent(analytics, "checking_update");
+            }
             
             const update = await Updates.checkForUpdateAsync()
             if (update.isAvailable) {
-                logEvent(analytics, "checking_update_success");
+                if (app && getAnalytics) {
+                    const analytics = getAnalytics(app);
+                    logEvent(analytics, "checking_update_success");
+                }
                 await Updates.fetchUpdateAsync()
                 await Updates.reloadAsync()
             }
         } catch (e) {
-            const analytics = getAnalytics(getApp());
-            logEvent(analytics, "checking_update_error");
+            const app = getFirebaseApp();
+            const { getAnalytics, logEvent } = getFirebaseAnalytics();
+            
+            if (app && getAnalytics) {
+                const analytics = getAnalytics(app);
+                logEvent(analytics, "checking_update_error");
+            }
         }
     },
 
@@ -126,18 +191,25 @@ const Utils = {
         try {
             const ReactNative = getReactNative();
             
-            getMessaging(getApp()).onMessage(async (remoteMessage) => {
-                if (remoteMessage.notification && ReactNative?.Alert) {
-                    const messages = getLocalizedMessages();
-                    ReactNative.Alert.alert(messages.newMessage, remoteMessage.notification.body);
-                }
-            });
+            const app = getFirebaseApp();
+            const getMessaging = getFirebaseMessaging();
             
-            const topicName = appConfig?.expo?.slug || 'default-topic';
-            await getMessaging(getApp())
-                .subscribeToTopic(topicName)
-                .then(() => console.log("Subscribed to topic all!"))
-                .catch(() => console.log("Not Subscribed"));
+            if (app && getMessaging) {
+                getMessaging(app).onMessage(async (remoteMessage) => {
+                    if (remoteMessage.notification && ReactNative?.Alert) {
+                        const messages = getLocalizedMessages();
+                        ReactNative.Alert.alert(messages.newMessage, remoteMessage.notification.body);
+                    }
+                });
+                
+                const topicName = appConfig?.expo?.slug || 'default-topic';
+                await getMessaging(app)
+                    .subscribeToTopic(topicName)
+                    .then(() => console.log("Subscribed to topic all!"))
+                    .catch(() => console.log("Not Subscribed"));
+            } else {
+                console.log("Firebase messaging not available");
+            }
         } catch (error) {
             console.error('Error setting up push notifications:', error);
         }
@@ -194,10 +266,14 @@ const Utils = {
         }
     },
 
-    prepare: async (setAppIsReady: (ready: boolean) => void, appConfig?: AppConfig) => {
+    prepare: async (
+        setAppIsReady: (ready: boolean) => void, 
+        appConfig?: AppConfig,
+        revenueCatKeys?: { androidApiKey: string, iosApiKey: string }
+    ) => {
         try {
 
-            await Utils.setupRevenueCat(appConfig);
+            await Utils.setupRevenueCat(revenueCatKeys);
             
             const remoteConfigs = await Utils.getRemoteConfigSettings();
             if(remoteConfigs.is_ads_enabled === false) {
@@ -211,12 +287,22 @@ const Utils = {
             await Utils.setupAttributions();
             
             requestTrackingPermissionsAsync().finally(async () => {
-                await getMessaging(getApp()).requestPermission().finally(async () => {
+                const app = getFirebaseApp();
+                const getMessaging = getFirebaseMessaging();
+                
+                if (app && getMessaging) {
+                    await getMessaging(app).requestPermission().finally(async () => {
+                        await Utils.setupPushNotifications(appConfig || { expo: { slug: 'default-topic' } });
+                        setAppIsReady(true);
+                        const SplashScreen = getSplashScreen();
+                        if (SplashScreen) await SplashScreen.hideAsync();
+                    });
+                } else {
                     await Utils.setupPushNotifications(appConfig || { expo: { slug: 'default-topic' } });
                     setAppIsReady(true);
                     const SplashScreen = getSplashScreen();
                     if (SplashScreen) await SplashScreen.hideAsync();
-                });
+                }
             });
             
         } catch (e) {
@@ -226,9 +312,16 @@ const Utils = {
             const SplashScreen = getSplashScreen();
             if (SplashScreen) await SplashScreen.hideAsync();
             requestTrackingPermissionsAsync().finally(async () => {
-                await getMessaging(getApp()).requestPermission().finally(async () => {
+                const app = getFirebaseApp();
+                const getMessaging = getFirebaseMessaging();
+                
+                if (app && getMessaging) {
+                    await getMessaging(app).requestPermission().finally(async () => {
+                        await Utils.setupPushNotifications(appConfig || { expo: { slug: 'default-topic' } });
+                    });
+                } else {
                     await Utils.setupPushNotifications(appConfig || { expo: { slug: 'default-topic' } });
-                });
+                }
             });
         }
     }

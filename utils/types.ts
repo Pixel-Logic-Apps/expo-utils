@@ -8,9 +8,9 @@ export interface FacebookConfig {
     isAutoInitEnabled?: boolean;
 }
 
-export interface PurchasesConfig {
-    androidApiKey?: string;
-    iosApiKey?: string;
+export interface RevenueCatKeys {
+    androidApiKey: string;
+    iosApiKey: string;
 }
 
 export interface AppConfig {
