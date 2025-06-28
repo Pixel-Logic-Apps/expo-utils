@@ -139,22 +139,22 @@ const Utils = {
         }
     },
 
-    setupRevenueCat: async (appConfig?: AppConfig) => {
+    setupRevenueCat: async (revenueCatKeys?: { androidApiKey: string, iosApiKey: string }) => {
         try {
             const ReactNative = getReactNative();
             const platform = ReactNative?.Platform?.OS || 'ios';
             
-            // Busca configurações do RevenueCat no appConfig
-            const purchasesConfig = appConfig?.expo?.plugins?.find((plugin: any) => 
-                Array.isArray(plugin) && plugin[0] === 'react-native-purchases'
-            );
+            if (!revenueCatKeys) {
+                console.warn('RevenueCat keys not provided, skipping configuration');
+                return;
+            }
             
             const apiKey = platform === "android" 
-                ? purchasesConfig?.[1]?.androidApiKey
-                : purchasesConfig?.[1]?.iosApiKey;
+                ? revenueCatKeys.androidApiKey
+                : revenueCatKeys.iosApiKey;
 
             if (!apiKey) {
-                console.warn('RevenueCat API key not found in app.config. Configure the react-native-purchases plugin.');
+                console.warn('RevenueCat API key not found for platform:', platform);
                 return;
             }
             
