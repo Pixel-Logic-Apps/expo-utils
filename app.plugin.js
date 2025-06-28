@@ -12,6 +12,8 @@ const pkg = require('./package.json');
 // Ex: "plugins": [["expo-utils", { "firebase": { ... } }]]
 function withRequiredPlugins(config, props = {}) {
   const firebaseProps = props.firebase || {};
+  const googleMobileAdsProps = props.googleMobileAds || {};
+  const facebookProps = props.facebook || {};
 
   // Lista de todos os plugins do Firebase que seu módulo suporta.
   // O Expo irá carregar e executar o plugin de cada um desses pacotes.
@@ -30,11 +32,11 @@ function withRequiredPlugins(config, props = {}) {
   // Adicionamos também os outros plugins que já estavam aqui.
   // Usamos 'withPlugins' para encadear tudo de forma segura.
   return withPlugins(config, [
-    // Plugin do Google Mobile Ads (AdMob)
-    'react-native-google-mobile-ads',
+    // Plugin do Google Mobile Ads (AdMob), agora recebendo as propriedades.
+    ['react-native-google-mobile-ads', googleMobileAdsProps],
 
-    // Exemplo para o Facebook SDK (se necessário, também pode receber props)
-    // ['react-native-fbsdk-next', props.facebook || {}],
+    // Plugin do Facebook SDK, agora recebendo as propriedades.
+    ['react-native-fbsdk-next', facebookProps],
     
     // Todos os plugins do Firebase
     ...firebasePlugins,
