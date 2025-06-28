@@ -124,19 +124,3 @@ Utils.prepare(
 ✅ **Tracking Transparency**  
 ✅ **RevenueCat** (se chaves fornecidas)  
 ✅ **Traduções** automáticas (12 idiomas)  
-
-## Mensagens do Console
-
-### ✅ Sucesso:
-```
-LOG RevenueCat configured successfully
-LOG Subscribed to topic all!
-```
-
-### ⚠️ Avisos (Normal):
-```
-WARN RevenueCat keys not provided, skipping configuration
-WARN Firebase app not configured. Some features will be disabled.
-```
-
-Esses avisos são normais se você não estiver usando Firebase ou RevenueCat! 

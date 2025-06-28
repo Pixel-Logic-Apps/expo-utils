@@ -1,0 +1,15 @@
+{
+    "react-native-google-mobile-ads": {
+        "androidAppId": "ca-app-pub-8662341808368027~2645679986",
+        "iosAppId": "ca-app-pub-8662341808368027~2645679986"
+    },
+    "react-native-fbsdk-next": {
+        "appID": "713855851155194",
+        "clientToken": "c3f7f40770025caa43c54b87827739ab",
+        "displayName": "App Name",
+        "scheme": "fb713855851155194",
+        "advertiserIDCollectionEnabled": true,
+        "autoLogAppEventsEnabled": true,
+        "isAutoInitEnabled": true
+    }
+} 
