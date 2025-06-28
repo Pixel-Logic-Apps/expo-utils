@@ -3,7 +3,18 @@
     "version": "1.0.0",
     "description": "",
     "keywords": [],
+    "author": "",
+    "license": "ISC",
+    "type": "commonjs",
+    "types": "./index.d.ts",
+    "bin": {
+        "expo-utils-install": "./bin/install.js"
+    },
     "dependencies": {
+        "@expo/config-plugins": ">=8.0.0",
+        "chalk": "^4.1.2"
+    },
+    "peerDependencies": {
         "@react-native-async-storage/async-storage": ">=1.0.0",
         "@react-native-firebase/analytics": ">=22.2.1",
         "@react-native-firebase/app": ">=22.2.1",
@@ -20,17 +31,11 @@
         "expo-store-review": ">=8.0.0",
         "expo-tracking-transparency": ">=5.0.0",
         "expo-updates": ">=0.25.0",
+        "react": ">=16.8.0",
+        "react-native": ">=0.60.0",
         "react-native-fbsdk-next": ">=13.0.0",
         "react-native-google-mobile-ads": ">=15.0.0",
         "react-native-purchases": ">=8.0.0"
-    },
-    "author": "",
-    "license": "ISC",
-    "type": "commonjs",
-    "types": "./index.d.ts",
-    "peerDependencies": {
-        "react": ">=16.8.0",
-        "react-native": ">=0.60.0"
     },
     "expo": {
         "plugins": [
