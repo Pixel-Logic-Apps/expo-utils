@@ -31,8 +31,6 @@
         "expo-store-review": ">=8.0.0",
         "expo-tracking-transparency": ">=5.0.0",
         "expo-updates": ">=0.25.0",
-        "react": ">=16.8.0",
-        "react-native": ">=0.60.0",
         "react-native-fbsdk-next": ">=13.0.0",
         "react-native-google-mobile-ads": ">=15.0.0",
         "react-native-purchases": ">=8.0.0"
