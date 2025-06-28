@@ -12,10 +12,10 @@ import Purchases from 'react-native-purchases';
 
 import { getLocalizedMessages } from './i18n';
 
-// Helper para imports dinâmicos seguros de peer dependencies
-const dynamicImport = async (moduleName: string) => {
+// Helper para importação segura de peer dependencies usando require
+const safeRequire = (moduleName: string) => {
     try {
-        return await import(moduleName);
+        return require(moduleName);
     } catch (error) {
         console.warn(`${moduleName} not found. Make sure it's installed in your project.`);
         return null;
@@ -23,9 +23,9 @@ const dynamicImport = async (moduleName: string) => {
 };
 
 // Funções para importação dinâmica de dependências peer
-const getApplication = () => dynamicImport('expo-application');
-const getSplashScreen = () => dynamicImport('expo-splash-screen');
-const getReactNative = () => dynamicImport('react-native');
+const getApplication = () => safeRequire('expo-application');
+const getSplashScreen = () => safeRequire('expo-splash-screen');
+const getReactNative = () => safeRequire('react-native');
 
 
 const Utils = {
@@ -76,7 +76,7 @@ const Utils = {
 
     setupRevenueCat: async (appConfig?: AppConfig) => {
         try {
-            const ReactNative = await getReactNative();
+            const ReactNative = getReactNative();
             const platform = ReactNative?.Platform?.OS || 'ios';
             
             // Busca configurações do RevenueCat no appConfig
@@ -124,7 +124,7 @@ const Utils = {
 
     setupPushNotifications: async (appConfig?: AppConfig) => {
         try {
-            const ReactNative = await getReactNative();
+            const ReactNative = getReactNative();
             
             getMessaging(getApp()).onMessage(async (remoteMessage) => {
                 if (remoteMessage.notification && ReactNative?.Alert) {
@@ -145,7 +145,7 @@ const Utils = {
 
     checkForRequiredUpdateAsync: async (remoteConfigSettings: RemoteConfigSettings) => {
         try {
-            const Application = await getApplication();
+            const Application = getApplication();
             if (!Application) return;
 
             const version = parseFloat(Application.nativeApplicationVersion);
@@ -166,7 +166,7 @@ const Utils = {
                 return
             }
 
-            const ReactNative = await getReactNative();
+            const ReactNative = getReactNative();
             if (!ReactNative?.Alert || !ReactNative?.Platform) return;
 
             const messages = getLocalizedMessages();
@@ -214,7 +214,7 @@ const Utils = {
                 await getMessaging(getApp()).requestPermission().finally(async () => {
                     await Utils.setupPushNotifications(appConfig || { expo: { slug: 'default-topic' } });
                     setAppIsReady(true);
-                    const SplashScreen = await getSplashScreen();
+                    const SplashScreen = getSplashScreen();
                     if (SplashScreen) await SplashScreen.hideAsync();
                 });
             });
@@ -223,7 +223,7 @@ const Utils = {
             console.log("error----------------------------->>>>", e);
             console.error(e);
             setAppIsReady(true);
-            const SplashScreen = await getSplashScreen();
+            const SplashScreen = getSplashScreen();
             if (SplashScreen) await SplashScreen.hideAsync();
             requestTrackingPermissionsAsync().finally(async () => {
                 await getMessaging(getApp()).requestPermission().finally(async () => {
