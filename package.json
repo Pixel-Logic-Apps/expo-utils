@@ -1,0 +1,51 @@
+{
+    "name": "expo-utils",
+    "version": "1.0.0",
+    "description": "",
+    "keywords": [],
+    "dependencies": {
+        "@expo/vector-icons": "^14.0.5",
+        "@react-native-async-storage/async-storage": "^2.2.0",
+        "@react-native-firebase/analytics": "^22.2.1",
+        "@react-native-firebase/app": "^22.2.1",
+        "@react-native-firebase/auth": "^22.2.1",
+        "@react-native-firebase/firestore": "^22.2.1",
+        "@react-native-firebase/messaging": "^22.2.1",
+        "@react-native-firebase/remote-config": "^22.2.1",
+        "expo-insights": "^0.9.3",
+        "expo-router": "^4.0.23",
+
+        "expo-status-bar": "^2.0.0",
+        "expo-store-review": "^8.1.5",
+        "expo-tracking-transparency": "^5.2.4",
+        "expo-updates": "^0.28.15",
+
+        "react-native-fbsdk-next": "^13.4.1",
+        "react-native-google-mobile-ads": "^15.4.0",
+        "react-native-purchases": "^8.11.7"
+    },
+    "author": "",
+    "license": "ISC",
+    "type": "commonjs",
+    "types": "./index.d.ts",
+    "peerDependencies": {
+        "expo-application": "^6.0.2",
+        "expo-splash-screen": "^0.29.14",
+        "react": ">=16.8.0",
+        "react-native": ">=0.60.0"
+    },
+    "peerDependenciesMeta": {
+        "expo-application": {
+            "optional": true
+        },
+        "expo-splash-screen": {
+            "optional": true
+        },
+        "react": {
+            "optional": false
+        },
+        "react-native": {
+            "optional": false
+        }
+    }
+}
