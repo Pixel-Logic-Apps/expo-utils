@@ -1,22 +1,14 @@
 const { withPlugins, createRunOncePlugin } = require('@expo/config-plugins');
 
-// Importe os plugins das dependências que você quer automatizar
-const { withGoogleMobileAds } = require('react-native-google-mobile-ads/build/plugin');
-const { withRNFBAppPlugin } = require('@react-native-firebase/app/build/android/withRNFBAppPlugin');
-// Adicione outros plugins que forem necessários, por exemplo:
-// const { withFacebook } = require('react-native-fbsdk-next/build/plugin');
-
 const pkg = require('./package.json');
 
 // O plugin agora aceita 'props' que podem ser passadas a partir do app.json do projeto final.
-// Ex: "plugins": [["expo-utils", { "firebase": { ... } }]]
 function withRequiredPlugins(config, props = {}) {
   const firebaseProps = props.firebase || {};
   const googleMobileAdsProps = props.googleMobileAds || {};
   const facebookProps = props.facebook || {};
 
   // Lista de todos os plugins do Firebase que seu módulo suporta.
-  // O Expo irá carregar e executar o plugin de cada um desses pacotes.
   const firebasePlugins = [
     // O plugin principal do app, que recebe a configuração dos arquivos.
     ['@react-native-firebase/app', firebaseProps],
