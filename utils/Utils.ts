@@ -47,6 +47,7 @@ import { AppConfig, RemoteConfigSettings } from './types';
 // Dependências são importadas dinamicamente
 import { requestTrackingPermissionsAsync } from "expo-tracking-transparency";
 import * as Updates from 'expo-updates';
+import * as Application from 'expo-application';
 // React Native será importado dinamicamente
 import { AppEventsLogger, Settings } from 'react-native-fbsdk-next';
 import Purchases from 'react-native-purchases';
