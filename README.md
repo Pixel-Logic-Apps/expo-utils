@@ -31,11 +31,19 @@ Este projeto centraliza todas as dependências e utilitários essenciais que voc
 
 ## Como Usar
 
-### 1. Instalação das Dependências
+### 1. Instalação
 
+#### Método Principal
 ```bash
-npm install
+npm install https://github.com/Pixel-Logic-Apps/expo-utils.git
 ```
+
+#### Se houver conflitos de dependências
+```bash
+npm install https://github.com/Pixel-Logic-Apps/expo-utils.git --legacy-peer-deps
+```
+
+[📖 **Guia completo de instalação e troubleshooting**](./examples/instalacao-e-solucoes.md)
 
 **💡 Peer Dependencies**: Este projeto usa `peerDependencies` para `react-native`, `expo-application` e `expo-splash-screen`. Em projetos Expo/React Native, você provavelmente já tem essas dependências:
 
@@ -281,6 +289,7 @@ expo-utils/
 │   ├── _layout.tsx            # Exemplo de uso
 │   ├── projeto-usando-expo-utils.md # Guia completo
 │   ├── usando-traducoes.md    # Guia de traduções
+│   ├── instalacao-e-solucoes.md # Troubleshooting
 │   └── app.config.exemplo.js  # Configuração de exemplo
 ├── docs/
 │   └── alternative-approaches.md # Abordagens alternativas
