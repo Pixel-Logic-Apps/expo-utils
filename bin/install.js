@@ -254,6 +254,37 @@ function handleFirebasePlaceholdersFlag() {
     console.log(chalk.green('✅ Firebase placeholder step complete.'));
 }
 
+function handleIosBuildFixFlag() {
+    console.log(chalk.cyan('🔧 Applying iOS build fixes for Firebase...'));
+    const config = getAppConfig();
+    if (!config) return;
+
+    config.expo = config.expo || {};
+    config.expo.plugins = config.expo.plugins || [];
+
+    const buildPropertiesPlugin = config.expo.plugins.find(p => 
+        Array.isArray(p) && p[0] === 'expo-build-properties'
+    );
+
+    const iosBuildConfig = {
+        useFrameworks: 'static',
+        useModularHeaders: true,
+    };
+
+    if (buildPropertiesPlugin) {
+        // Plugin exists, let's modify it
+        buildPropertiesPlugin[1] = buildPropertiesPlugin[1] || {};
+        buildPropertiesPlugin[1].ios = { ...buildPropertiesPlugin[1].ios, ...iosBuildConfig };
+    } else {
+        // Plugin doesn't exist, let's add it
+        config.expo.plugins.push(['expo-build-properties', { ios: iosBuildConfig }]);
+    }
+    
+    writeAppConfig(config);
+    console.log(chalk.green('  -> Configured expo-build-properties for iOS in app.json.'));
+    console.log(chalk.green('✅ iOS build fix applied.'));
+}
+
 async function handleAppReset() {
     console.log(chalk.cyan('♻️ Resetting app structure...'));
 
@@ -307,6 +338,7 @@ async function main() {
         console.log(chalk.magenta.bold('🚀 New project setup! Running non-destructive steps...'));
         
         // Run all non-destructive steps first
+        handleIosBuildFixFlag();
         handleFirebasePlaceholdersFlag();
         handleConfigFlag();
         handleLanguagesFlag();
@@ -337,6 +369,7 @@ async function main() {
         if (args.includes('--languages')) handleLanguagesFlag();
         if (args.includes('--skadnetwork')) handleSkadnetworkFlag();
         if (args.includes('--firebase-placeholders')) handleFirebasePlaceholdersFlag();
+        if (args.includes('--fix-ios-build')) handleIosBuildFixFlag();
         console.log(chalk.bold.magenta('\n✨ All done! ✨'));
     }
 }
