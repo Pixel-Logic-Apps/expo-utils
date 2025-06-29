@@ -24,11 +24,7 @@ cd MeuNovoApp
 Instale este módulo como uma dependência de desenvolvimento. Se você clonou este repositório localmente, use o caminho do arquivo.
 
 ```bash
-# Se estiver usando um caminho local
 npm install https://github.com/Pixel-Logic-Apps/expo-utils.git
-
-# Se estivesse publicado no npm
-# npm install --save-dev expo-utils
 ```
 
 ### Passo 3: Execute o Instalador Automático
