@@ -465,33 +465,51 @@ function handleEasConfigFlag() {
     const config = getAppConfig();
     if (!config) return;
 
-    // --- Update app.json ---
+    config.expo = config.expo || {};
+
+    // --- Rebuild expo object to control property order ---
+    const oldExpo = config.expo;
+    const newExpo = {};
     const projectId = "df0dc510-fafe-4076-9ea7-6926d54cb2ab";
-    
-    if (!config.runtimeVersion) {
-        config.runtimeVersion = "1.0.0";
+    let runtimeVersionInjected = false;
+
+    // Rebuild the object, injecting runtimeVersion after version
+    for (const key in oldExpo) {
+        newExpo[key] = oldExpo[key];
+        if (key === 'version' && !oldExpo.runtimeVersion) {
+            newExpo.runtimeVersion = '1.0.0';
+            console.log(chalk.green(`  -> Set "runtimeVersion" to "1.0.0" after "version".`));
+            runtimeVersionInjected = true;
+        }
+    }
+
+    // If version didn't exist, but runtimeVersion also doesn't, add it.
+    if (!runtimeVersionInjected && !oldExpo.runtimeVersion) {
+        newExpo.runtimeVersion = '1.0.0';
         console.log(chalk.green(`  -> Set "runtimeVersion" to "1.0.0".`));
     }
 
-    config.extra = config.extra || {};
-    config.extra.router = config.extra.router || {};
-    if(config.extra.router.origin !== false) {
-        config.extra.router.origin = false;
+    // --- Configure other expo properties ---
+    newExpo.extra = newExpo.extra || {};
+    newExpo.extra.router = newExpo.extra.router || {};
+    if(newExpo.extra.router.origin !== false) {
+        newExpo.extra.router.origin = false;
         console.log(chalk.green(`  -> Set "extra.router.origin" to false.`));
     }
     
-    config.extra.eas = config.extra.eas || {};
-    if (config.extra.eas.projectId !== projectId) {
-        config.extra.eas.projectId = projectId;
+    newExpo.extra.eas = newExpo.extra.eas || {};
+    if (newExpo.extra.eas.projectId !== projectId) {
+        newExpo.extra.eas.projectId = projectId;
         console.log(chalk.green(`  -> Set placeholder "extra.eas.projectId".`));
     }
 
-    config.updates = config.updates || {};
-    if (config.updates.url !== `https://u.expo.dev/${projectId}`) {
-        config.updates.url = `https://u.expo.dev/${projectId}`;
+    newExpo.updates = newExpo.updates || {};
+    if (newExpo.updates.url !== `https://u.expo.dev/${projectId}`) {
+        newExpo.updates.url = `https://u.expo.dev/${projectId}`;
         console.log(chalk.green(`  -> Set placeholder "updates.url".`));
     }
-
+    
+    config.expo = newExpo;
     writeAppConfig(config);
 
     // --- Create eas.json ---
