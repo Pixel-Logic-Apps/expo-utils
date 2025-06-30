@@ -372,13 +372,15 @@ function handleFirebasePlaceholdersFlag() {
 }
 
 function handleIosBuildFixFlag() {
-    console.log(chalk.cyan('🔧 Applying iOS build fixes for Firebase...'));
+    console.log(chalk.cyan('🔧 Applying iOS build fixes and configurations...'));
     const config = getAppConfig();
     if (!config) return;
 
     config.expo = config.expo || {};
-    config.expo.plugins = config.expo.plugins || [];
+    config.expo.ios = config.expo.ios || {};
 
+    // --- Configure build properties for Firebase ---
+    config.expo.plugins = config.expo.plugins || [];
     const buildPropertiesPlugin = config.expo.plugins.find(p => 
         Array.isArray(p) && p[0] === 'expo-build-properties'
     );
@@ -389,17 +391,23 @@ function handleIosBuildFixFlag() {
     };
 
     if (buildPropertiesPlugin) {
-        // Plugin exists, let's modify it
         buildPropertiesPlugin[1] = buildPropertiesPlugin[1] || {};
         buildPropertiesPlugin[1].ios = { ...buildPropertiesPlugin[1].ios, ...iosBuildConfig };
+        console.log(chalk.green('  -> Configured expo-build-properties for iOS in app.json.'));
     } else {
-        // Plugin doesn't exist, let's add it
         config.expo.plugins.push(['expo-build-properties', { ios: iosBuildConfig }]);
+        console.log(chalk.green('  -> Added and configured expo-build-properties for iOS.'));
+    }
+
+    // --- Configure entitlements for Push Notifications ---
+    config.expo.ios.entitlements = config.expo.ios.entitlements || {};
+    if (config.expo.ios.entitlements['aps-environment'] !== 'production') {
+        config.expo.ios.entitlements['aps-environment'] = 'production';
+        console.log(chalk.green('  -> Set "aps-environment" to "production" for Push Notifications.'));
     }
     
     writeAppConfig(config);
-    console.log(chalk.green('  -> Configured expo-build-properties for iOS in app.json.'));
-    console.log(chalk.green('✅ iOS build fix applied.'));
+    console.log(chalk.green('✅ iOS build configurations applied.'));
 }
 
 function handleEasLoginScriptFlag() {
