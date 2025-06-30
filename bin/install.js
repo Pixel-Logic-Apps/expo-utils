@@ -460,6 +460,74 @@ function handleTrackingPermissionFlag() {
     console.log(chalk.green('✅ Tracking permission setup complete.'));
 }
 
+function handleEasConfigFlag() {
+    console.log(chalk.cyan('🚀 Configuring EAS Build and Updates...'));
+    const config = getAppConfig();
+    if (!config) return;
+
+    // --- Update app.json ---
+    const projectId = "df0dc510-fafe-4076-9ea7-6926d54cb2ab";
+    
+    if (!config.runtimeVersion) {
+        config.runtimeVersion = "1.0.0";
+        console.log(chalk.green(`  -> Set "runtimeVersion" to "1.0.0".`));
+    }
+
+    config.extra = config.extra || {};
+    config.extra.router = config.extra.router || {};
+    if(config.extra.router.origin !== false) {
+        config.extra.router.origin = false;
+        console.log(chalk.green(`  -> Set "extra.router.origin" to false.`));
+    }
+    
+    config.extra.eas = config.extra.eas || {};
+    if (config.extra.eas.projectId !== projectId) {
+        config.extra.eas.projectId = projectId;
+        console.log(chalk.green(`  -> Set placeholder "extra.eas.projectId".`));
+    }
+
+    config.updates = config.updates || {};
+    if (config.updates.url !== `https://u.expo.dev/${projectId}`) {
+        config.updates.url = `https://u.expo.dev/${projectId}`;
+        console.log(chalk.green(`  -> Set placeholder "updates.url".`));
+    }
+
+    writeAppConfig(config);
+
+    // --- Create eas.json ---
+    const easJsonPath = path.join(projectRoot, 'eas.json');
+    const easConfig = {
+      "cli": {
+        "version": ">= 13.2.0",
+        "appVersionSource": "remote"
+      },
+      "build": {
+        "development": {
+          "developmentClient": true,
+          "distribution": "internal"
+        },
+        "preview": {
+          "distribution": "internal"
+        },
+        "production": {
+          "autoIncrement": true
+        }
+      },
+      "submit": {
+        "production": {}
+      }
+    };
+
+    if (!fs.existsSync(easJsonPath)) {
+        fs.writeFileSync(easJsonPath, JSON.stringify(easConfig, null, 2));
+        console.log(chalk.green(`  -> Created eas.json file.`));
+    } else {
+        console.log(chalk.yellow(`  -> File eas.json already exists. Skipping creation.`));
+    }
+    
+    console.log(chalk.green('✅ EAS configuration complete.'));
+}
+
 async function handleAppReset() {
     console.log(chalk.cyan('♻️ Resetting app structure...'));
 
@@ -513,6 +581,7 @@ async function main() {
         console.log(chalk.magenta.bold('🚀 New project setup! Running non-destructive steps...'));
         
         // Run all non-destructive steps first
+        handleEasConfigFlag();
         handleIosBuildFixFlag();
         handleFirebasePlaceholdersFlag();
         handleConfigFlag();
@@ -549,6 +618,7 @@ async function main() {
         if (args.includes('--fix-ios-build')) handleIosBuildFixFlag();
         if (args.includes('--eas-login-script')) handleEasLoginScriptFlag();
         if (args.includes('--tracking-permission')) handleTrackingPermissionFlag();
+        if (args.includes('--eas-config')) handleEasConfigFlag();
         console.log(chalk.bold.magenta('\n✨ All done! ✨'));
     }
 }
