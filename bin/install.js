@@ -159,29 +159,75 @@ function handleSrcAppFlag() {
 
 function handleLanguagesFlag() {
     console.log(chalk.cyan('🌐 Setting up language files...'));
-    const langDir = path.join(projectRoot, 'languages');
-    ensureDirExists(langDir);
-
-    const dummyFiles = ['pt.json', 'en.json', 'es.json'];
-    dummyFiles.forEach(file => {
-        const filePath = path.join(langDir, file);
-        if (!fs.existsSync(filePath)) {
-            fs.writeFileSync(filePath, '{}');
-            console.log(chalk.green(`  -> Created ${filePath}`));
-        }
-    });
 
     const config = getAppConfig();
     if (!config) return;
+
+    const langDir = path.join(projectRoot, 'languages');
+    ensureDirExists(langDir);
+
+    const baseAppName = config.expo?.name || 'MyApp';
+    const languages = {
+        'pt': { name: `${baseAppName} (PT)`, file: 'pt.json' },
+        'en': { name: `${baseAppName} (EN)`, file: 'en.json' },
+        'es': { name: `${baseAppName} (ES)`, file: 'es.json' },
+    };
+
+    Object.keys(languages).forEach(langCode => {
+        const langInfo = languages[langCode];
+        const filePath = path.join(langDir, langInfo.file);
+        
+        if (!fs.existsSync(filePath)) {
+            const localizedConfig = {
+                expo: {
+                    name: langInfo.name,
+                    ios: {
+                        infoPlist: {
+                            CFBundleDisplayName: langInfo.name
+                        }
+                    },
+                    android: {
+                        app_name: langInfo.name
+                    }
+                }
+            };
+            fs.writeFileSync(filePath, JSON.stringify(localizedConfig, null, 2));
+            console.log(chalk.green(`  -> Created ${filePath} with localized names.`));
+        }
+    });
+
+    // Configure app.json
     config.expo = config.expo || {};
+    
+    // 1. Add assetBundlePatterns
     config.expo.assetBundlePatterns = config.expo.assetBundlePatterns || ["**/*"];
     const pattern = "languages/*";
     if (!config.expo.assetBundlePatterns.includes(pattern)) {
         config.expo.assetBundlePatterns.push(pattern);
-        console.log(chalk.green(`  -> Added '${pattern}' to assetBundlePatterns in app.json.`));
+        console.log(chalk.green(`  -> Added '${pattern}' to assetBundlePatterns.`));
     }
+
+    // 2. Configure iOS Info.plist for mixed localizations
+    config.expo.ios = config.expo.ios || {};
+    config.expo.ios.infoPlist = config.expo.ios.infoPlist || {};
+    if (!config.expo.ios.infoPlist.CFBundleAllowMixedLocalizations) {
+        config.expo.ios.infoPlist.CFBundleAllowMixedLocalizations = true;
+        console.log(chalk.green(`  -> Set 'CFBundleAllowMixedLocalizations' in ios.infoPlist.`));
+    }
+
+    // 3. Configure locales mapping
+    config.expo.locales = config.expo.locales || {};
+    Object.keys(languages).forEach(langCode => {
+        const langFile = languages[langCode].file;
+        const localePath = `./languages/${langFile}`;
+        if (config.expo.locales[langCode] !== localePath) {
+            config.expo.locales[langCode] = localePath;
+            console.log(chalk.green(`  -> Mapped locale '${langCode}' to '${localePath}'.`));
+        }
+    });
+
     writeAppConfig(config);
-    console.log(chalk.green('✅ Language setup complete.'));
+    console.log(chalk.green('✅ Advanced language setup complete.'));
 }
 
 function handleSkadnetworkFlag() {
