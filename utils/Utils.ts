@@ -44,11 +44,6 @@ const getFirebaseMessaging = () => {
 };
 
 import { AppConfig, RemoteConfigSettings } from './types';
-import { requestTrackingPermissionsAsync } from "expo-tracking-transparency";
-import * as Updates from 'expo-updates';
-import * as Application from 'expo-application';
-import { AppEventsLogger, Settings } from 'react-native-fbsdk-next';
-import Purchases from 'react-native-purchases';
 import { getLocalizedMessages } from './i18n';
 
 // Helper para importação segura de peer dependencies usando require
@@ -64,7 +59,12 @@ const safeRequire = (moduleName: string) => {
 // Funções para importação de dependências
 const getSplashScreen = () => safeRequire('expo-splash-screen');
 const getReactNative = () => safeRequire('react-native');
-
+const getTracking = () => safeRequire('expo-tracking-transparency');
+const getUpdates = () => safeRequire('expo-updates');
+const getApplication = () => safeRequire('expo-application');
+const getFbsdk = () => safeRequire('react-native-fbsdk-next');
+const getPurchases = () => safeRequire('react-native-purchases');
+const getClarity = () => safeRequire('@microsoft/react-native-clarity');
 
 const Utils = {
     getRemoteConfigSettings: async (): Promise<RemoteConfigSettings> => {
@@ -94,10 +94,14 @@ const Utils = {
 
     setupAttributions: async () => {
         try {
+            const Purchases = getPurchases();
+            const Fbsdk = getFbsdk();
+            if (!Purchases || !Fbsdk) return;
+            
             await Purchases.enableAdServicesAttributionTokenCollection()
             await Purchases.collectDeviceIdentifiers()
             
-            const anonymousId = await AppEventsLogger.getAnonymousID()
+            const anonymousId = await Fbsdk.AppEventsLogger.getAnonymousID()
             if (anonymousId) {
                 await Purchases.setFBAnonymousID(anonymousId)
             }
@@ -108,6 +112,9 @@ const Utils = {
 
     didUpdate: async () => {
         try {
+            const Updates = getUpdates();
+            if (!Updates) return;
+
             const app = getFirebaseApp();
             const { getAnalytics, logEvent } = getFirebaseAnalytics();
             
@@ -139,7 +146,10 @@ const Utils = {
     setupRevenueCat: async (revenueCatKeys?: { androidApiKey: string, iosApiKey: string }) => {
         try {
             const ReactNative = getReactNative();
-            const platform = ReactNative?.Platform?.OS || 'ios';
+            const Purchases = getPurchases();
+            if (!ReactNative || !Purchases) return;
+
+            const platform = ReactNative.Platform.OS;
             
             if (!revenueCatKeys) {
                 console.warn('RevenueCat keys not provided, skipping configuration');
@@ -163,6 +173,10 @@ const Utils = {
 
     initFBSDK: async (appConfig?: AppConfig) => {
         try {
+            const Fbsdk = getFbsdk();
+            if (!Fbsdk) return;
+            const { Settings, AppEventsLogger } = Fbsdk;
+
             Settings.initializeSDK();
             const fbConfig = appConfig?.expo?.plugins?.find((plugin: any) => 
                 Array.isArray(plugin) && plugin[0] === 'react-native-fbsdk-next'
@@ -184,10 +198,24 @@ const Utils = {
         }
     },
 
+
+    setupClarity: async (clarityProjectId?: string) => {
+        const Clarity = getClarity();
+        if (!Clarity) return;
+
+        if (!clarityProjectId) {
+            console.warn('Clarity project ID not provided, skipping initialization.');
+            return;
+        }
+
+        Clarity.initialize(clarityProjectId, {
+            logLevel: Clarity.LogLevel.None, 
+        });
+    },
+
     setupPushNotifications: async (appConfig?: AppConfig) => {
         try {
             const ReactNative = getReactNative();
-            
             const app = getFirebaseApp();
             const getMessaging = getFirebaseMessaging();
             
@@ -214,19 +242,18 @@ const Utils = {
 
     checkForRequiredUpdateAsync: async (remoteConfigSettings: RemoteConfigSettings) => {
         try {
-            if (!Application.nativeApplicationVersion) return;
+            const Application = getApplication();
+            if (!Application || !Application.nativeApplicationVersion) return;
 
             const version = parseFloat(Application.nativeApplicationVersion);
             const minVersion = parseFloat(remoteConfigSettings.min_version.toString())
             console.log('App Version:', version);
             console.log('App Remote Min Version:', minVersion);
 
-            if (minVersion === null || minVersion === undefined) {
+            if (minVersion === null || minVersion === undefined || isNaN(minVersion) || isNaN(version)) {
                 return
             }
-            if (isNaN(minVersion) || isNaN(version)) {
-                return
-            }
+            
             console.log('Minimum version:', remoteConfigSettings.min_version);
             console.log('native Application  version:', Application.nativeApplicationVersion);
 
@@ -247,9 +274,9 @@ const Utils = {
                             text: messages.updateNow,
                             onPress: () => {
                                 const url = ReactNative.Platform.OS === 'android' ?
-                                    "https://play.google.com/store/apps/details?id=" + Application.applicationId :
-                                    "https://apps.apple.com/app/" + remoteConfigSettings.ios_app_id;
-                                alert(url);
+                                    `https://play.google.com/store/apps/details?id=${Application.applicationId}` :
+                                    `https://apps.apple.com/app/${remoteConfigSettings.ios_app_id}`;
+                                ReactNative.Linking.openURL(url);
                                 Utils.checkForRequiredUpdateAsync(remoteConfigSettings)
                             },
                         }],
@@ -265,9 +292,16 @@ const Utils = {
     prepare: async (
         setAppIsReady: (ready: boolean) => void, 
         appConfig?: AppConfig,
-        revenueCatKeys?: { androidApiKey: string, iosApiKey: string }
+        revenueCatKeys?: { androidApiKey: string, iosApiKey: string },
+        clarityProjectId?: string
     ) => {
         try {
+            const Tracking = getTracking();
+            if (!Tracking) { // Se o tracking não estiver disponível, seguimos sem ele
+                console.warn('expo-tracking-transparency not found, skipping tracking permission request.');
+                await Utils.continuePrepare(setAppIsReady, appConfig);
+                return;
+            }
 
             await Utils.setupRevenueCat(revenueCatKeys);
             
@@ -280,45 +314,46 @@ const Utils = {
             await Utils.didUpdate();
             await Utils.checkForRequiredUpdateAsync(remoteConfigs)
             await Utils.initFBSDK(appConfig);
+            await Utils.setupClarity(clarityProjectId);
             await Utils.setupAttributions();
             
-            requestTrackingPermissionsAsync().finally(async () => {
-                const app = getFirebaseApp();
-                const getMessaging = getFirebaseMessaging();
-                
-                if (app && getMessaging) {
-                    await getMessaging(app).requestPermission().finally(async () => {
-                        await Utils.setupPushNotifications(appConfig || { expo: { slug: 'default-topic' } });
-                        setAppIsReady(true);
-                        const SplashScreen = getSplashScreen();
-                        if (SplashScreen) await SplashScreen.hideAsync();
-                    });
-                } else {
-                    await Utils.setupPushNotifications(appConfig || { expo: { slug: 'default-topic' } });
-                    setAppIsReady(true);
-                    const SplashScreen = getSplashScreen();
-                    if (SplashScreen) await SplashScreen.hideAsync();
-                }
+            Tracking.requestTrackingPermissionsAsync().finally(async () => {
+                await Utils.continuePrepare(setAppIsReady, appConfig);
             });
             
         } catch (e) {
-            console.log("error----------------------------->>>>", e);
-            console.error(e);
+            console.error("Error in prepare:", e);
             setAppIsReady(true);
             const SplashScreen = getSplashScreen();
             if (SplashScreen) await SplashScreen.hideAsync();
-            requestTrackingPermissionsAsync().finally(async () => {
-                const app = getFirebaseApp();
-                const getMessaging = getFirebaseMessaging();
-                
-                if (app && getMessaging) {
-                    await getMessaging(app).requestPermission().finally(async () => {
-                        await Utils.setupPushNotifications(appConfig || { expo: { slug: 'default-topic' } });
-                    });
-                } else {
-                    await Utils.setupPushNotifications(appConfig || { expo: { slug: 'default-topic' } });
-                }
-            });
+        }
+    },
+
+    continuePrepare: async (
+        setAppIsReady: (ready: boolean) => void,
+        appConfig?: AppConfig
+    ) => {
+        try {
+            const app = getFirebaseApp();
+            const getMessaging = getFirebaseMessaging();
+
+            const finalize = async () => {
+                await Utils.setupPushNotifications(appConfig || { expo: { slug: 'default-topic' } });
+                setAppIsReady(true);
+                const SplashScreen = getSplashScreen();
+                if (SplashScreen) await SplashScreen.hideAsync();
+            };
+            
+            if (app && getMessaging) {
+                await getMessaging(app).requestPermission().finally(finalize);
+            } else {
+                await finalize();
+            }
+        } catch(e) {
+            console.error("Error in continuePrepare:", e);
+            setAppIsReady(true);
+            const SplashScreen = getSplashScreen();
+            if (SplashScreen) await SplashScreen.hideAsync();
         }
     }
 };

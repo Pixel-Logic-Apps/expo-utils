@@ -22,6 +22,7 @@
         "@react-native-firebase/firestore": ">=22.2.1",
         "@react-native-firebase/messaging": ">=22.2.1",
         "@react-native-firebase/remote-config": ">=22.2.1",
+        "@microsoft/react-native-clarity": ">=4.3.0",
         "expo-application": ">=6.1.4",
         "expo-build-properties": ">=0.12.0",
         "expo-insights": ">=0.9.0",

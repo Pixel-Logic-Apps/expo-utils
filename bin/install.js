@@ -261,6 +261,23 @@ function handleFirebasePlaceholdersFlag() {
     } else {
         console.log(chalk.yellow(`  -> File GoogleService-Info.plist already exists. Skipping.`));
     }
+
+    // --- Update app.json ---
+    config.expo = config.expo || {};
+    config.expo.ios = config.expo.ios || {};
+    config.expo.android = config.expo.android || {};
+
+    if (config.expo.ios.googleServicesFile !== './GoogleService-Info.plist') {
+        config.expo.ios.googleServicesFile = './GoogleService-Info.plist';
+        console.log(chalk.green(`  -> Updated 'ios.googleServicesFile' in app.json.`));
+    }
+    if (config.expo.android.googleServicesFile !== './google-services.json') {
+        config.expo.android.googleServicesFile = './google-services.json';
+        console.log(chalk.green(`  -> Updated 'android.googleServicesFile' in app.json.`));
+    }
+    
+    writeAppConfig(config);
+
     console.log(chalk.green('✅ Firebase placeholder step complete.'));
 }
 
@@ -355,90 +372,4 @@ async function handleAppReset() {
     // Clean up old directories
     if (fs.existsSync(oldAppDir)) {
         fs.rmSync(oldAppDir, { recursive: true, force: true });
-        console.log(chalk.yellow(`  -> Removed existing 'app' directory.`));
-    }
-    if (fs.existsSync(newAppDir)) {
-        fs.rmSync(newAppDir, { recursive: true, force: true });
-        console.log(chalk.yellow(`  -> Removed existing 'src/app' directory for a clean slate.`));
-    }
-
-    // Create new structure
-    ensureDirExists(newAppDir);
-    console.log(chalk.green(`  -> Created 'src/app' directory.`));
-
-    // Create _layout.tsx and index.tsx from templates
-    const moduleDir = path.dirname(require.resolve('expo-utils/package.json'));
-    const layoutTemplatePath = path.join(moduleDir, 'templates', 'RootLayout.tsx');
-    const indexTemplatePath = path.join(moduleDir, 'templates', 'index.tsx');
-
-    if (fs.existsSync(layoutTemplatePath)) {
-        fs.copyFileSync(layoutTemplatePath, path.join(newAppDir, '_layout.tsx'));
-        console.log(chalk.green(`  -> Created src/app/_layout.tsx.`));
-    }
-    if (fs.existsSync(indexTemplatePath)) {
-        fs.copyFileSync(indexTemplatePath, path.join(newAppDir, 'index.tsx'));
-        console.log(chalk.green(`  -> Created src/app/index.tsx.`));
-    }
-    
-    console.log(chalk.green('✅ App structure reset complete.'));
-}
-
-
-// --- Main Execution ---
-
-async function main() {
-    const args = process.argv.slice(2);
-    
-    // Always run dependency install first
-    await handleDependencyInstall();
-    
-    console.log(chalk.blue('\n--- Running Scaffolding Steps ---'));
-
-    if (args.includes('--new')) {
-        console.log(chalk.magenta.bold('🚀 New project setup! Running non-destructive steps...'));
-        
-        // Run all non-destructive steps first
-        handleIosBuildFixFlag();
-        handleFirebasePlaceholdersFlag();
-        handleConfigFlag();
-        handleLanguagesFlag();
-        handleSkadnetworkFlag();
-        handleEasLoginScriptFlag();
-        handleTrackingPermissionFlag();
-        
-        const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-        
-        rl.question(chalk.yellow.bold("\n❓ Tem certeza que deseja limpar a pasta 'app' e criar uma nova em 'src/app'? (y/N) "), async (answer) => {
-            if (answer.toLowerCase() === 'y') {
-                await handleAppReset();
-            } else {
-                console.log(chalk.gray('  -> Skipping app structure reset.'));
-                // Explain what to do next if they skip
-                console.log(chalk.cyan("\n💡 To manually move your 'app' folder, run 'npx expo-utils-install --srcapp'"));
-                console.log(chalk.cyan("💡 To replace the layout, run 'npx expo-utils-install --layout'"));
-            }
-            rl.close();
-            console.log(chalk.bold.magenta('\n✨ All done! ✨'));
-        });
-
-    } else if (args.length === 0) {
-        console.log(chalk.yellow('No flags provided. Only dependency check was performed.\nUse --new to run all setup steps, or pass individual flags like --config, --layout, etc.'));
-        console.log(chalk.bold.magenta('\n✨ All done! ✨'));
-    } else {
-        if (args.includes('--config')) handleConfigFlag();
-        if (args.includes('--layout')) handleLayoutFlag();
-        if (args.includes('--srcapp')) handleSrcAppFlag();
-        if (args.includes('--languages')) handleLanguagesFlag();
-        if (args.includes('--skadnetwork')) handleSkadnetworkFlag();
-        if (args.includes('--firebase-placeholders')) handleFirebasePlaceholdersFlag();
-        if (args.includes('--fix-ios-build')) handleIosBuildFixFlag();
-        if (args.includes('--eas-login-script')) handleEasLoginScriptFlag();
-        if (args.includes('--tracking-permission')) handleTrackingPermissionFlag();
-        console.log(chalk.bold.magenta('\n✨ All done! ✨'));
-    }
-}
-
-main().catch(err => {
-    console.error(chalk.red.bold('\nA critical error occurred:'), err);
-    process.exit(1);
-}); 
+        console.log(chalk.yellow(`
