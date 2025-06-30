@@ -168,9 +168,9 @@ function handleLanguagesFlag() {
 
     const baseAppName = config.expo?.name || 'MyApp';
     const languages = {
-        'pt': { name: `${baseAppName} (PT)`, file: 'pt.json' },
-        'en': { name: `${baseAppName} (EN)`, file: 'en.json' },
-        'es': { name: `${baseAppName} (ES)`, file: 'es.json' },
+        'pt': { name: `${baseAppName}`, file: 'pt.json' },
+        'en': { name: `${baseAppName}`, file: 'en.json' },
+        'es': { name: `${baseAppName}`, file: 'es.json' },
     };
 
     Object.keys(languages).forEach(langCode => {
@@ -231,36 +231,61 @@ function handleLanguagesFlag() {
 }
 
 function handleSkadnetworkFlag() {
-    console.log(chalk.cyan('📊 Adding SKAdNetworkItems...'));
+    console.log(chalk.cyan('📊 Ensuring all SKAdNetworkItems are present...'));
     const config = getAppConfig();
     if (!config) return;
 
-    // Carregue a lista de IDs a partir do arquivo JSON dentro do módulo
+    // Load the complete list of required IDs from the module's data file
     const skadNetworkItemsPath = path.join(path.dirname(require.resolve('expo-utils/package.json')), 'data', 'skadnetwork_ids.json');
     if (!fs.existsSync(skadNetworkItemsPath)) {
         console.error(chalk.red('❌ Could not find skadnetwork_ids.json in the expo-utils module.'));
         return;
     }
-    const itemsToAdd = require(skadNetworkItemsPath);
+    const requiredItems = require(skadNetworkItemsPath);
 
     config.expo = config.expo || {};
     config.expo.ios = config.expo.ios || {};
     config.expo.ios.infoPlist = config.expo.ios.infoPlist || {};
-    config.expo.ios.infoPlist.SKAdNetworkItems = config.expo.ios.infoPlist.SKAdNetworkItems || [];
+    
+    const existingItems = config.expo.ios.infoPlist.SKAdNetworkItems || [];
 
-    let addedCount = 0;
-    itemsToAdd.forEach(newItem => {
-        if (!config.expo.ios.infoPlist.SKAdNetworkItems.some(item => item.SKAdNetworkIdentifier === newItem.SKAdNetworkIdentifier)) {
-            config.expo.ios.infoPlist.SKAdNetworkItems.push(newItem);
-            addedCount++;
+    // Use a Map to ensure uniqueness based on the SKAdNetworkIdentifier
+    const combinedItemsMap = new Map();
+    
+    // First, add existing items to the map
+    existingItems.forEach(item => {
+        if (item.SKAdNetworkIdentifier) {
+            combinedItemsMap.set(item.SKAdNetworkIdentifier, item);
         }
     });
 
-    if (addedCount > 0) {
-        console.log(chalk.green(`  -> Added ${addedCount} new SKAdNetworkIdentifier(s).`));
-    } else {
-        console.log(chalk.yellow('  -> All required SKAdNetworkIdentifiers were already present.'));
+    // Then, add/overwrite with the required items
+    requiredItems.forEach(item => {
+        if (item.SKAdNetworkIdentifier) {
+            combinedItemsMap.set(item.SKAdNetworkIdentifier, item);
+        }
+    });
+
+    // Convert the map values back to an array
+    const newSkadItems = Array.from(combinedItemsMap.values());
+
+    // For better readability and consistency, sort the items alphabetically
+    newSkadItems.sort((a, b) => a.SKAdNetworkIdentifier.localeCompare(b.SKAdNetworkIdentifier));
+    
+    const originalCount = existingItems.length;
+    const finalCount = newSkadItems.length;
+
+    // Replace the old list with the new, complete, and deduplicated list
+    config.expo.ios.infoPlist.SKAdNetworkItems = newSkadItems;
+
+    if (finalCount > originalCount) {
+        console.log(chalk.green(`  -> Added ${finalCount - originalCount} new SKAdNetworkIdentifier(s). Total is now ${finalCount}.`));
+    } else if (finalCount === originalCount && originalCount > 0) {
+        console.log(chalk.yellow(`  -> All ${finalCount} required SKAdNetworkIdentifiers were already present.`));
+    } else if (finalCount > 0) {
+        console.log(chalk.green(`  -> Ensured all ${finalCount} SKAdNetworkIdentifiers are present.`));
     }
+
 
     writeAppConfig(config);
     console.log(chalk.green('✅ SKAdNetworkItems setup complete.'));
