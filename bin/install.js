@@ -296,8 +296,27 @@ function handleFirebasePlaceholdersFlag() {
     const config = getAppConfig();
     if (!config) return;
 
-    const androidPackage = config.expo?.android?.package || 'com.placeholder.app';
-    const iosBundleId = config.expo?.ios?.bundleIdentifier || 'com.placeholder.app';
+    // Get identifiers from app.json
+    const androidPackage = config.expo?.android?.package;
+    const iosBundleId = config.expo?.ios?.bundleIdentifier;
+
+    // Log what we found and warn if missing
+    if (androidPackage) {
+        console.log(chalk.gray(`  -> Using Android package: ${androidPackage}`));
+    } else {
+        console.log(chalk.yellow(`  -> ⚠️  Android package not found. Using a placeholder.`));
+        console.log(chalk.yellow(`     You MUST set 'expo.android.package' in your app.json for Firebase to work.`));
+    }
+    
+    if (iosBundleId) {
+        console.log(chalk.gray(`  -> Using iOS bundleIdentifier: ${iosBundleId}`));
+    } else {
+        console.log(chalk.yellow(`  -> ⚠️  iOS bundleIdentifier not found. Using a placeholder.`));
+        console.log(chalk.yellow(`     You MUST set 'expo.ios.bundleIdentifier' in your app.json for Firebase to work.`));
+    }
+
+    const finalAndroidPackage = androidPackage || 'com.placeholder.app';
+    const finalIosBundleId = iosBundleId || 'com.placeholder.app';
     
     const moduleDir = path.dirname(require.resolve('expo-utils/package.json'));
 
@@ -307,7 +326,7 @@ function handleFirebasePlaceholdersFlag() {
         const templatePath = path.join(moduleDir, 'templates', 'google-services.template.json');
         if (fs.existsSync(templatePath)) {
             const template = fs.readFileSync(templatePath, 'utf-8');
-            const content = template.replace('${androidPackage}', androidPackage);
+            const content = template.replace(/\$\{androidPackage\}/g, finalAndroidPackage);
             fs.writeFileSync(googleServicesJsonPath, content);
             console.log(chalk.green(`  -> Created placeholder google-services.json`));
         } else {
@@ -323,7 +342,7 @@ function handleFirebasePlaceholdersFlag() {
         const templatePath = path.join(moduleDir, 'templates', 'GoogleService-Info.template.plist');
         if (fs.existsSync(templatePath)) {
             const template = fs.readFileSync(templatePath, 'utf-8');
-            const content = template.replace('${iosBundleId}', iosBundleId);
+            const content = template.replace(/\$\{iosBundleId\}/g, finalIosBundleId);
             fs.writeFileSync(googleServicesPlistPath, content);
             console.log(chalk.green(`  -> Created placeholder GoogleService-Info.plist`));
         } else {
@@ -333,7 +352,7 @@ function handleFirebasePlaceholdersFlag() {
         console.log(chalk.yellow(`  -> File GoogleService-Info.plist already exists. Skipping.`));
     }
 
-    // --- Update app.json ---
+    // --- Update app.json to point to these files ---
     config.expo = config.expo || {};
     config.expo.ios = config.expo.ios || {};
     config.expo.android = config.expo.android || {};
