@@ -86,14 +86,24 @@ function handleConfigFlag() {
         console.error(chalk.red('❌ Could not find standard_plugins.json in the expo-utils module.'));
         return;
     }
-    const pluginsToAdd = require(pluginsConfigPath);
+    const pluginsWithConfig = require(pluginsConfigPath);
 
     config.expo = config.expo || {};
     config.expo.plugins = config.expo.plugins || [];
 
-    Object.keys(pluginsToAdd).forEach(pluginName => {
+    // Add Firebase App plugin (no config needed from the file, it's discovered automatically)
+    const firebaseAppPlugin = '@react-native-firebase/app';
+    if (!config.expo.plugins.some(p => (Array.isArray(p) ? p[0] : p) === firebaseAppPlugin)) {
+        config.expo.plugins.push(firebaseAppPlugin);
+        console.log(chalk.green(`  -> Added ${firebaseAppPlugin} plugin.`));
+    } else {
+        console.log(chalk.yellow(`  -> Plugin ${firebaseAppPlugin} already configured.`));
+    }
+
+    // Add other plugins from the config file
+    Object.keys(pluginsWithConfig).forEach(pluginName => {
         if (!config.expo.plugins.some(p => (Array.isArray(p) ? p[0] : p) === pluginName)) {
-            config.expo.plugins.push([pluginName, pluginsToAdd[pluginName]]);
+            config.expo.plugins.push([pluginName, pluginsWithConfig[pluginName]]);
             console.log(chalk.green(`  -> Added ${pluginName} plugin.`));
         } else {
             console.log(chalk.yellow(`  -> Plugin ${pluginName} already configured.`));
@@ -285,6 +295,56 @@ function handleIosBuildFixFlag() {
     console.log(chalk.green('✅ iOS build fix applied.'));
 }
 
+function handleEasLoginScriptFlag() {
+    console.log(chalk.cyan('📜 Creating EAS login script...'));
+    const moduleDir = path.dirname(require.resolve('expo-utils/package.json'));
+    const templatePath = path.join(moduleDir, 'templates', 'eas_login.sh');
+    const destPath = path.join(projectRoot, 'eas_login.sh');
+
+    if (!fs.existsSync(templatePath)) {
+        console.error(chalk.red('❌ eas_login.sh template not found in expo-utils module.'));
+        return;
+    }
+
+    if (!fs.existsSync(destPath)) {
+        fs.copyFileSync(templatePath, destPath);
+        // Make the script executable
+        fs.chmodSync(destPath, '755');
+        console.log(chalk.green(`  -> Created eas_login.sh and made it executable.`));
+    } else {
+        console.log(chalk.yellow(`  -> File eas_login.sh already exists. Skipping.`));
+    }
+    console.log(chalk.green('✅ EAS login script setup complete.'));
+}
+
+function handleTrackingPermissionFlag() {
+    console.log(chalk.cyan('🔒 Configuring Tracking Transparency permission...'));
+    const config = getAppConfig();
+    if (!config) return;
+
+    config.expo = config.expo || {};
+    config.expo.plugins = config.expo.plugins || [];
+
+    const pluginName = 'expo-tracking-transparency';
+    const trackingPlugin = config.expo.plugins.find(p => 
+        Array.isArray(p) && p[0] === pluginName
+    );
+
+    const trackingConfig = {
+        userTrackingPermission: "We need your permission to personalize your experience with relevant ads and content. Your data helps us improve recommendations and ensure you see what's most interesting to you."
+    };
+
+    if (!trackingPlugin) {
+        config.expo.plugins.push([pluginName, trackingConfig]);
+        console.log(chalk.green(`  -> Added and configured ${pluginName} plugin.`));
+    } else {
+        console.log(chalk.yellow(`  -> Plugin ${pluginName} already exists. Skipping.`));
+    }
+    
+    writeAppConfig(config);
+    console.log(chalk.green('✅ Tracking permission setup complete.'));
+}
+
 async function handleAppReset() {
     console.log(chalk.cyan('♻️ Resetting app structure...'));
 
@@ -343,6 +403,8 @@ async function main() {
         handleConfigFlag();
         handleLanguagesFlag();
         handleSkadnetworkFlag();
+        handleEasLoginScriptFlag();
+        handleTrackingPermissionFlag();
         
         const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
         
@@ -370,6 +432,8 @@ async function main() {
         if (args.includes('--skadnetwork')) handleSkadnetworkFlag();
         if (args.includes('--firebase-placeholders')) handleFirebasePlaceholdersFlag();
         if (args.includes('--fix-ios-build')) handleIosBuildFixFlag();
+        if (args.includes('--eas-login-script')) handleEasLoginScriptFlag();
+        if (args.includes('--tracking-permission')) handleTrackingPermissionFlag();
         console.log(chalk.bold.magenta('\n✨ All done! ✨'));
     }
 }
