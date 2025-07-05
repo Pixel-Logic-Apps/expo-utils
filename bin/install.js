@@ -574,7 +574,40 @@ package-lock.json`;
     console.log(chalk.green('✅ EAS configuration complete.'));
 }
 
-
+function handleConstantsFlag() {
+    console.log(chalk.cyan('📁 Creating constants folder and copying Strings.ts...'));
+    
+    // Check if project uses src structure
+    const srcAppExists = fs.existsSync(path.join(projectRoot, 'src', 'app'));
+    const appExists = fs.existsSync(path.join(projectRoot, 'app'));
+    
+    let constantsPath;
+    if (srcAppExists) {
+        constantsPath = path.join(projectRoot, 'src', 'constants');
+    } else if (appExists) {
+        constantsPath = path.join(projectRoot, 'constants');
+    } else {
+        // Default to root constants if no app structure found
+        constantsPath = path.join(projectRoot, 'constants');
+    }
+    
+    ensureDirExists(constantsPath);
+    console.log(chalk.green(`  -> Created constants directory at: ${path.relative(projectRoot, constantsPath)}`));
+    
+    const stringsFilePath = path.join(constantsPath, 'Strings.ts');
+    const existingStringsPath = path.join(projectRoot, 'constants', 'Strings.ts');
+    
+    if (fs.existsSync(existingStringsPath)) {
+        // Copy the existing Strings.ts file
+        const stringsContent = fs.readFileSync(existingStringsPath, 'utf-8');
+        fs.writeFileSync(stringsFilePath, stringsContent);
+        console.log(chalk.green(`  -> Copied existing Strings.ts to: ${path.relative(projectRoot, stringsFilePath)}`));
+    } else {
+        console.log(chalk.yellow(`  -> No existing Strings.ts found at ${path.relative(projectRoot, existingStringsPath)}. Skipping copy.`));
+    }
+    
+    console.log(chalk.green('✅ Constants setup complete.'));
+}
 
 async function handleAppReset() {
     console.log(chalk.cyan('♻️ Resetting app structure...'));
@@ -633,6 +666,7 @@ async function main() {
         handleIosBuildFixFlag();
         handleFirebasePlaceholdersFlag();
         handleConfigFlag();
+        handleConstantsFlag();
         handleLanguagesFlag();
         handleSkadnetworkFlag();
         handleEasLoginScriptFlag();
@@ -667,6 +701,7 @@ async function main() {
         if (args.includes('--eas-login-script')) handleEasLoginScriptFlag();
         if (args.includes('--tracking-permission')) handleTrackingPermissionFlag();
         if (args.includes('--eas-config')) handleEasConfigFlag();
+        if (args.includes('--constants')) handleConstantsFlag();
         console.log(chalk.bold.magenta('\n✨ All done! ✨'));
     }
 }
