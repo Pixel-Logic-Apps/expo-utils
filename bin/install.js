@@ -110,6 +110,18 @@ function handleConfigFlag() {
         }
     });
 
+    // Configure Android permissions
+    config.expo.android = config.expo.android || {};
+    config.expo.android.permissions = config.expo.android.permissions || [];
+    
+    const adIdPermission = "com.google.android.gms.permission.AD_ID";
+    if (!config.expo.android.permissions.includes(adIdPermission)) {
+        config.expo.android.permissions.push(adIdPermission);
+        console.log(chalk.green(`  -> Added Android permission: ${adIdPermission}`));
+    } else {
+        console.log(chalk.yellow(`  -> Android permission ${adIdPermission} already configured.`));
+    }
+
     writeAppConfig(config);
     console.log(chalk.green('✅ Plugin configuration step complete.'));
 }
