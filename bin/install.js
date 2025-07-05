@@ -554,9 +554,27 @@ function handleEasConfigFlag() {
     } else {
         console.log(chalk.yellow(`  -> File eas.json already exists. Skipping creation.`));
     }
+
+    // --- Create .easignore ---
+    const easIgnorePath = path.join(projectRoot, '.easignore');
+    const easIgnoreContent = `/android
+/ios
+/docs
+/coverage
+.DS_Store
+package-lock.json`;
+
+    if (!fs.existsSync(easIgnorePath)) {
+        fs.writeFileSync(easIgnorePath, easIgnoreContent);
+        console.log(chalk.green(`  -> Created .easignore file.`));
+    } else {
+        console.log(chalk.yellow(`  -> File .easignore already exists. Skipping creation.`));
+    }
     
     console.log(chalk.green('✅ EAS configuration complete.'));
 }
+
+
 
 async function handleAppReset() {
     console.log(chalk.cyan('♻️ Resetting app structure...'));
