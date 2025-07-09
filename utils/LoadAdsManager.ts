@@ -1,14 +1,16 @@
 import { StatusBar } from "react-native";
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
     AdEventListener,
     AdEventType,
     InterstitialAd,
     RewardedAd, RewardedAdEventType,
 } from "react-native-google-mobile-ads";
+import AdUnits from '../constants/Strings';
 
 type LoadAdsManagerType = {
-    showInterstitial: (unitId: string) => Promise<boolean>;
-    showRewarded: (unitId: string) => Promise<boolean>;
+    showInterstitial: (unitId?: string) => Promise<boolean>;
+    showRewarded: (unitId?: string) => Promise<boolean>;
 };
 
 const getFirebaseApp = () => {
@@ -32,18 +34,26 @@ const getFirebaseAnalytics = () => {
 };
 
 const LoadAdsManager: LoadAdsManagerType = {
-    showInterstitial: (unitId: string): Promise<boolean> => {
+    showInterstitial: (unitId?: string): Promise<boolean> => {
         return new Promise(async (resolve, reject) => {
+            
+            const isPremium = await AsyncStorage.getItem('@isPremium');
+            if (isPremium === 'true') {
+                resolve(true);
+                return;
+            }
 
             const getApp = getFirebaseApp();
             const { getAnalytics } = getFirebaseAnalytics();
+
+            
 
             if(global.isAdsEnabled === false || global?.remoteConfigs?.is_ads_enabled === false){
                 resolve(true);
                 return;
             }
                 
-            const interstitialAdUnitId = unitId ?? "";
+            const interstitialAdUnitId = unitId ?? AdUnits.interstitial;
             const interstitial = InterstitialAd.createForAdRequest(
                 interstitialAdUnitId,
                 {}
@@ -80,9 +90,13 @@ const LoadAdsManager: LoadAdsManagerType = {
         });
     },
 
-    showRewarded: (unitId: string): Promise<boolean> =>  {
+    showRewarded: (unitId?: string): Promise<boolean> =>  {
         return new Promise(async (resolve, reject) => {
-
+            const isPremium = await AsyncStorage.getItem('@isPremium');
+            if (isPremium === 'true') {
+                resolve(true);
+                return;
+            }
             const getApp = getFirebaseApp();
             const { getAnalytics } = getFirebaseAnalytics();
 
@@ -91,7 +105,7 @@ const LoadAdsManager: LoadAdsManagerType = {
                 return;
             }
 
-            const adUnitId = unitId ?? "";
+            const adUnitId = unitId ?? AdUnits.rewarded;
             const ad = RewardedAd.createForAdRequest(
                 adUnitId,
                 {}
