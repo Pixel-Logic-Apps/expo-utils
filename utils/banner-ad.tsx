@@ -3,12 +3,11 @@ import { View } from "react-native";
 import { BannerAd, BannerAdSize } from "react-native-google-mobile-ads";
 import Utils from "./Utils";
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getAdUnits } from './Utils';
-const AdUnits = getAdUnits();
 
 export default function BannerAdComponent({ unitId }: { unitId?: string }) {
     const [IS_ADS_ENABLED, setIsAdsEnabled] = useState(global.isAdsEnabled);
-    const bannerUnitId = unitId ?? AdUnits.banner;
+    const adUnits = (global as any).adUnits || {};
+    const bannerUnitId = unitId ?? adUnits.banner;
 
     useEffect(() => {
         const didLoaded = async () => {
@@ -18,7 +17,6 @@ export default function BannerAdComponent({ unitId }: { unitId?: string }) {
                 return;
             }
             const remoteConfigSettings = await Utils.getRemoteConfigSettings();
-            //Se for verdadeiro pode ir pesquisar. Caso contrário é proibido mudar o status.
             if(global.isAdsEnabled !== false) {
                 setIsAdsEnabled(remoteConfigSettings.is_ads_enabled);
             }

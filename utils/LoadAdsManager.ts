@@ -7,8 +7,6 @@ import {
     RewardedAd, RewardedAdEventType,
 } from "react-native-google-mobile-ads";
 
-import { getAdUnits } from './Utils';
-const AdUnits = getAdUnits();
 
 type LoadAdsManagerType = {
     showInterstitial: (unitId?: string) => Promise<boolean>;
@@ -48,14 +46,12 @@ const LoadAdsManager: LoadAdsManagerType = {
             const getApp = getFirebaseApp();
             const { getAnalytics } = getFirebaseAnalytics();
 
-            
-
             if(global.isAdsEnabled === false || global?.remoteConfigs?.is_ads_enabled === false){
                 resolve(true);
                 return;
             }
-                
-            const interstitialAdUnitId = unitId ?? AdUnits.interstitial;
+            const adUnits = (global as any).adUnits || {};
+            const interstitialAdUnitId = unitId ?? adUnits.interstitial;
             console.log("interstitialAdUnitId", interstitialAdUnitId);
             const interstitial = InterstitialAd.createForAdRequest(
                 interstitialAdUnitId,
@@ -107,8 +103,8 @@ const LoadAdsManager: LoadAdsManagerType = {
                 resolve(true);
                 return;
             }
-
-            const adUnitId = unitId ?? AdUnits.rewarded;
+            const adUnits = (global as any).adUnits || {};
+            const adUnitId = unitId ?? adUnits.rewarded;
             const ad = RewardedAd.createForAdRequest(
                 adUnitId,
                 {}
