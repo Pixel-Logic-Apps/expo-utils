@@ -10,6 +10,7 @@
 ✅ **Sistema de Anúncios**: Intersticiais, recompensados e banners com verificação premium automática  
 ✅ **Internacionalização**: 12 idiomas suportados com detecção automática  
 ✅ **Utilitários Prontos**: Push notifications, updates OTA, analytics, crashlytics  
+✅ **Tela de Avaliação**: Abertura automática da loja para reviews (iOS/Android)  
 ✅ **Estrutura do Projeto**: Templates pré-configurados com melhores práticas  
 ✅ **TypeScript Completo**: Tipagem completa e interfaces bem definidas  
 ✅ **Compatibilidade Moderna**: Firebase v22+ com API modular  
@@ -201,6 +202,54 @@ const systemLang = getSystemLanguage(); // 'pt-BR' → 'pt'
 - `updateMessage` - Mensagem de atualização disponível  
 - `updateNow` - Botão "Atualizar Agora"
 - `newMessage` - Mensagem genérica
+
+## ⭐ Sistema de Avaliações
+
+### Função openReviewURL()
+
+Abre automaticamente a tela de avaliação da loja apropriada usando os dados já configurados no projeto:
+
+```typescript
+import Utils from 'expo-utils/utils/Utils';
+
+// Usar configurações automáticas (recomendado)
+await Utils.openReviewURL();
+
+// Forçar abertura no navegador
+await Utils.openReviewURL(false);
+
+// Verificar se abriu com sucesso
+const success = await Utils.openReviewURL();
+if (success) {
+    console.log('Review aberto com sucesso!');
+}
+```
+
+### Parâmetros
+
+| Parâmetro | Tipo | Padrão | Descrição |
+|-----------|------|--------|-----------|
+| `preferNativeStore` | `boolean` | `true` | `true` = abre loja nativa, `false` = abre no browser |
+
+### Dados Utilizados Automaticamente
+
+**🤖 Android:** `Application.applicationId` (detectado automaticamente)  
+**🍎 iOS:** `remoteConfigs.ios_app_id` (do Firebase Remote Config)
+
+### Comportamento por Plataforma
+
+**🤖 Android:**
+- **Loja nativa**: `market://details?id=PACKAGE&showAllReviews=true`
+- **Browser**: `https://play.google.com/store/apps/details?id=PACKAGE&showAllReviews=true`
+- Detecta package automaticamente via `Application.applicationId`
+
+**🍎 iOS:**
+- **Loja nativa**: `itms-apps://itunes.apple.com/app/viewContentsUserReviews/id=APP_ID?action=write-review`
+- **Browser**: `https://apps.apple.com/app/apple-store/id=APP_ID?action=write-review`
+- Requer App ID obrigatório
+
+### Retorno
+- `Promise<boolean>` - `true` se abriu com sucesso, `false` se houve erro
 
 ## 🔧 Dependências e Compatibilidade
 
@@ -529,6 +578,18 @@ function UpdateScreen() {
         </View>
     );
 }
+```
+
+### Abertura de Tela de Avaliação
+
+```typescript
+import Utils from 'expo-utils/utils/Utils';
+
+// Uso simples - detecta tudo automaticamente
+await Utils.openReviewURL();
+
+// Forçar abertura no browser
+await Utils.openReviewURL(false);
 ```
 
 ## 🤝 Contribuição

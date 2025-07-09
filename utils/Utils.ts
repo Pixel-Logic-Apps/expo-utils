@@ -338,6 +338,47 @@ const Utils = {
             (global as any).isAdsEnabled = false;
         }
         (global as any).remoteConfigs = remoteConfigs;
+    },
+
+    openReviewURL: async (preferNativeStore = true) => {
+        try {
+            if (Platform.OS === 'android') {
+                const packageName = Application.applicationId;
+                if (!packageName) {
+                    expoUtilsWarn('Android package name could not be detected automatically');
+                    return false;
+                }
+                
+                const storeUrl = preferNativeStore
+                    ? `market://details?id=${packageName}&showAllReviews=true`
+                    : `https://play.google.com/store/apps/details?id=${packageName}&showAllReviews=true`;
+                
+                expoUtilsLog('Opening Android review URL:', storeUrl);
+                await Linking.openURL(storeUrl);
+                return true;
+                
+            } else if (Platform.OS === 'ios') {
+                const iosAppId = (global as any).remoteConfigs?.ios_app_id;
+                if (!iosAppId) {
+                    expoUtilsWarn('iOS App ID not found in remote configs. Make sure ios_app_id is configured in Firebase Remote Config.');
+                    return false;
+                }
+                
+                const storeUrl = preferNativeStore
+                    ? `itms-apps://itunes.apple.com/app/viewContentsUserReviews/id${iosAppId}?action=write-review`
+                    : `https://apps.apple.com/app/apple-store/id${iosAppId}?action=write-review`;
+                
+                expoUtilsLog('Opening iOS review URL:', storeUrl);
+                await Linking.openURL(storeUrl);
+                return true;
+            } else {
+                expoUtilsWarn('Platform not supported for review URL:', Platform.OS);
+                return false;
+            }
+        } catch (error) {
+            console.error('Error opening review URL:', error);
+            return false;
+        }
     }
 };
 
