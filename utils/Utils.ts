@@ -55,30 +55,41 @@ import Purchases from 'react-native-purchases';
 import * as Clarity from '@microsoft/react-native-clarity';
 import * as SplashScreen from 'expo-splash-screen';
 import { Alert, Platform, Linking } from 'react-native';
+// Importações modulares do Firebase
+import {
+    getRemoteConfig,
+    setConfigSettings,
+    setDefaults,
+    fetchAndActivate,
+    getValue
+} from '@react-native-firebase/remote-config';
+import {
+    getMessaging,
+    requestPermission,
+    onMessage,
+    subscribeToTopic
+} from '@react-native-firebase/messaging';
 
 const Utils = {
     getRemoteConfigSettings: async (): Promise<RemoteConfigSettings> => {
         const app = getFirebaseApp();
-        const getRemoteConfig = getFirebaseRemoteConfig();
-        
-        if (!app || !getRemoteConfig) {
+        if (!app) {
             console.warn("Firebase not configured, using default settings");
             return {
                 is_ads_enabled: false,
                 min_version: 1.0
             } as any;
         }
-
         const remoteConfig = getRemoteConfig(app);
-        await remoteConfig.setConfigSettings({ minimumFetchIntervalMillis: 0 });
-        await remoteConfig.setDefaults({
+        await setConfigSettings(remoteConfig, { minimumFetchIntervalMillis: 0 });
+        await setDefaults(remoteConfig, {
             settings: JSON.stringify({ is_ads_enabled: false }),
         });
         try {
-            await remoteConfig.fetchAndActivate();
-            return JSON.parse(remoteConfig.getValue("settings").asString());
+            await fetchAndActivate(remoteConfig);
+            return JSON.parse(getValue(remoteConfig, "settings").asString());
         } catch (e) {
-            return JSON.parse(remoteConfig.getValue("settings").asString());
+            return JSON.parse(getValue(remoteConfig, "settings").asString());
         }
     },
 
@@ -175,19 +186,16 @@ const Utils = {
     setupPushNotifications: async (appConfig?: AppConfig) => {
         try {
             const app = getFirebaseApp();
-            const getMessaging = getFirebaseMessaging();
-            
-            if (app && getMessaging) {
-                getMessaging(app).onMessage(async (remoteMessage) => {
+            if (app) {
+                const messaging = getMessaging(app);
+                onMessage(messaging, async (remoteMessage) => {
                     if (remoteMessage.notification) {
                         const messages = getLocalizedMessages();
                         Alert.alert(messages.newMessage, remoteMessage.notification.body);
                     }
                 });
-                
                 const topicName = appConfig?.expo?.slug || 'default-topic';
-                await getMessaging(app)
-                    .subscribeToTopic(topicName)
+                await subscribeToTopic(messaging, topicName)
                     .then(() => console.log("Subscribed to topic all!"))
                     .catch(() => console.log("Not Subscribed"));
             }
@@ -274,9 +282,9 @@ const Utils = {
         } finally {
             try {
                 const app = getFirebaseApp();
-                const getMessaging = getFirebaseMessaging();
-                if (app && getMessaging) {
-                    await getMessaging(app).requestPermission();
+                if (app) {
+                    const messaging = getMessaging(app);
+                    await requestPermission(messaging);
                 }
                 await Utils.setupPushNotifications(appConfig);
             } catch(e) {
