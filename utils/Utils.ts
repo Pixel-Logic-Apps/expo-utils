@@ -69,6 +69,40 @@ import {
     onMessage,
     subscribeToTopic
 } from '@react-native-firebase/messaging';
+import { getAnalytics, logEvent } from '@react-native-firebase/analytics';
+import fs from 'fs';
+import path from 'path';
+
+export function expoUtilsWarn(...args: any[]) {
+    if (!(global as any).disableExpoUtilsWarnings) {
+        // eslint-disable-next-line no-console
+        console.warn(...args);
+    }
+}
+
+function getExpoUtilsDisableWarnings(appConfig?: any): boolean {
+    if (!appConfig?.expo?.plugins) return false;
+    const plugins = appConfig.expo.plugins;
+    for (const plugin of plugins) {
+        if (Array.isArray(plugin) && plugin[0] === 'expo-utils' && plugin[1]?.disableWarnings === true) {
+            return true;
+        }
+        if (plugin === 'expo-utils') {
+            // Se for só a string, não desabilita warnings
+            continue;
+        }
+    }
+    return false;
+}
+
+function setupGlobalConfigs(appConfig?: any, adUnits?: any) {
+    if (getExpoUtilsDisableWarnings(appConfig)) {
+        (global as any).disableExpoUtilsWarnings = true;
+    }
+    if (adUnits) {
+        (global as any).adUnits = adUnits;
+    }
+}
 
 const Utils = {
     getRemoteConfigSettings: async (): Promise<RemoteConfigSettings> => {
@@ -108,32 +142,26 @@ const Utils = {
     },
 
     didUpdate: async () => {
-        const getApp = getFirebaseApp();
-        const { getAnalytics } = getFirebaseAnalytics();
+        const app = getFirebaseApp();
+        if (!app) return;
+        const analytics = getAnalytics(app);
         try {
-            
-            if (getApp && getAnalytics) {
-                getAnalytics(getApp).logEvent("checking_update");
-            }
-            
+            await logEvent(analytics, "checking_update");
             const update = await Updates.checkForUpdateAsync();
             if (update.isAvailable) {
-                if (getApp && getAnalytics) {
-                    getAnalytics(getApp).logEvent("checking_update_success");
-                }
+                await logEvent(analytics, "checking_update_success");
                 await Updates.fetchUpdateAsync();
                 await Updates.reloadAsync();
             }
-        } catch (e) {         
-            if (getApp && getAnalytics) {
-                getAnalytics(getApp).logEvent("checking_update_error", { error: e.message });
-            }
+        } catch (e) {
+            await logEvent(analytics, "checking_update_error", { error: e?.message });
         }
     },
 
     setupRevenueCat: async (revenueCatKeys?: { androidApiKey: string, iosApiKey: string }) => {
         try {
             if (!revenueCatKeys) {
+                console.warn('RevenueCat keys not provided, skipping configuration');
                 return;
             }
             
@@ -207,14 +235,11 @@ const Utils = {
     checkForRequiredUpdateAsync: async (remoteConfigSettings: RemoteConfigSettings) => {
         try {
             if (!Application.nativeApplicationVersion) return;
-
             const version = parseFloat(Application.nativeApplicationVersion);
-            const minVersion = parseFloat(remoteConfigSettings.min_version.toString());
-            
+            const minVersion = parseFloat((remoteConfigSettings?.min_version ?? 0).toString());
             if (isNaN(minVersion) || isNaN(version) || version >= minVersion) {
                 return;
             }
-            
             const messages = getLocalizedMessages();
             const AsyncAlert = () =>
                 new Promise<void>((resolve) => {
@@ -228,8 +253,6 @@ const Utils = {
                                     `https://play.google.com/store/apps/details?id=${Application.applicationId}` :
                                     `https://apps.apple.com/app/${remoteConfigSettings.ios_app_id}`;
                                 Linking.openURL(url);
-                                // This recursive call might cause issues, re-alerting immediately.
-                                // Consider a less aggressive update flow.
                                 resolve();
                             },
                         }],
@@ -250,10 +273,8 @@ const Utils = {
         clarityProjectId?: string
     ) => {
         try {
-
-            if (adUnits) {
-                (global as any).adUnits = adUnits;
-            }
+            
+            setupGlobalConfigs(appConfig, adUnits);
 
             await Utils.setupRevenueCat(revenueCatKeys);
             
@@ -267,18 +288,16 @@ const Utils = {
             await Utils.checkForRequiredUpdateAsync(remoteConfigs);
             await Utils.initFBSDK(appConfig);
             await Utils.setupClarity(clarityProjectId);
-
             if (revenueCatKeys) {
                 await Utils.setupAttributions();
             }
-            
             await requestTrackingPermissionsAsync();
             // After the user grants or denies permission, Facebook SDK will automatically handle it
             // via the setAdvertiserTrackingEnabled call made during init.
             // No need for a separate setAdvertiserIDCollectionEnabled call here.
 
         } catch (e) {
-            console.error("Error in prepare:", e);
+            expoUtilsWarn("Error in prepare:", e);
         } finally {
             try {
                 const app = getFirebaseApp();
@@ -288,7 +307,7 @@ const Utils = {
                 }
                 await Utils.setupPushNotifications(appConfig);
             } catch(e) {
-                console.error("Error setting up notifications:", e);
+                expoUtilsWarn("Error setting up notifications:", e);
             } finally {
                 setAppIsReady(true);
                 await SplashScreen.hideAsync();

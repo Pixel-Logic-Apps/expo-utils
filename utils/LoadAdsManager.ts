@@ -6,7 +6,7 @@ import {
     InterstitialAd,
     RewardedAd, RewardedAdEventType,
 } from "react-native-google-mobile-ads";
-
+import { getAnalytics, logEvent } from '@react-native-firebase/analytics';
 
 type LoadAdsManagerType = {
     showInterstitial: (unitId?: string) => Promise<boolean>;
@@ -23,72 +23,50 @@ const getFirebaseApp = () => {
     }
 };
 
-const getFirebaseAnalytics = () => {
-    try {
-        const { getAnalytics } = require('@react-native-firebase/analytics');
-        return { getAnalytics };
-    } catch (error) {
-        console.warn("Firebase analytics not configured.");
-        return { getAnalytics: () => null, logEvent: () => {} };
-    }
-};
-
 const LoadAdsManager: LoadAdsManagerType = {
     showInterstitial: (unitId?: string): Promise<boolean> => {
         return new Promise(async (resolve, reject) => {
-            
             const isPremium = await AsyncStorage.getItem('@isPremium');
             if (isPremium === 'true') {
                 resolve(true);
                 return;
             }
-
-            const getApp = getFirebaseApp();
-            const { getAnalytics } = getFirebaseAnalytics();
-
+            const app = getFirebaseApp();
+            const analytics = app ? getAnalytics(app) : null;
             if(global.isAdsEnabled === false || global?.remoteConfigs?.is_ads_enabled === false){
                 resolve(true);
                 return;
             }
             const adUnits = (global as any).adUnits || {};
             const interstitialAdUnitId = unitId ?? adUnits.interstitial;
-            console.log("interstitialAdUnitId", interstitialAdUnitId);
             const interstitial = InterstitialAd.createForAdRequest(
                 interstitialAdUnitId,
                 {}
             );
-
-            const onAdLoaded: AdEventListener = (e) => {
-                getAnalytics(getApp).logEvent("AdLOADED",e).then();
+            const onAdLoaded: AdEventListener = async (e) => {
+                if (analytics) await logEvent(analytics, "AdLOADED", e);
                 interstitial.show().then();
             };
-
-            const onAdClosed: AdEventListener = (e) => {
-                getAnalytics(getApp).logEvent("AdCLOSED", e).then();
+            const onAdClosed: AdEventListener = async (e) => {
+                if (analytics) await logEvent(analytics, "AdCLOSED", e);
                 StatusBar.setHidden(false);
                 resolve(true);
             };
-
-            const onAdOpened: AdEventListener = (e) => {
-                getAnalytics(getApp).logEvent("OPENED", e).then();
+            const onAdOpened: AdEventListener = async (e) => {
+                if (analytics) await logEvent(analytics, "OPENED", e);
                 StatusBar.setHidden(true);
             };
-
-            const onAdError: AdEventListener = (e) => {
-                getAnalytics(getApp).logEvent("AdERROR", e).then();
-                console.log("AdERROR", e);
+            const onAdError: AdEventListener = async (e) => {
+                if (analytics) await logEvent(analytics, "AdERROR", e);
                 resolve(false);
             };
-
             interstitial.addAdEventListener(AdEventType.LOADED, onAdLoaded);
             interstitial.addAdEventListener(AdEventType.CLOSED, onAdClosed);
             interstitial.addAdEventListener(AdEventType.OPENED, onAdOpened);
             interstitial.addAdEventListener(AdEventType.ERROR, onAdError);
             interstitial.load();
-
         });
     },
-
     showRewarded: (unitId?: string): Promise<boolean> =>  {
         return new Promise(async (resolve, reject) => {
             const isPremium = await AsyncStorage.getItem('@isPremium');
@@ -96,9 +74,8 @@ const LoadAdsManager: LoadAdsManagerType = {
                 resolve(true);
                 return;
             }
-            const getApp = getFirebaseApp();
-            const { getAnalytics } = getFirebaseAnalytics();
-
+            const app = getFirebaseApp();
+            const analytics = app ? getAnalytics(app) : null;
             if(global.isAdsEnabled === false || global?.remoteConfigs?.is_ads_enabled === false){
                 resolve(true);
                 return;
@@ -109,35 +86,28 @@ const LoadAdsManager: LoadAdsManagerType = {
                 adUnitId,
                 {}
             );
-
-            const onAdLoaded: AdEventListener = (e) => {
-                getAnalytics(getApp).logEvent("AdLOADED", e).then();
+            const onAdLoaded: AdEventListener = async (e) => {
+                if (analytics) await logEvent(analytics, "AdLOADED", e);
                 ad.show().then();
             };
-
-            const onAdClosed: AdEventListener = (e) => {
-                getAnalytics(getApp).logEvent("AdCLOSED", e).then();
+            const onAdClosed: AdEventListener = async (e) => {
+                if (analytics) await logEvent(analytics, "AdCLOSED", e);
                 StatusBar.setHidden(false);
                 resolve(false);
             };
-
-
-            const onEarnedReward: AdEventListener = (e) => {
-                getAnalytics(getApp).logEvent("REWARDED", e).then();
+            const onEarnedReward: AdEventListener = async (e) => {
+                if (analytics) await logEvent(analytics, "REWARDED", e);
                 StatusBar.setHidden(true);
                 resolve(true);
             };
-
-            const onAdOpened: AdEventListener = (e) => {
-                getAnalytics(getApp).logEvent("OPENED", e).then();
+            const onAdOpened: AdEventListener = async (e) => {
+                if (analytics) await logEvent(analytics, "OPENED", e);
                 StatusBar.setHidden(true);
             };
-
-            const onAdError: AdEventListener = (e) => {
-                getAnalytics(getApp).logEvent("AdERROR", e).then();
+            const onAdError: AdEventListener = async (e) => {
+                if (analytics) await logEvent(analytics, "AdERROR", e);
                 resolve(false);
             };
-
             ad.addAdEventListener(RewardedAdEventType.LOADED, onAdLoaded);
             ad.addAdEventListener(AdEventType.CLOSED, onAdClosed);
             ad.addAdEventListener(RewardedAdEventType.EARNED_REWARD, onEarnedReward);

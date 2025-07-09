@@ -17,5 +17,8 @@
             "parentTheme": "Default",
             "enforceNavigationBarContrast": false
         }
+    },
+    "expo-utils": {
+        "disableWarnings": false
     }
 } 

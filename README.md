@@ -180,6 +180,9 @@ A função `Utils.prepare(setAppIsReady, appConfig?)` realiza automaticamente:
 |-----------|------|-------------|-----------|
 | `setAppIsReady` | `(ready: boolean) => void` | ✅ | Callback para indicar quando o app está pronto |
 | `appConfig` | `object` | ❌ | Configuração completa do app (app.config) |
+| `adUnits` | `object` | ❌ | Objeto com unit IDs dos anúncios (banner, interstitial, rewarded) |
+| `revenueCatKeys` | `object` | ❌ | Chaves do RevenueCat para iOS/Android |
+| `clarityProjectId` | `string` | ❌ | ID do projeto Microsoft Clarity para analytics |
 
 **💡 Nota**: Se `appConfig` não for fornecido, serão usados valores padrão como fallback.
 
@@ -187,6 +190,80 @@ O `appConfig` deve conter:
 - `expo.slug` - Para inscrição em tópicos de push notifications
 - `expo.plugins` com configuração do `react-native-fbsdk-next` - Para o appID do Facebook
 - `expo.plugins` com configuração do `react-native-purchases` - Para as chaves do RevenueCat
+
+**Exemplo de uso completo:**
+```typescript
+import Utils from 'expo-utils/utils/Utils';
+import AdUnits from '../constants/Strings'; // Seus unit IDs de anúncios
+
+// No _layout.tsx
+useEffect(() => {
+    Utils.prepare(
+        setAppIsReady, 
+        appConfig,
+        AdUnits, // Unit IDs dos anúncios
+        { 
+            androidApiKey: "goog_your_android_key",
+            iosApiKey: "appl_your_ios_key" 
+        },
+        "clarity_project_id"
+    );
+}, []);
+```
+
+### 5. Sistema de Anúncios com Verificação Premium
+
+O expo-utils inclui utilitários de anúncios que automaticamente:
+- ✅ Verificam se o usuário é premium via AsyncStorage (`@isPremium`)
+- ✅ Respeitam configurações remotas do Firebase (`is_ads_enabled`)
+- ✅ Usam unit IDs padrão do seu projeto se não especificados
+
+```typescript
+import LoadAdsManager from 'expo-utils/utils/LoadAdsManager';
+import BannerAdComponent from 'expo-utils/utils/banner-ad';
+
+// Para anúncios intersticiais (usa unit ID padrão do seu projeto)
+await LoadAdsManager.showInterstitial();
+
+// Para anúncios rewarded (com unit ID customizado)
+await LoadAdsManager.showRewarded('ca-app-pub-xxx/xxx');
+
+// Para banner (usa unit ID padrão do seu projeto)
+<BannerAdComponent />
+
+// Para banner com unit ID customizado
+<BannerAdComponent unitId="ca-app-pub-xxx/xxx" />
+```
+
+**Como configurar usuário premium:**
+```typescript
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+// Marcar usuário como premium (não mostra anúncios)
+await AsyncStorage.setItem('@isPremium', 'true');
+
+// Remover status premium (volta a mostrar anúncios)
+await AsyncStorage.removeItem('@isPremium');
+```
+
+### 6. Controle de Warnings
+
+Para suprimir warnings do expo-utils, adicione a configuração no seu `app.json`:
+
+```json
+{
+  "expo": {
+    "plugins": [
+      ["expo-utils", { "disableWarnings": true }],
+      // ... outros plugins
+    ]
+  }
+}
+```
+
+### 7. Compatibilidade com Firebase v22+
+
+O expo-utils foi atualizado para usar a **API modular** do React Native Firebase v22+, eliminando warnings de métodos deprecated. Todas as funcionalidades do Firebase (Analytics, Remote Config, Messaging) agora usam a sintaxe moderna.
 
 **Exemplo de estrutura do appConfig:**
 ```javascript
@@ -227,7 +304,7 @@ Alert.alert(messages.updateRequired, messages.updateMessage);
 
 [📖 **Guia completo de traduções**](./examples/usando-traducoes.md)
 
-### 5. Declarações Globais
+### 8. Declarações Globais
 
 As variáveis globais devem ser declaradas no `_layout.tsx` de cada app, não na classe Utils:
 
@@ -242,7 +319,7 @@ global.isAdsEnabled = true; // ou false se for desenvolvimento
 
 Isso permite que cada app configure suas próprias variáveis globais conforme necessário.
 
-### 6. Tipos TypeScript
+### 9. Tipos TypeScript
 
 O projeto inclui interfaces TypeScript para melhor tipagem:
 
