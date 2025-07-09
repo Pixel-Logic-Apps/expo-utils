@@ -97,31 +97,25 @@ const Utils = {
     },
 
     didUpdate: async () => {
+        const getApp = getFirebaseApp();
+        const { getAnalytics } = getFirebaseAnalytics();
         try {
-            const app = getFirebaseApp();
-            const { getAnalytics, logEvent } = getFirebaseAnalytics();
             
-            if (app && getAnalytics) {
-                const analytics = getAnalytics(app);
-                logEvent(analytics, "checking_update");
+            if (getApp && getAnalytics) {
+                getAnalytics(getApp).logEvent("checking_update");
             }
             
             const update = await Updates.checkForUpdateAsync();
             if (update.isAvailable) {
-                if (app && getAnalytics) {
-                    const analytics = getAnalytics(app);
-                    logEvent(analytics, "checking_update_success");
+                if (getApp && getAnalytics) {
+                    getAnalytics(getApp).logEvent("checking_update_success");
                 }
                 await Updates.fetchUpdateAsync();
                 await Updates.reloadAsync();
             }
-        } catch (e) {
-            const app = getFirebaseApp();
-            const { getAnalytics, logEvent } = getFirebaseAnalytics();
-            
-            if (app && getAnalytics) {
-                const analytics = getAnalytics(app);
-                logEvent(analytics, "checking_update_error", { error: e.message });
+        } catch (e) {         
+            if (getApp && getAnalytics) {
+                getAnalytics(getApp).logEvent("checking_update_error", { error: e.message });
             }
         }
     },
