@@ -296,12 +296,8 @@ const appConfig = {
                     iosAppId: "ca-app-pub-xxx~xxx"
                 }
             ],
-            [
-                "expo-utils",
-                {
-                    disableWarnings: true // Opcional: suprimir warnings
-                }
-            ]
+            // Plugin expo-utils é opcional, apenas para configurações avançadas
+            // ["expo-utils", { "disableWarnings": true }]
         ]
     }
 };
@@ -409,7 +405,7 @@ declare global {
 
 ## 🚨 Suporte a Warnings
 
-Para suprimir warnings do expo-utils:
+Para suprimir warnings do expo-utils, adicione a configuração no seu `app.json` (opcional):
 
 ```json
 // app.json
@@ -421,6 +417,8 @@ Para suprimir warnings do expo-utils:
   }
 }
 ```
+
+**Nota**: O plugin expo-utils é completamente opcional. O projeto funciona normalmente sem ele.
 
 ## 🔄 Compatibilidade Firebase v22+
 
