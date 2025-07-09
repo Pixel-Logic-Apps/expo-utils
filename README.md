@@ -145,9 +145,12 @@ if (userEarnedReward) {
     // Dar recompensa ao usuário
 }
 
-// Banner fixo na tela
+// Banner fixo na tela (com estilo footer automático)
 <BannerAdComponent />
 <BannerAdComponent unitId="ca-app-pub-xxx/xxx" />
+
+// Banner sem estilo footer
+<BannerAdComponent useFooterStyle={false} />
 ```
 
 ### Verificações Automáticas
@@ -202,6 +205,55 @@ const systemLang = getSystemLanguage(); // 'pt-BR' → 'pt'
 - `updateMessage` - Mensagem de atualização disponível  
 - `updateNow` - Botão "Atualizar Agora"
 - `newMessage` - Mensagem genérica
+
+## 🎨 Estilos Pré-definidos
+
+O expo-utils inclui uma coleção de estilos úteis prontos para uso:
+
+```typescript
+import { ExpoUtilsStyles } from 'expo-utils';
+
+// Usar os estilos
+<View style={ExpoUtilsStyles.footerBanner}>
+    {/* Conteúdo do banner footer */}
+</View>
+
+<View style={ExpoUtilsStyles.container}>
+    {/* Container centralizado */}
+</View>
+
+<View style={[ExpoUtilsStyles.card, ExpoUtilsStyles.shadow]}>
+    {/* Card com sombra */}
+</View>
+```
+
+### Estilos Disponíveis
+
+| Estilo | Descrição |
+|--------|-----------|
+| `footerBanner` | Banner fixo no rodapé (position absolute, bottom 0) |
+| `container` | Container flex centralizado |
+| `centerContent` | Conteúdo centralizado |
+| `fullWidth` | Largura 100% |
+| `fullHeight` | Altura 100% |
+| `absoluteFill` | Preenchimento absoluto (top, left, right, bottom = 0) |
+| `shadow` | Sombra padrão para iOS/Android |
+| `card` | Card com fundo branco, bordas arredondadas e sombra |
+
+### BannerAdComponent com Estilos
+
+O componente de banner agora aceita o parâmetro `useFooterStyle`:
+
+```typescript
+// Com estilo footer (padrão)
+<BannerAdComponent />
+
+// Sem estilo footer (você controla o posicionamento)
+<BannerAdComponent useFooterStyle={false} />
+
+// Com unit ID customizado e estilo footer
+<BannerAdComponent unitId="ca-app-pub-xxx/xxx" useFooterStyle={true} />
+```
 
 ## ⭐ Sistema de Avaliações
 
