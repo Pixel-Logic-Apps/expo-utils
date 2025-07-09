@@ -83,10 +83,10 @@ const Utils = {
     },
 
     setupAttributions: async () => {
+        
         try {
             await Purchases.enableAdServicesAttributionTokenCollection();
             await Purchases.collectDeviceIdentifiers();
-            
             const anonymousId = await AppEventsLogger.getAnonymousID();
             if (anonymousId) {
                 await Purchases.setFBAnonymousID(anonymousId);
@@ -129,7 +129,6 @@ const Utils = {
     setupRevenueCat: async (revenueCatKeys?: { androidApiKey: string, iosApiKey: string }) => {
         try {
             if (!revenueCatKeys) {
-                console.warn('RevenueCat keys not provided, skipping configuration');
                 return;
             }
             
@@ -260,7 +259,10 @@ const Utils = {
             await Utils.checkForRequiredUpdateAsync(remoteConfigs);
             await Utils.initFBSDK(appConfig);
             await Utils.setupClarity(clarityProjectId);
-            await Utils.setupAttributions();
+
+            if (revenueCatKeys) {
+                await Utils.setupAttributions();
+            }
             
             await requestTrackingPermissionsAsync();
             // After the user grants or denies permission, Facebook SDK will automatically handle it
