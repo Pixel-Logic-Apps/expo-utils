@@ -54,6 +54,7 @@ const LoadAdsManager: LoadAdsManagerType = {
             }
                 
             const interstitialAdUnitId = unitId ?? AdUnits.interstitial;
+            console.log("interstitialAdUnitId", interstitialAdUnitId);
             const interstitial = InterstitialAd.createForAdRequest(
                 interstitialAdUnitId,
                 {}
