@@ -236,11 +236,16 @@ const Utils = {
 
     prepare: async (
         setAppIsReady: (ready: boolean) => void, 
-        appConfig?: AppConfig,
+        appConfig?: any,
+        adUnits?: any,
         revenueCatKeys?: { androidApiKey: string, iosApiKey: string },
         clarityProjectId?: string
     ) => {
         try {
+
+            if (adUnits) {
+                (global as any).adUnits = adUnits;
+            }
 
             await Utils.setupRevenueCat(revenueCatKeys);
             
