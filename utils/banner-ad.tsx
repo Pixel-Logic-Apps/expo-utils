@@ -27,17 +27,15 @@ export default function BannerAdComponent({ unitId }: { unitId?: string }) {
 
     return (
         IS_ADS_ENABLED && (
-            <View style={{ position: "absolute", bottom: 0, zIndex: 1000 }}>
-                <BannerAd
-                    size={BannerAdSize.ANCHORED_ADAPTIVE_BANNER}
-                    requestOptions={{
-                        networkExtras: {
-                            collapsible: "bottom",
-                        },
-                    }}
-                    unitId={bannerUnitId}
-                />
-            </View>
+            <BannerAd
+                size={BannerAdSize.ANCHORED_ADAPTIVE_BANNER}
+                requestOptions={{
+                    networkExtras: {
+                        collapsible: "bottom",
+                    },
+                }}
+                unitId={bannerUnitId}
+            />
         )
     );
 }
