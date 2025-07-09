@@ -1,10 +1,18 @@
+// Função para warnings configuráveis do expo-utils
+export function expoUtilsWarn(...args: any[]) {
+    if (!(global as any).disableExpoUtilsWarnings) {
+        // eslint-disable-next-line no-console
+        console.warn(...args);
+    }
+}
+
 // Firebase imports com fallback seguro
 const getFirebaseApp = () => {
     try {
         const { getApp } = require("@react-native-firebase/app");
         return getApp();
     } catch (error) {
-        console.warn("Firebase app not configured. Some features will be disabled.");
+        expoUtilsWarn("Firebase app not configured. Some features will be disabled.");
         return null;
     }
 };
@@ -14,7 +22,7 @@ const getFirebaseRemoteConfig = () => {
         const { getRemoteConfig } = require("@react-native-firebase/remote-config");
         return getRemoteConfig;
     } catch (error) {
-        console.warn("Firebase remote config not configured.");
+        expoUtilsWarn("Firebase remote config not configured.");
         return null;
     }
 };
@@ -24,7 +32,7 @@ const getFirebaseAnalytics = () => {
         const { getAnalytics, logEvent } = require('@react-native-firebase/analytics');
         return { getAnalytics, logEvent };
     } catch (error) {
-        console.warn("Firebase analytics not configured.");
+        expoUtilsWarn("Firebase analytics not configured.");
         return { getAnalytics: () => null, logEvent: () => {} };
     }
 };
@@ -34,7 +42,7 @@ const getFirebaseMessaging = () => {
         const { getMessaging } = require('@react-native-firebase/messaging');
         return getMessaging;
     } catch (error) {
-        console.warn("Firebase messaging not configured.");
+        expoUtilsWarn("Firebase messaging not configured.");
         return () => ({ 
             onMessage: () => {},
             requestPermission: () => Promise.resolve(),
@@ -73,13 +81,6 @@ import { getAnalytics, logEvent } from '@react-native-firebase/analytics';
 import fs from 'fs';
 import path from 'path';
 
-export function expoUtilsWarn(...args: any[]) {
-    if (!(global as any).disableExpoUtilsWarnings) {
-        // eslint-disable-next-line no-console
-        console.warn(...args);
-    }
-}
-
 function getExpoUtilsDisableWarnings(appConfig?: any): boolean {
     if (!appConfig?.expo?.plugins) return false;
     const plugins = appConfig.expo.plugins;
@@ -108,7 +109,7 @@ const Utils = {
     getRemoteConfigSettings: async (): Promise<RemoteConfigSettings> => {
         const app = getFirebaseApp();
         if (!app) {
-            console.warn("Firebase not configured, using default settings");
+            expoUtilsWarn("Firebase not configured, using default settings");
             return {
                 is_ads_enabled: false,
                 min_version: 1.0
@@ -161,7 +162,7 @@ const Utils = {
     setupRevenueCat: async (revenueCatKeys?: { androidApiKey: string, iosApiKey: string }) => {
         try {
             if (!revenueCatKeys) {
-                console.warn('RevenueCat keys not provided, skipping configuration');
+                expoUtilsWarn('RevenueCat keys not provided, skipping configuration');
                 return;
             }
             
@@ -170,7 +171,7 @@ const Utils = {
                 : revenueCatKeys.iosApiKey;
 
             if (!apiKey) {
-                console.warn('RevenueCat API key not found for platform:', Platform.OS);
+                expoUtilsWarn('RevenueCat API key not found for platform:', Platform.OS);
                 return;
             }
             
@@ -189,7 +190,7 @@ const Utils = {
             const appID = fbConfig?.[1]?.appID;
             
             if (!appID) {
-                console.warn('Facebook App ID not found in app.config. Configure the react-native-fbsdk-next plugin.');
+                expoUtilsWarn('Facebook App ID not found in app.config. Configure the react-native-fbsdk-next plugin.');
                 return;
             }
             FbsdkSettings.setAppID(appID);
@@ -202,7 +203,7 @@ const Utils = {
 
     setupClarity: async (clarityProjectId?: string) => {
         if (!clarityProjectId) {
-            console.warn('Clarity project ID not provided, skipping initialization.');
+            expoUtilsWarn('Clarity project ID not provided, skipping initialization.');
             return;
         }
 
@@ -224,8 +225,8 @@ const Utils = {
                 });
                 const topicName = appConfig?.expo?.slug || 'default-topic';
                 await subscribeToTopic(messaging, topicName)
-                    .then(() => console.log("Subscribed to topic all!"))
-                    .catch(() => console.log("Not Subscribed"));
+                    .then(() => expoUtilsWarn("Subscribed to topic:", topicName))
+                    .catch(() => expoUtilsWarn("Failed to subscribe to topic:", topicName));
             }
         } catch (error) {
             console.error('Error setting up push notifications:', error);

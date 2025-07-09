@@ -7,6 +7,7 @@ import {
     RewardedAd, RewardedAdEventType,
 } from "react-native-google-mobile-ads";
 import { getAnalytics, logEvent } from '@react-native-firebase/analytics';
+import { expoUtilsWarn } from './Utils';
 
 type LoadAdsManagerType = {
     showInterstitial: (unitId?: string) => Promise<boolean>;
@@ -18,7 +19,7 @@ const getFirebaseApp = () => {
         const { getApp } = require("@react-native-firebase/app");
         return getApp();
     } catch (error) {
-        console.warn("Firebase app not configured. Some features will be disabled.");
+        expoUtilsWarn("Firebase app not configured. Some features will be disabled.");
         return null;
     }
 };
