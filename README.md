@@ -234,7 +234,7 @@ if (success) {
 ### Dados Utilizados Automaticamente
 
 **🤖 Android:** `Application.applicationId` (detectado automaticamente)  
-**🍎 iOS:** `remoteConfigs.ios_app_id` (do Firebase Remote Config)
+**🍎 iOS:** `Application.applicationId` → busca automática do App ID via iTunes API
 
 ### Comportamento por Plataforma
 
@@ -246,7 +246,20 @@ if (success) {
 **🍎 iOS:**
 - **Loja nativa**: `itms-apps://itunes.apple.com/app/viewContentsUserReviews/id=APP_ID?action=write-review`
 - **Browser**: `https://apps.apple.com/app/apple-store/id=APP_ID?action=write-review`
-- Requer App ID obrigatório
+- **App ID detectado automaticamente** via iTunes API usando o bundle ID
+
+### Busca Automática do App ID (iOS)
+
+O expo-utils busca automaticamente o App ID do iOS fazendo uma requisição para:
+```
+https://itunes.apple.com/lookup?bundleId=SEU_BUNDLE_ID
+```
+
+**✅ Vantagens:**
+- **Zero configuração** necessária
+- **Busca automática** via iTunes API oficial
+- **Cache inteligente** para melhor performance
+- **Fallback seguro** para remote config se necessário
 
 ### Retorno
 - `Promise<boolean>` - `true` se abriu com sucesso, `false` se houve erro

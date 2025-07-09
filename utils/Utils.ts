@@ -121,6 +121,39 @@ function getExpoUtilsDisableLogs(appConfig?: any): boolean {
 
 
 const Utils = {
+    // Função para buscar App ID iOS a partir do bundle ID
+    getIOSAppId: async (): Promise<string | null> => {
+        try {
+            if (Platform.OS !== 'ios') {
+                return null;
+            }
+
+            const bundleId = Application.applicationId;
+            if (!bundleId) {
+                expoUtilsWarn('Bundle ID not found for iOS app lookup');
+                return null;
+            }
+
+            const lookupUrl = `https://itunes.apple.com/lookup?bundleId=${bundleId}`;
+            expoUtilsLog('Looking up iOS App ID for bundle:', bundleId);
+            
+            const response = await fetch(lookupUrl);
+            const data = await response.json();
+
+            if (data.resultCount > 0 && data.results && data.results.length > 0) {
+                const appId = data.results[0].trackId.toString();
+                expoUtilsLog('Found iOS App ID:', appId);
+                return appId;
+            } else {
+                expoUtilsWarn('App not found in App Store for bundle ID:', bundleId);
+                return null;
+            }
+        } catch (error) {
+            expoUtilsWarn('Error looking up iOS App ID:', error);
+            return null;
+        }
+    },
+
     getRemoteConfigSettings: async (): Promise<RemoteConfigSettings> => {
         const app = getFirebaseApp();
         if (!app) {
@@ -264,10 +297,22 @@ const Utils = {
                         messages.updateMessage,
                         [{
                             text: messages.updateNow,
-                            onPress: () => {
-                                const url = Platform.OS === 'android' ?
-                                    `https://play.google.com/store/apps/details?id=${Application.applicationId}` :
-                                    `https://apps.apple.com/app/${remoteConfigSettings.ios_app_id}`;
+                            onPress: async () => {
+                                let url: string;
+                                if (Platform.OS === 'android') {
+                                    url = `https://play.google.com/store/apps/details?id=${Application.applicationId}`;
+                                } else {
+                                    const iosAppId = await Utils.getIOSAppId();
+                                    if (iosAppId) {
+                                        url = `https://apps.apple.com/app/apple-store/id${iosAppId}`;
+                                    } else {
+                                        // Fallback para remote config se a busca falhar
+                                        const fallbackAppId = remoteConfigSettings.ios_app_id;
+                                        url = fallbackAppId ? 
+                                            `https://apps.apple.com/app/apple-store/id${fallbackAppId}` :
+                                            'https://apps.apple.com/';
+                                    }
+                                }
                                 Linking.openURL(url);
                                 resolve();
                             },
@@ -358,9 +403,9 @@ const Utils = {
                 return true;
                 
             } else if (Platform.OS === 'ios') {
-                const iosAppId = (global as any).remoteConfigs?.ios_app_id;
+                const iosAppId = await Utils.getIOSAppId();
                 if (!iosAppId) {
-                    expoUtilsWarn('iOS App ID not found in remote configs. Make sure ios_app_id is configured in Firebase Remote Config.');
+                    expoUtilsWarn('iOS App ID could not be found automatically');
                     return false;
                 }
                 
