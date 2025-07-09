@@ -96,14 +96,6 @@ function getExpoUtilsDisableWarnings(appConfig?: any): boolean {
     return false;
 }
 
-function setupGlobalConfigs(appConfig?: any, adUnits?: any) {
-    if (getExpoUtilsDisableWarnings(appConfig)) {
-        (global as any).disableExpoUtilsWarnings = true;
-    }
-    if (adUnits) {
-        (global as any).adUnits = adUnits;
-    }
-}
 
 const Utils = {
     getRemoteConfigSettings: async (): Promise<RemoteConfigSettings> => {
@@ -275,16 +267,10 @@ const Utils = {
     ) => {
         try {
             
-            setupGlobalConfigs(appConfig, adUnits);
-
             await Utils.setupRevenueCat(revenueCatKeys);
             
             const remoteConfigs = await Utils.getRemoteConfigSettings();
-            if(remoteConfigs.is_ads_enabled === false) {
-                (global as any).isAdsEnabled = false;
-            }
-            (global as any).remoteConfigs = remoteConfigs;
-
+            await Utils.setupGlobalConfigs(appConfig, adUnits, remoteConfigs);
             await Utils.didUpdate();
             await Utils.checkForRequiredUpdateAsync(remoteConfigs);
             await Utils.initFBSDK(appConfig);
@@ -315,6 +301,19 @@ const Utils = {
             }
         }
     },
+
+    setupGlobalConfigs: async (appConfig?: any, adUnits?: any, remoteConfigs?: any) => {
+        if (getExpoUtilsDisableWarnings(appConfig)) {
+            (global as any).disableExpoUtilsWarnings = true;
+        }
+        if (adUnits) {
+            (global as any).adUnits = adUnits;
+        }
+        if(remoteConfigs.is_ads_enabled === false) {
+            (global as any).isAdsEnabled = false;
+        }
+        (global as any).remoteConfigs = remoteConfigs;
+    }
 };
 
 export default Utils; 
