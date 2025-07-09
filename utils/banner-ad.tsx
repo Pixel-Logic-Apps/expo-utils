@@ -20,7 +20,7 @@ export default function BannerAdComponent({ unitId }: { unitId?: string }) {
             if(global.isAdsEnabled !== false) {
                 setIsAdsEnabled(remoteConfigSettings.is_ads_enabled);
             }
-            console.log("bannerUnitId", bannerUnitId);
+            console.log("bannerUnitIds", bannerUnitId);
         };
         didLoaded().then();
     }, []);
