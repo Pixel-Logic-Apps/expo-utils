@@ -56,6 +56,19 @@ import * as Clarity from '@microsoft/react-native-clarity';
 import * as SplashScreen from 'expo-splash-screen';
 import { Alert, Platform, Linking } from 'react-native';
 
+export const getAdUnits = () => {
+    try {
+        return require(process.cwd() + '/src/constants/Strings').default;
+    } catch {
+        try {
+            return require(process.cwd() + '/constants/Strings').default;
+        } catch {
+            console.warn('Arquivo Strings.ts não encontrado em src/constants ou constants');
+            return {};
+        }
+    }
+};
+
 const Utils = {
     getRemoteConfigSettings: async (): Promise<RemoteConfigSettings> => {
         const app = getFirebaseApp();

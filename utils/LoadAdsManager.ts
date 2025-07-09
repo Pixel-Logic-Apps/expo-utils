@@ -6,7 +6,9 @@ import {
     InterstitialAd,
     RewardedAd, RewardedAdEventType,
 } from "react-native-google-mobile-ads";
-import AdUnits from '../constants/Strings';
+
+import { getAdUnits } from './Utils';
+const AdUnits = getAdUnits();
 
 type LoadAdsManagerType = {
     showInterstitial: (unitId?: string) => Promise<boolean>;

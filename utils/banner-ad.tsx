@@ -3,7 +3,8 @@ import { View } from "react-native";
 import { BannerAd, BannerAdSize } from "react-native-google-mobile-ads";
 import Utils from "./Utils";
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import AdUnits from '../constants/Strings';
+import { getAdUnits } from './Utils';
+const AdUnits = getAdUnits();
 
 export default function BannerAdComponent({ unitId }: { unitId?: string }) {
     const [IS_ADS_ENABLED, setIsAdsEnabled] = useState(global.isAdsEnabled);
