@@ -6,6 +6,14 @@ export function expoUtilsWarn(...args: any[]) {
     }
 }
 
+// Função para logs configuráveis do expo-utils
+export function expoUtilsLog(...args: any[]) {
+    if (!(global as any).disableExpoUtilsLogs) {
+        // eslint-disable-next-line no-console
+        console.log(...args);
+    }
+}
+
 // Firebase imports com fallback seguro
 const getFirebaseApp = () => {
     try {
@@ -90,6 +98,21 @@ function getExpoUtilsDisableWarnings(appConfig?: any): boolean {
         }
         if (plugin === 'expo-utils') {
             // Se for só a string, não desabilita warnings
+            continue;
+        }
+    }
+    return false;
+}
+
+function getExpoUtilsDisableLogs(appConfig?: any): boolean {
+    if (!appConfig?.expo?.plugins) return false;
+    const plugins = appConfig.expo.plugins;
+    for (const plugin of plugins) {
+        if (Array.isArray(plugin) && plugin[0] === 'expo-utils' && plugin[1]?.disableLogs === true) {
+            return true;
+        }
+        if (plugin === 'expo-utils') {
+            // Se for só a string, não desabilita logs
             continue;
         }
     }
@@ -304,6 +327,9 @@ const Utils = {
     setupGlobalConfigs: async (appConfig?: any, adUnits?: any, remoteConfigs?: any) => {
         if (getExpoUtilsDisableWarnings(appConfig)) {
             (global as any).disableExpoUtilsWarnings = true;
+        }
+        if (getExpoUtilsDisableLogs(appConfig)) {
+            (global as any).disableExpoUtilsLogs = true;
         }
         if (adUnits) {
             (global as any).adUnits = adUnits;

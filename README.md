@@ -403,20 +403,30 @@ declare global {
 - Verificação de dependências automática
 - Estrutura de projeto organizada
 
-## 🚨 Suporte a Warnings
+## 🚨 Suporte a Warnings e Logs
 
-Para suprimir warnings do expo-utils, adicione a configuração no seu `app.json` (opcional):
+Para suprimir warnings e/ou logs do expo-utils, adicione a configuração no seu `app.json` (opcional):
 
 ```json
 // app.json
 {
   "expo": {
     "plugins": [
-      ["expo-utils", { "disableWarnings": true }]
+      [
+        "expo-utils", 
+        { 
+          "disableWarnings": true,  // Suprime warnings
+          "disableLogs": true       // Suprime console.log (opcional)
+        }
+      ]
     ]
   }
 }
 ```
+
+**Configurações disponíveis:**
+- `disableWarnings: true` - Suprime todos os warnings do expo-utils
+- `disableLogs: true` - Suprime todos os console.log do expo-utils (útil em produção)
 
 **Nota**: O plugin expo-utils é completamente opcional. O projeto funciona normalmente sem ele.
 

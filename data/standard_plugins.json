@@ -19,6 +19,7 @@
         }
     },
     "expo-utils": {
-        "disableWarnings": false
+        "disableWarnings": false,
+        "disableLogs": false
     }
 } 

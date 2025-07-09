@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { View } from "react-native";
 import { BannerAd, BannerAdSize } from "react-native-google-mobile-ads";
-import Utils from "./Utils";
+import Utils, { expoUtilsLog } from "./Utils";
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function BannerAdComponent({ unitId }: { unitId?: string }) {
@@ -20,7 +20,7 @@ export default function BannerAdComponent({ unitId }: { unitId?: string }) {
             if(global.isAdsEnabled !== false) {
                 setIsAdsEnabled(remoteConfigSettings.is_ads_enabled);
             }
-            console.log("bannerUnitIds", bannerUnitId);
+            expoUtilsLog("bannerUnitIds", bannerUnitId);
         };
         didLoaded().then();
     }, []);
