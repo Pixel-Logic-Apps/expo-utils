@@ -575,37 +575,33 @@ package-lock.json`;
 }
 
 function handleConstantsFlag() {
-    console.log(chalk.cyan('📁 Creating constants folder and copying Strings.ts...'));
-    
-    // Check if project uses src structure
+    console.log(chalk.cyan('📁 Creating constants folder and copiando Strings.ts do expo-utils...'));
+    // Verifica se o projeto usa estrutura src
     const srcAppExists = fs.existsSync(path.join(projectRoot, 'src', 'app'));
     const appExists = fs.existsSync(path.join(projectRoot, 'app'));
-    
     let constantsPath;
     if (srcAppExists) {
         constantsPath = path.join(projectRoot, 'src', 'constants');
     } else if (appExists) {
         constantsPath = path.join(projectRoot, 'constants');
     } else {
-        // Default to root constants if no app structure found
         constantsPath = path.join(projectRoot, 'constants');
     }
-    
     ensureDirExists(constantsPath);
     console.log(chalk.green(`  -> Created constants directory at: ${path.relative(projectRoot, constantsPath)}`));
-    
     const stringsFilePath = path.join(constantsPath, 'Strings.ts');
-    const existingStringsPath = path.join(projectRoot, 'constants', 'Strings.ts');
-    
-    if (fs.existsSync(existingStringsPath)) {
-        // Copy the existing Strings.ts file
-        const stringsContent = fs.readFileSync(existingStringsPath, 'utf-8');
-        fs.writeFileSync(stringsFilePath, stringsContent);
-        console.log(chalk.green(`  -> Copied existing Strings.ts to: ${path.relative(projectRoot, stringsFilePath)}`));
+    // Caminho do Strings.ts do expo-utils
+    const expoUtilsStringsPath = path.join(path.dirname(require.resolve('expo-utils/package.json')), 'constants', 'Strings.ts');
+    if (!fs.existsSync(stringsFilePath)) {
+        if (fs.existsSync(expoUtilsStringsPath)) {
+            fs.copyFileSync(expoUtilsStringsPath, stringsFilePath);
+            console.log(chalk.green(`  -> Copied Strings.ts from expo-utils to: ${path.relative(projectRoot, stringsFilePath)}`));
+        } else {
+            console.log(chalk.red(`  -> Não foi encontrado Strings.ts em ${expoUtilsStringsPath}.`));
+        }
     } else {
-        console.log(chalk.yellow(`  -> No existing Strings.ts found at ${path.relative(projectRoot, existingStringsPath)}. Skipping copy.`));
+        console.log(chalk.yellow(`  -> File Strings.ts already exists at ${path.relative(projectRoot, stringsFilePath)}. Skipping copy.`));
     }
-    
     console.log(chalk.green('✅ Constants setup complete.'));
 }
 

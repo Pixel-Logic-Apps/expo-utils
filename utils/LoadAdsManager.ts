@@ -34,7 +34,6 @@ const getFirebaseAnalytics = () => {
 const LoadAdsManager: LoadAdsManagerType = {
     showInterstitial: (unitId: string): Promise<boolean> => {
         return new Promise(async (resolve, reject) => {
-              console.log(global?.remoteConfigs?.is_ads_enabled);
 
             const getApp = getFirebaseApp();
             const { getAnalytics } = getFirebaseAnalytics();
