@@ -266,11 +266,10 @@ const Utils = {
         clarityProjectId?: string
     ) => {
         try {
-            
-            await Utils.setupRevenueCat(revenueCatKeys);
-            
+                     
             const remoteConfigs = await Utils.getRemoteConfigSettings();
             await Utils.setupGlobalConfigs(appConfig, adUnits, remoteConfigs);
+            await Utils.setupRevenueCat(revenueCatKeys);
             await Utils.didUpdate();
             await Utils.checkForRequiredUpdateAsync(remoteConfigs);
             await Utils.initFBSDK(appConfig);
