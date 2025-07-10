@@ -605,6 +605,23 @@ function handleConstantsFlag() {
     console.log(chalk.green('✅ Constants setup complete.'));
 }
 
+function handleGitignoreFlag() {
+    console.log(chalk.cyan('📁 Atualizando .gitignore...'));
+    const gitignorePath = path.join(projectRoot, '.gitignore');
+    let content = '';
+    if (fs.existsSync(gitignorePath)) {
+        content = fs.readFileSync(gitignorePath, 'utf8');
+    }
+    const linesToAdd = ['ios/', 'android/'];
+    linesToAdd.forEach(line => {
+        if (!content.includes(line)) {
+            content += `\n${line}`;
+        }
+    });
+    fs.writeFileSync(gitignorePath, content.trim() + '\n');
+    console.log(chalk.green('✅ Atualizado .gitignore com ios/ e android/.'));
+}
+
 async function handleAppReset() {
     console.log(chalk.cyan('♻️ Resetting app structure...'));
 
@@ -667,6 +684,7 @@ async function main() {
         handleSkadnetworkFlag();
         handleEasLoginScriptFlag();
         handleTrackingPermissionFlag();
+        handleGitignoreFlag(); // Nova chamada para atualizar .gitignore
         
         const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
         
@@ -698,6 +716,7 @@ async function main() {
         if (args.includes('--tracking-permission')) handleTrackingPermissionFlag();
         if (args.includes('--eas-config')) handleEasConfigFlag();
         if (args.includes('--constants')) handleConstantsFlag();
+        if (args.includes('--gitignore')) handleGitignoreFlag(); // Nova flag para atualizar .gitignore
         console.log(chalk.bold.magenta('\n✨ All done! ✨'));
     }
 }
