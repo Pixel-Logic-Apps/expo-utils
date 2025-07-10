@@ -612,7 +612,7 @@ function handleGitignoreFlag() {
     if (fs.existsSync(gitignorePath)) {
         content = fs.readFileSync(gitignorePath, 'utf8');
     }
-    const linesToAdd = ['ios/', 'android/'];
+    const linesToAdd = ['ios/', 'android/', 'package-lock.json', '.idea/', '.vscode/', 'app-example'];
     linesToAdd.forEach(line => {
         if (!content.includes(line)) {
             content += `\n${line}`;
