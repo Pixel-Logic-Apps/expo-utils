@@ -639,6 +639,32 @@ async function handleAppReset() {
         console.log(chalk.yellow(`  -> Removed existing 'src/app' directory for a clean slate.`));
     }
 
+    // Remove additional directories
+    const dirsToRemove = ['constants', 'hooks', 'scripts', path.join('assets', 'fonts')];
+    dirsToRemove.forEach(dir => {
+        const dirPath = path.join(projectRoot, dir);
+        if (fs.existsSync(dirPath)) {
+            fs.rmSync(dirPath, { recursive: true, force: true });
+            console.log(chalk.yellow(`  -> Removed '${dir}' directory.`));
+        }
+    });
+
+    // Remove specific image files
+    const imagesToRemove = [
+        path.join('assets', 'images', 'favicon.png'),
+        path.join('assets', 'images', 'react-logo.png'),
+        path.join('assets', 'images', 'react-logo@2x.png'),
+        path.join('assets', 'images', 'react-logo@3x.png'),
+        path.join('assets', 'images', 'partial-react-logo.png')
+    ];
+    imagesToRemove.forEach(imagePath => {
+        const fullPath = path.join(projectRoot, imagePath);
+        if (fs.existsSync(fullPath)) {
+            fs.rmSync(fullPath, { force: true });
+            console.log(chalk.yellow(`  -> Removed '${imagePath}'.`));
+        }
+    });
+
     // Create new structure
     ensureDirExists(newAppDir);
     console.log(chalk.green(`  -> Created 'src/app' directory.`));
