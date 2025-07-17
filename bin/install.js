@@ -640,7 +640,7 @@ async function handleAppReset() {
     }
 
     // Remove additional directories
-    const dirsToRemove = ['constants', 'hooks', 'scripts', path.join('assets', 'fonts')];
+    const dirsToRemove = ['constants', 'hooks', 'components', 'scripts', path.join('assets', 'fonts')];
     dirsToRemove.forEach(dir => {
         const dirPath = path.join(projectRoot, dir);
         if (fs.existsSync(dirPath)) {

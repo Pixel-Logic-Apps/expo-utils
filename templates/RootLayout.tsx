@@ -2,7 +2,7 @@ import {Stack} from "expo-router";
 import Utils from "expo-utils/utils/Utils";
 import React, {useEffect, useState} from "react";
 import appConfig from "../../app.json";
-import adUnits from "@/constants/Strings";
+import adUnits from "../constants/Strings";
 
 declare global {
     var remoteConfigs: any;
