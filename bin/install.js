@@ -369,6 +369,16 @@ function handleFirebasePlaceholdersFlag() {
     config.expo.ios = config.expo.ios || {};
     config.expo.android = config.expo.android || {};
 
+    // Set placeholder values in app.json if not present
+    if (!androidPackage) {
+        config.expo.android.package = 'com.placeholder.app';
+        console.log(chalk.green(`  -> Set 'expo.android.package' to 'com.placeholder.app' in app.json.`));
+    }
+    if (!iosBundleId) {
+        config.expo.ios.bundleIdentifier = 'com.placeholder.app';
+        console.log(chalk.green(`  -> Set 'expo.ios.bundleIdentifier' to 'com.placeholder.app' in app.json.`));
+    }
+
     if (config.expo.ios.googleServicesFile !== './GoogleService-Info.plist') {
         config.expo.ios.googleServicesFile = './GoogleService-Info.plist';
         console.log(chalk.green(`  -> Updated 'ios.googleServicesFile' in app.json.`));
