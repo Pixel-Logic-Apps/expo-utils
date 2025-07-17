@@ -715,7 +715,6 @@ async function main() {
         handleIosBuildFixFlag();
         handleFirebasePlaceholdersFlag();
         handleConfigFlag();
-        handleConstantsFlag();
         handleLanguagesFlag();
         handleSkadnetworkFlag();
         handleEasLoginScriptFlag();
@@ -724,14 +723,15 @@ async function main() {
         
         const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
         
-        rl.question(chalk.yellow.bold("\n❓ Tem certeza que deseja limpar a pasta 'app' e criar uma nova em 'src/app'? (y/N) "), async (answer) => {
-            if (answer.toLowerCase() === 'y') {
-                await handleAppReset();
-            } else {
+        rl.question(chalk.yellow.bold("\n❓ Tem certeza que deseja limpar a pasta 'app' e criar uma nova em 'src/app'? (Y/n) "), async (answer) => {
+            if (answer.toLowerCase() === 'n') {
                 console.log(chalk.gray('  -> Skipping app structure reset.'));
                 // Explain what to do next if they skip
                 console.log(chalk.cyan("\n💡 To manually move your 'app' folder, run 'npx expo-utils-install --srcapp'"));
                 console.log(chalk.cyan("💡 To replace the layout, run 'npx expo-utils-install --layout'"));
+            } else {
+                await handleAppReset();
+                handleConstantsFlag(); // Execute after app reset
             }
             rl.close();
             console.log(chalk.bold.magenta('\n✨ All done! ✨'));
