@@ -28,6 +28,7 @@ const LoadAdsManager: LoadAdsManagerType = {
     showInterstitial: (unitId?: string): Promise<boolean> => {
         return new Promise(async (resolve, reject) => {
             const isPremium = await AsyncStorage.getItem('@isPremium');
+            expoUtilsLog("isPremium", isPremium);
             if (isPremium === 'true') {
                 resolve(true);
                 return;
@@ -38,7 +39,7 @@ const LoadAdsManager: LoadAdsManagerType = {
                 resolve(true);
                 return;
             }
-            
+            expoUtilsLog("isAdsEnabled", global.isAdsEnabled);
             const adUnits = (global as any).adUnits || {};
             expoUtilsLog("interstitialUnitIds", adUnits);
 

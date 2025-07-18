@@ -12,11 +12,13 @@ export default function BannerAdComponent({ unitId }: { unitId?: string }) {
     useEffect(() => {
         const didLoaded = async () => {
             const isPremium = await AsyncStorage.getItem('@isPremium');
+            expoUtilsLog("isPremium", isPremium);
             if (isPremium === 'true') {
                 setIsAdsEnabled(false);
                 return;
             }
             const remoteConfigSettings = await Utils.getRemoteConfigSettings();
+            expoUtilsLog("isAdsEnabled", global.isAdsEnabled);
             if(global.isAdsEnabled !== false) {
                 setIsAdsEnabled(remoteConfigSettings.is_ads_enabled);
             }

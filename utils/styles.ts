@@ -7,7 +7,7 @@ export const ExpoUtilsStyles = StyleSheet.create({
         justifyContent: "center",
         flexDirection: "column",
         flex: 1,
-        bottom: 0,
+        bottom: 10,
         width: "100%",
         gap: 10,
         zIndex: 1000,
