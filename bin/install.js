@@ -567,12 +567,21 @@ function handleEasConfigFlag() {
 
     // --- Create .easignore ---
     const easIgnorePath = path.join(projectRoot, '.easignore');
-    const easIgnoreContent = `/android
+    const easIgnoreContent = 
+`/android
 /ios
 /docs
 /coverage
+/resources
+/.vscode
+/.git
+/.expo
+.psd
+.easignore
+.gitignore
 .DS_Store
-package-lock.json`;
+package-lock.json
+eas_login.sh`;
 
     if (!fs.existsSync(easIgnorePath)) {
         fs.writeFileSync(easIgnorePath, easIgnoreContent);
