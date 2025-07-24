@@ -64,7 +64,7 @@ import { getLocalizedMessages } from './i18n';
 
 // Static imports for runtime dependencies
 import { requestTrackingPermissionsAsync } from 'expo-tracking-transparency';
-import * as Updates from 'expo-updates';
+// import * as Updates from 'expo-updates';
 import * as Application from 'expo-application';
 import { AppEventsLogger, Settings as FbsdkSettings } from 'react-native-fbsdk-next';
 import Purchases from 'react-native-purchases';
@@ -190,22 +190,22 @@ const Utils = {
         }
     },
 
-    didUpdate: async () => {
-        const app = getFirebaseApp();
-        if (!app) return;
-        const analytics = getAnalytics(app);
-        try {
-            await logEvent(analytics, "checking_update");
-            const update = await Updates.checkForUpdateAsync();
-            if (update.isAvailable) {
-                await logEvent(analytics, "checking_update_success");
-                await Updates.fetchUpdateAsync();
-                await Updates.reloadAsync();
-            }
-        } catch (e) {
-            await logEvent(analytics, "checking_update_error", { error: e?.message });
-        }
-    },
+    // didUpdate: async () => {
+    //     const app = getFirebaseApp();
+    //     if (!app) return;
+    //     const analytics = getAnalytics(app);
+    //     try {
+    //         await logEvent(analytics, "checking_update");
+    //         const update = await Updates.checkForUpdateAsync();
+    //         if (update.isAvailable) {
+    //             await logEvent(analytics, "checking_update_success");
+    //             await Updates.fetchUpdateAsync();
+    //             await Updates.reloadAsync();
+    //         }
+    //     } catch (e) {
+    //         await logEvent(analytics, "checking_update_error", { error: e?.message });
+    //     }
+    // },
 
     setupRevenueCat: async (revenueCatKeys?: { androidApiKey: string, iosApiKey: string }) => {
         try {
@@ -338,7 +338,7 @@ const Utils = {
             const remoteConfigs = await Utils.getRemoteConfigSettings();
             await Utils.setupGlobalConfigs(appConfig, adUnits, remoteConfigs);
             await Utils.setupRevenueCat(revenueCatKeys);
-            await Utils.didUpdate();
+            // await Utils.didUpdate();
             await Utils.checkForRequiredUpdateAsync(remoteConfigs);
             await Utils.initFBSDK(appConfig);
             await Utils.setupClarity(clarityProjectId);
