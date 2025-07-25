@@ -25,46 +25,12 @@ const getFirebaseApp = () => {
     }
 };
 
-const getFirebaseRemoteConfig = () => {
-    try {
-        const { getRemoteConfig } = require("@react-native-firebase/remote-config");
-        return getRemoteConfig;
-    } catch (error) {
-        expoUtilsWarn("Firebase remote config not configured.");
-        return null;
-    }
-};
-
-const getFirebaseAnalytics = () => {
-    try {
-        const { getAnalytics, logEvent } = require('@react-native-firebase/analytics');
-        return { getAnalytics, logEvent };
-    } catch (error) {
-        expoUtilsWarn("Firebase analytics not configured.");
-        return { getAnalytics: () => null, logEvent: () => {} };
-    }
-};
-
-const getFirebaseMessaging = () => {
-    try {
-        const { getMessaging } = require('@react-native-firebase/messaging');
-        return getMessaging;
-    } catch (error) {
-        expoUtilsWarn("Firebase messaging not configured.");
-        return () => ({ 
-            onMessage: () => {},
-            requestPermission: () => Promise.resolve(),
-            subscribeToTopic: () => Promise.resolve()
-        });
-    }
-};
 
 import { AppConfig, RemoteConfigSettings } from './types';
 import { getLocalizedMessages } from './i18n';
 
 // Static imports for runtime dependencies
 import { requestTrackingPermissionsAsync } from 'expo-tracking-transparency';
-// import * as Updates from 'expo-updates';
 import * as Application from 'expo-application';
 import { AppEventsLogger, Settings as FbsdkSettings } from 'react-native-fbsdk-next';
 import Purchases from 'react-native-purchases';
@@ -86,8 +52,6 @@ import {
     subscribeToTopic
 } from '@react-native-firebase/messaging';
 import { getAnalytics, logEvent } from '@react-native-firebase/analytics';
-import fs from 'fs';
-import path from 'path';
 
 function getExpoUtilsDisableWarnings(appConfig?: any): boolean {
     if (!appConfig?.expo?.plugins) return false;
@@ -190,22 +154,27 @@ const Utils = {
         }
     },
 
-    // didUpdate: async () => {
-    //     const app = getFirebaseApp();
-    //     if (!app) return;
-    //     const analytics = getAnalytics(app);
-    //     try {
-    //         await logEvent(analytics, "checking_update");
-    //         const update = await Updates.checkForUpdateAsync();
-    //         if (update.isAvailable) {
-    //             await logEvent(analytics, "checking_update_success");
-    //             await Updates.fetchUpdateAsync();
-    //             await Updates.reloadAsync();
-    //         }
-    //     } catch (e) {
-    //         await logEvent(analytics, "checking_update_error", { error: e?.message });
-    //     }
-    // },
+    didUpdate: async () => {
+        const app = getFirebaseApp();
+        if (!app) return;
+        const analytics = getAnalytics(app);
+        try {
+            await logEvent(analytics, "checking_update");
+            const Updates = require('expo-updates');
+            const update = await Updates.checkForUpdateAsync();
+            if (update.isAvailable) {
+                await logEvent(analytics, "checking_update_success");
+                await Updates.fetchUpdateAsync();
+                await Updates.reloadAsync();
+            }
+        } catch (e) {
+            if (e.code === 'ERR_MODULE_NOT_FOUND') {
+                expoUtilsWarn("expo-updates is not installed. Skipping update check.");
+            } else {
+                await logEvent(analytics, "checking_update_error", { error: e?.message });
+            }
+        }
+    },
 
     setupRevenueCat: async (revenueCatKeys?: { androidApiKey: string, iosApiKey: string }) => {
         try {
