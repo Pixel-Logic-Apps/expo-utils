@@ -100,6 +100,15 @@ function handleConfigFlag() {
         console.log(chalk.yellow(`  -> Plugin ${firebaseAppPlugin} already configured.`));
     }
 
+    // Add Firebase Crashlytics plugin (no config needed from the file)
+    const firebaseCrashlyticsPlugin = '@react-native-firebase/crashlytics';
+    if (!config.expo.plugins.some(p => (Array.isArray(p) ? p[0] : p) === firebaseCrashlyticsPlugin)) {
+        config.expo.plugins.push(firebaseCrashlyticsPlugin);
+        console.log(chalk.green(`  -> Added ${firebaseCrashlyticsPlugin} plugin.`));
+    } else {
+        console.log(chalk.yellow(`  -> Plugin ${firebaseCrashlyticsPlugin} already configured.`));
+    }
+
     // Add other plugins from the config file
     Object.keys(pluginsWithConfig).forEach(pluginName => {
         if (!config.expo.plugins.some(p => (Array.isArray(p) ? p[0] : p) === pluginName)) {
