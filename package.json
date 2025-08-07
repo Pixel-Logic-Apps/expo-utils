@@ -45,6 +45,7 @@
         "react-native-google-mobile-ads": ">=15.0.0",
         "react-native-purchases": ">=8.0.0",
         "react-native-webview": ">=13.13.5",
+        "@react-native-community/slider": ">=4.5.7",
         "react-native-fs": ">=2.20.0"
     },
     "expo": {
