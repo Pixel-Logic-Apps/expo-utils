@@ -44,7 +44,7 @@
         "expo-network": ">=7.1.5",
         "expo-tracking-transparency": ">=5.0.0",
         "expo-updates": ">=0.25.0",
-        "react-native-edge-to-edge": "1.6.0",
+        "react-native-edge-to-edge": ">=1.6.0",
         "react-native-fbsdk-next": ">=13.0.0",
         "react-native-google-mobile-ads": ">=15.0.0",
         "react-native-purchases": ">=8.0.0",
