@@ -36,6 +36,7 @@ import * as Application from "expo-application";
 import {AppEventsLogger, Settings as FbsdkSettings} from "react-native-fbsdk-next";
 import Purchases from "react-native-purchases";
 import * as SplashScreen from "expo-splash-screen";
+import { requireOptionalNativeModule } from 'expo-modules-core';
 import {Alert, Platform} from "react-native";
 // Importações modulares do Firebase
 import {
@@ -161,7 +162,7 @@ const Utils = {
         const analytics = getAnalytics(app);
         try {
             await logEvent(analytics, "checking_update");
-            const Updates = require("expo-updates");
+            const Updates = requireOptionalNativeModule("ExpoUpdates");
             const update = await Updates.checkForUpdateAsync();
             if (update.isAvailable) {
                 await logEvent(analytics, "checking_update_success");
