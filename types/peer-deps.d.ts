@@ -36,4 +36,18 @@ declare module 'react-native' {
     export class Platform {
         static OS: 'ios' | 'android' | 'windows' | 'macos' | 'web';
     }
+
+    export const Linking: {
+        openURL(url: string): Promise<void>;
+    };
 } 
+
+declare module 'expo-localization' {
+    export interface Locale {
+        languageCode?: string;
+        regionCode?: string;
+        languageTag?: string;
+        isRTL?: boolean;
+    }
+    export function getLocales(): Locale[];
+}

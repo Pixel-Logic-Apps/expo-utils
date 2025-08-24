@@ -23,6 +23,7 @@ export interface AppConfig {
 export interface RemoteConfigSettings {
     is_ads_enabled: boolean;
     min_version: number;
+    min_version_force?: boolean;
     review_mode: number;
     repeat_ads_count: number;
     delay_close_paywall_button: number;

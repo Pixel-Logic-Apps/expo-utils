@@ -138,12 +138,8 @@ export const getSystemLanguage = (): string => {
 };
 
 // Função para obter traduções baseadas no idioma
-export const getLocalizedMessages = (): Translations => {
-    const systemLanguage = getSystemLanguage();
-    
-    // Extrai código do idioma (ex: 'pt-BR' → 'pt', 'en-US' → 'en')
-    const languageCode = systemLanguage.split('-')[0].toLowerCase();
-    
-    // Retorna traduções do idioma ou fallback para inglês
+export const getLocalizedMessages = (language?: string): Translations => {
+    const resolvedLanguage = (language || getSystemLanguage() || 'en').toString();
+    const languageCode = resolvedLanguage.split('-')[0].toLowerCase();
     return translations[languageCode] || translations['en'];
 }; 
