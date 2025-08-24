@@ -169,11 +169,8 @@ const Utils = {
                 await Updates.reloadAsync();
             }
         } catch (e) {
-            if (e.code === "ERR_MODULE_NOT_FOUND") {
-                expoUtilsWarn("expo-updates is not installed. Skipping update check.");
-            } else {
-                await logEvent(analytics, "checking_update_error", {error: e?.message});
-            }
+            expoUtilsWarn("expo-updates is not installed. Skipping update check.");
+            await logEvent(analytics, "checking_update_error", {error: e?.message});
         }
     },
 
