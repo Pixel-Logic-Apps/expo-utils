@@ -27,7 +27,16 @@ const getFirebaseApp = () => {
 
 import {AppConfig, RemoteConfigSettings} from "./types";
 import {getLocalizedMessages} from "./i18n";
-import {getLocales} from "expo-localization";
+const safeGetLocales = (): Array<{ languageCode?: string }> => {
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const mod = require("expo-localization");
+        if (mod && typeof mod.getLocales === "function") {
+            return mod.getLocales();
+        }
+    } catch {}
+    return [{ languageCode: "en" }];
+};
 
 // Static imports for runtime dependencies
 import {requestTrackingPermissionsAsync} from "expo-tracking-transparency";
@@ -231,7 +240,7 @@ const Utils = {
                 const messaging = getMessaging(app);
                 onMessage(messaging, async (remoteMessage) => {
                     if (remoteMessage.notification) {
-                        const languageCode = getLocales()[0]?.languageCode ?? "en";
+                        const languageCode = safeGetLocales()[0]?.languageCode ?? "en";
                         const messages = getLocalizedMessages(languageCode);
                         Alert.alert(messages.newMessage, remoteMessage.notification.body);
                     }
@@ -257,7 +266,7 @@ const Utils = {
                 return;
             }
 
-            const languageCode = getLocales()[0]?.languageCode ?? "en";
+            const languageCode = safeGetLocales()[0]?.languageCode ?? "en";
             const messages = getLocalizedMessages(languageCode);
 
             const openStore = async () => {
