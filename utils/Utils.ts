@@ -1,4 +1,3 @@
-/// <reference path="../types/peer-deps.d.ts" />
 // Função para warnings configuráveis do expo-utils
 export function expoUtilsWarn(...args: any[]) {
     if (!(global as any).disableExpoUtilsWarnings) {
