@@ -1,6 +1,6 @@
 // Função para warnings configuráveis do expo-utils
 export function expoUtilsWarn(...args: any[]) {
-    if (!(global as any).disableExpoUtilsWarnings) {
+    if (!(globalThis as any).disableExpoUtilsWarnings) {
         // eslint-disable-next-line no-console
         console.warn(...args);
     }
@@ -8,7 +8,7 @@ export function expoUtilsWarn(...args: any[]) {
 
 // Função para logs configuráveis do expo-utils
 export function expoUtilsLog(...args: any[]) {
-    if (!(global as any).disableExpoUtilsLogs) {
+    if (!(globalThis as any).disableExpoUtilsLogs) {
         // eslint-disable-next-line no-console
         console.log(...args);
     }
@@ -36,7 +36,7 @@ import {AppEventsLogger, Settings as FbsdkSettings} from "react-native-fbsdk-nex
 import Purchases from "react-native-purchases";
 import * as SplashScreen from "expo-splash-screen";
 import { requireOptionalNativeModule } from 'expo-modules-core';
-import {Alert, Platform} from "react-native";
+import {Alert, Platform, Linking} from "react-native";
 // Importações modulares do Firebase
 import {
     getRemoteConfig,
@@ -275,7 +275,7 @@ const Utils = {
                             : "https://apps.apple.com/";
                     }
                 }
-                require("react-native").Linking.openURL(url);
+                Linking.openURL(url);
             };
 
             const present = () => {
@@ -335,18 +335,18 @@ const Utils = {
 
     setupGlobalConfigs: async (appConfig?: any, adUnits?: any, remoteConfigs?: any) => {
         if (getExpoUtilsDisableWarnings(appConfig)) {
-            (global as any).disableExpoUtilsWarnings = true;
+            (globalThis as any).disableExpoUtilsWarnings = true;
         }
         if (getExpoUtilsDisableLogs(appConfig)) {
-            (global as any).disableExpoUtilsLogs = true;
+            (globalThis as any).disableExpoUtilsLogs = true;
         }
         if (adUnits) {
-            (global as any).adUnits = adUnits;
+            (globalThis as any).adUnits = adUnits;
         }
         if (remoteConfigs.is_ads_enabled === false) {
-            (global as any).isAdsEnabled = false;
+            (globalThis as any).isAdsEnabled = false;
         }
-        (global as any).remoteConfigs = remoteConfigs;
+        (globalThis as any).remoteConfigs = remoteConfigs;
     },
 
     openReviewURL: async (preferNativeStore = true) => {
@@ -363,7 +363,7 @@ const Utils = {
                     : `https://play.google.com/store/apps/details?id=${packageName}&showAllReviews=true`;
 
                 expoUtilsLog("Opening Android review URL:", storeUrl);
-                await require("react-native").Linking.openURL(storeUrl);
+                await Linking.openURL(storeUrl);
                 return true;
             } else if (Platform.OS === "ios") {
                 const iosAppId = await Utils.getIOSAppId();
@@ -377,7 +377,7 @@ const Utils = {
                     : `https://apps.apple.com/app/apple-store/id${iosAppId}?action=write-review`;
 
                 expoUtilsLog("Opening iOS review URL:", storeUrl);
-                await require("react-native").Linking.openURL(storeUrl);
+                await Linking.openURL(storeUrl);
                 return true;
             } else {
                 expoUtilsWarn("Platform not supported for review URL:", Platform.OS);

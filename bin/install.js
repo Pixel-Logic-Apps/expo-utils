@@ -41,6 +41,19 @@ function ensureDirExists(dirPath) {
     }
 }
 
+/**
+ * Checks if a package exists in the target project.
+ * @param {string} pkgSubPath package name or subpath like 'expo/package.json'
+ */
+function hasPackage(pkgSubPath) {
+    try {
+        require.resolve(pkgSubPath, { paths: [projectRoot] });
+        return true;
+    } catch {
+        return false;
+    }
+}
+
 
 // --- Scaffolding Functions ---
 
@@ -57,11 +70,28 @@ async function handleDependencyInstall() {
         return;
     }
 
-    const depsToInstall = missingDeps.map(dep => `"${dep}@${peerDependencies[dep]}"`).join(' ');
+    const ua = process.env.npm_config_user_agent || '';
+    const hasExpo = hasPackage('expo/package.json');
+
+    // Prefer expo install when Expo is present to ensure compatible versions
+    const depsToInstall = missingDeps
+        .map(dep => {
+            const isExpoManaged = dep === 'expo' || dep === 'react' || dep === 'react-native' || dep.startsWith('expo-') || dep.startsWith('@expo/');
+            return hasExpo && isExpoManaged ? dep : `${dep}@${peerDependencies[dep]}`;
+        })
+        .join(' ');
+
     console.log(chalk.yellow(`📦 Installing ${missingDeps.length} missing dependenc(ies): ${missingDeps.join(', ')}`));
-    
-    const useYarn = fs.existsSync(path.join(projectRoot, 'yarn.lock'));
-    const command = useYarn ? `yarn add ${depsToInstall}` : `npm install ${depsToInstall} --quiet`;
+
+    const base = hasExpo
+        ? `npx -y expo install`
+        : ua.includes('yarn')
+            ? 'yarn add'
+            : ua.includes('pnpm')
+                ? 'pnpm add'
+                : 'npm install';
+
+    const command = `${base} ${depsToInstall}`;
 
     return new Promise((resolve, reject) => {
         exec(command, (error, stdout, stderr) => {

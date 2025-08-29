@@ -15,6 +15,9 @@
         "chalk": "^4.1.2"
     },
     "peerDependencies": {
+        "react": ">=18.0.0",
+        "react-native": ">=0.75.0",
+        "expo": ">=52.0.0",
         "@react-native-async-storage/async-storage": ">=1.24.0",
         "@react-native-firebase/analytics": ">=22.2.1",
         "@react-native-firebase/app": ">=22.2.1",
@@ -51,6 +54,17 @@
         "react-native-webview": ">=13.13.5",
         "@react-native-community/slider": ">=4.5.7",
         "react-native-fs": ">=2.20.0"
+    },
+    "peerDependenciesMeta": {
+        "expo": { "optional": true }
+    },
+    "devDependencies": {
+        "react": "18.3.1",
+        "react-native": "0.75.4",
+        "expo": "53.0.0",
+        "typescript": "^5.6.2",
+        "@types/react": "^18.3.3",
+        "@types/node": "^22.5.2"
     },
     "expo": {
         "plugins": [
