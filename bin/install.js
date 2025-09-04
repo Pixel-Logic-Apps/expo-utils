@@ -77,7 +77,13 @@ async function handleDependencyInstall() {
     const depsToInstall = missingDeps
         .map(dep => {
             const isExpoManaged = dep === 'expo' || dep === 'react' || dep === 'react-native' || dep.startsWith('expo-') || dep.startsWith('@expo/');
-            return hasExpo && isExpoManaged ? dep : `${dep}@${peerDependencies[dep]}`;
+            if (hasExpo && isExpoManaged) {
+                return dep;
+            } else {
+                // Escapar versões que contém >= para evitar interpretação do shell como redirecionamento
+                const version = peerDependencies[dep];
+                return `"${dep}@${version}"`;
+            }
         })
         .join(' ');
 
@@ -141,11 +147,24 @@ function handleConfigFlag() {
 
     // Add other plugins from the config file
     Object.keys(pluginsWithConfig).forEach(pluginName => {
-        if (!config.expo.plugins.some(p => (Array.isArray(p) ? p[0] : p) === pluginName)) {
+        const existingPluginIndex = config.expo.plugins.findIndex(p => (Array.isArray(p) ? p[0] : p) === pluginName);
+        
+        if (existingPluginIndex === -1) {
+            // Plugin não existe, adicionar novo
             config.expo.plugins.push([pluginName, pluginsWithConfig[pluginName]]);
             console.log(chalk.green(`  -> Added ${pluginName} plugin.`));
         } else {
-            console.log(chalk.yellow(`  -> Plugin ${pluginName} already configured.`));
+            // Plugin existe, verificar se tem configuração
+            const existingPlugin = config.expo.plugins[existingPluginIndex];
+            const hasConfig = Array.isArray(existingPlugin) && existingPlugin.length > 1;
+            
+            if (!hasConfig) {
+                // Plugin existe mas sem configuração, substituir por versão com configuração
+                config.expo.plugins[existingPluginIndex] = [pluginName, pluginsWithConfig[pluginName]];
+                console.log(chalk.green(`  -> Updated ${pluginName} plugin with configuration.`));
+            } else {
+                console.log(chalk.yellow(`  -> Plugin ${pluginName} already configured.`));
+            }
         }
     });
 
