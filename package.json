@@ -58,6 +58,9 @@
     "peerDependenciesMeta": {
         "expo": {
             "optional": true
+        },
+        "expo-updates": {
+            "optional": true
         }
     },
     "devDependencies": {
