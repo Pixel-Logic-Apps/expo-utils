@@ -1,6 +1,6 @@
 // Função para warnings configuráveis do expo-utils
 export function expoUtilsWarn(...args: any[]) {
-    if (!(globalThis as any).disableExpoUtilsWarnings) {
+    if (!(global as any).disableExpoUtilsWarnings) {
         // eslint-disable-next-line no-console
         console.warn(...args);
     }
@@ -8,7 +8,7 @@ export function expoUtilsWarn(...args: any[]) {
 
 // Função para logs configuráveis do expo-utils
 export function expoUtilsLog(...args: any[]) {
-    if (!(globalThis as any).disableExpoUtilsLogs) {
+    if (!(global as any).disableExpoUtilsLogs) {
         // eslint-disable-next-line no-console
         console.log(...args);
     }
@@ -344,18 +344,18 @@ const Utils = {
 
     setupGlobalConfigs: async (appConfig?: any, adUnits?: any, remoteConfigs?: any) => {
         if (getExpoUtilsDisableWarnings(appConfig)) {
-            (globalThis as any).disableExpoUtilsWarnings = true;
+            (global as any).disableExpoUtilsWarnings = true;
         }
         if (getExpoUtilsDisableLogs(appConfig)) {
-            (globalThis as any).disableExpoUtilsLogs = true;
+            (global as any).disableExpoUtilsLogs = true;
         }
         if (adUnits) {
-            (globalThis as any).adUnits = adUnits;
+            (global as any).adUnits = adUnits;
         }
         if (remoteConfigs.is_ads_enabled === false) {
-            (globalThis as any).isAdsEnabled = false;
+            (global as any).isAdsEnabled = false;
         }
-        (globalThis as any).remoteConfigs = remoteConfigs;
+        (global as any).remoteConfigs = remoteConfigs;
     },
 
     openReviewURL: async (preferNativeStore = true) => {
