@@ -29,4 +29,4 @@ export interface RemoteConfigSettings {
     delay_close_paywall_button: number;
     ios_app_id: string;
     is_paywall_disabled: boolean;
-} 
+}

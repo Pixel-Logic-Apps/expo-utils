@@ -1,4 +1,4 @@
-import React, {useEffect, useRef, useState} from "react";
+import {memo, useEffect, useRef, useState} from "react";
 import {BannerAd, BannerAdSize, TestIds} from "react-native-google-mobile-ads";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Utils, {expoUtilsLog} from "./Utils";
@@ -10,22 +10,8 @@ import Utils, {expoUtilsLog} from "./Utils";
  *  • evita múltiplas instâncias simultâneas usando `React.memo`;
  *  • troca o unitId automaticamente em modo DEV.
  */
-const SafeBanner = React.memo(({unitId}: {unitId: string | undefined}) => {
-    const bannerRef = useRef<BannerAd>(null);
-
-    // Garante liberação do AdView nativo quando o componente sai da árvore.
-    useEffect(() => {
-        return () => bannerRef.current?.destroy();
-    }, []);
-
-    return (
-        <BannerAd
-            ref={bannerRef}
-            unitId={__DEV__ ? TestIds.BANNER : unitId!}
-            size={BannerAdSize.ANCHORED_ADAPTIVE_BANNER}
-            requestOptions={{networkExtras: {collapsible: "bottom"}}}
-        />
-    );
+const SafeBanner = memo(({unitId}: {unitId: string | undefined}) => {
+    return <BannerAd unitId={__DEV__ ? TestIds.BANNER : unitId!} size={BannerAdSize.ANCHORED_ADAPTIVE_BANNER} />;
 });
 
 export default function BannerAdComponent({unitId}: {unitId?: string}) {

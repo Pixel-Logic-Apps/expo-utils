@@ -1,29 +1,29 @@
 {
     "project_info": {
-      "project_number": "573141154357",
-      "project_id": "principal-cb260",
-      "storage_bucket": "principal-cb260.firebasestorage.app"
+        "project_number": "573141154357",
+        "project_id": "principal-cb260",
+        "storage_bucket": "principal-cb260.firebasestorage.app"
     },
     "client": [
-      {
-        "client_info": {
-          "mobilesdk_app_id": "1:573141154357:android:186be107e681f8ea074f7c",
-          "android_client_info": {
-            "package_name": "${androidPackage}"
-          }
-        },
-        "oauth_client": [],
-        "api_key": [
-          {
-            "current_key": "AIzaSyAeU_0DPOpFH_bwDxeZWKnfByhrkyF_yY8"
-          }
-        ],
-        "services": {
-          "appinvite_service": {
-            "other_platform_oauth_client": []
-          }
+        {
+            "client_info": {
+                "mobilesdk_app_id": "1:573141154357:android:186be107e681f8ea074f7c",
+                "android_client_info": {
+                    "package_name": "${androidPackage}"
+                }
+            },
+            "oauth_client": [],
+            "api_key": [
+                {
+                    "current_key": "AIzaSyAeU_0DPOpFH_bwDxeZWKnfByhrkyF_yY8"
+                }
+            ],
+            "services": {
+                "appinvite_service": {
+                    "other_platform_oauth_client": []
+                }
+            }
         }
-      }
     ],
     "configuration_version": "1"
-  }
+}

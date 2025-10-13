@@ -1,15 +1,15 @@
 #!/usr/bin/env node
 
-const { exec } = require('child_process');
-const path = require('path');
-const fs = require('fs');
-const chalk = require('chalk');
-const readline = require('readline');
+const {exec} = require("child_process");
+const path = require("path");
+const fs = require("fs");
+const chalk = require("chalk");
+const readline = require("readline");
 
 // --- Helper Functions ---
 
 const projectRoot = process.cwd();
-const appJsonPath = path.join(projectRoot, 'app.json');
+const appJsonPath = path.join(projectRoot, "app.json");
 
 /**
  * Safely reads and parses the app.json file.
@@ -17,10 +17,10 @@ const appJsonPath = path.join(projectRoot, 'app.json');
  */
 function getAppConfig() {
     if (!fs.existsSync(appJsonPath)) {
-        console.error(chalk.red('Error: Could not find app.json in the current directory.'));
+        console.error(chalk.red("Error: Could not find app.json in the current directory."));
         return null;
     }
-    return JSON.parse(fs.readFileSync(appJsonPath, 'utf-8'));
+    return JSON.parse(fs.readFileSync(appJsonPath, "utf-8"));
 }
 
 /**
@@ -37,7 +37,7 @@ function writeAppConfig(config) {
  */
 function ensureDirExists(dirPath) {
     if (!fs.existsSync(dirPath)) {
-        fs.mkdirSync(dirPath, { recursive: true });
+        fs.mkdirSync(dirPath, {recursive: true});
     }
 }
 
@@ -47,36 +47,40 @@ function ensureDirExists(dirPath) {
  */
 function hasPackage(pkgSubPath) {
     try {
-        require.resolve(pkgSubPath, { paths: [projectRoot] });
+        require.resolve(pkgSubPath, {paths: [projectRoot]});
         return true;
     } catch {
         return false;
     }
 }
 
-
 // --- Scaffolding Functions ---
 
 async function handleDependencyInstall() {
-    console.log(chalk.cyan('🚀 Checking for missing peer dependencies...'));
-    const modulePkg = require('expo-utils/package.json');
+    console.log(chalk.cyan("🚀 Checking for missing peer dependencies..."));
+    const modulePkg = require("expo-utils/package.json");
     const peerDependencies = modulePkg.peerDependencies || {};
-    const projectPkg = require(path.join(projectRoot, 'package.json'));
-    const existingDeps = { ...projectPkg.dependencies, ...projectPkg.devDependencies };
-    const missingDeps = Object.keys(peerDependencies).filter(dep => !existingDeps[dep]);
+    const projectPkg = require(path.join(projectRoot, "package.json"));
+    const existingDeps = {...projectPkg.dependencies, ...projectPkg.devDependencies};
+    const missingDeps = Object.keys(peerDependencies).filter((dep) => !existingDeps[dep]);
 
     if (missingDeps.length === 0) {
-        console.log(chalk.green('✅ All required peer dependencies are already installed.'));
+        console.log(chalk.green("✅ All required peer dependencies are already installed."));
         return;
     }
 
-    const ua = process.env.npm_config_user_agent || '';
-    const hasExpo = hasPackage('expo/package.json');
+    const ua = process.env.npm_config_user_agent || "";
+    const hasExpo = hasPackage("expo/package.json");
 
     // Prefer expo install when Expo is present to ensure compatible versions
     const depsToInstall = missingDeps
-        .map(dep => {
-            const isExpoManaged = dep === 'expo' || dep === 'react' || dep === 'react-native' || dep.startsWith('expo-') || dep.startsWith('@expo/');
+        .map((dep) => {
+            const isExpoManaged =
+                dep === "expo" ||
+                dep === "react" ||
+                dep === "react-native" ||
+                dep.startsWith("expo-") ||
+                dep.startsWith("@expo/");
             if (hasExpo && isExpoManaged) {
                 return dep;
             } else {
@@ -85,27 +89,30 @@ async function handleDependencyInstall() {
                 return `"${dep}@${version}"`;
             }
         })
-        .join(' ');
+        .join(" ");
 
-    console.log(chalk.yellow(`📦 Installing ${missingDeps.length} missing dependenc(ies): ${missingDeps.join(', ')}`));
+    console.log(chalk.yellow(`📦 Installing ${missingDeps.length} missing dependenc(ies): ${missingDeps.join(", ")}`));
 
     const base = hasExpo
         ? `npx -y expo install`
-        : ua.includes('yarn')
-            ? 'yarn add'
-            : ua.includes('pnpm')
-                ? 'pnpm add'
-                : 'npm install';
+        : ua.includes("yarn")
+          ? "yarn add"
+          : ua.includes("pnpm")
+            ? "pnpm add"
+            : "npm install";
 
     const command = `${base} ${depsToInstall}`;
 
     return new Promise((resolve, reject) => {
         exec(command, (error, stdout, stderr) => {
             if (error) {
-                console.error(chalk.red('\n❌ An error occurred during installation.'), chalk.red(stderr || error.message));
+                console.error(
+                    chalk.red("\n❌ An error occurred during installation."),
+                    chalk.red(stderr || error.message),
+                );
                 reject(error);
             } else {
-                console.log(chalk.green.bold('\n✅ Dependencies installed successfully!'));
+                console.log(chalk.green.bold("\n✅ Dependencies installed successfully!"));
                 resolve();
             }
         });
@@ -113,13 +120,17 @@ async function handleDependencyInstall() {
 }
 
 function handleConfigFlag() {
-    console.log(chalk.cyan('🔧 Configuring standard plugins in app.json...'));
+    console.log(chalk.cyan("🔧 Configuring standard plugins in app.json..."));
     const config = getAppConfig();
     if (!config) return;
 
-    const pluginsConfigPath = path.join(path.dirname(require.resolve('expo-utils/package.json')), 'data', 'standard_plugins.json');
+    const pluginsConfigPath = path.join(
+        path.dirname(require.resolve("expo-utils/package.json")),
+        "data",
+        "standard_plugins.json",
+    );
     if (!fs.existsSync(pluginsConfigPath)) {
-        console.error(chalk.red('❌ Could not find standard_plugins.json in the expo-utils module.'));
+        console.error(chalk.red("❌ Could not find standard_plugins.json in the expo-utils module."));
         return;
     }
     const pluginsWithConfig = require(pluginsConfigPath);
@@ -128,8 +139,8 @@ function handleConfigFlag() {
     config.expo.plugins = config.expo.plugins || [];
 
     // Add Firebase App plugin (no config needed from the file, it's discovered automatically)
-    const firebaseAppPlugin = '@react-native-firebase/app';
-    if (!config.expo.plugins.some(p => (Array.isArray(p) ? p[0] : p) === firebaseAppPlugin)) {
+    const firebaseAppPlugin = "@react-native-firebase/app";
+    if (!config.expo.plugins.some((p) => (Array.isArray(p) ? p[0] : p) === firebaseAppPlugin)) {
         config.expo.plugins.push(firebaseAppPlugin);
         console.log(chalk.green(`  -> Added ${firebaseAppPlugin} plugin.`));
     } else {
@@ -137,8 +148,8 @@ function handleConfigFlag() {
     }
 
     // Add Firebase Crashlytics plugin (no config needed from the file)
-    const firebaseCrashlyticsPlugin = '@react-native-firebase/crashlytics';
-    if (!config.expo.plugins.some(p => (Array.isArray(p) ? p[0] : p) === firebaseCrashlyticsPlugin)) {
+    const firebaseCrashlyticsPlugin = "@react-native-firebase/crashlytics";
+    if (!config.expo.plugins.some((p) => (Array.isArray(p) ? p[0] : p) === firebaseCrashlyticsPlugin)) {
         config.expo.plugins.push(firebaseCrashlyticsPlugin);
         console.log(chalk.green(`  -> Added ${firebaseCrashlyticsPlugin} plugin.`));
     } else {
@@ -146,9 +157,9 @@ function handleConfigFlag() {
     }
 
     // Add other plugins from the config file
-    Object.keys(pluginsWithConfig).forEach(pluginName => {
-        const existingPluginIndex = config.expo.plugins.findIndex(p => (Array.isArray(p) ? p[0] : p) === pluginName);
-        
+    Object.keys(pluginsWithConfig).forEach((pluginName) => {
+        const existingPluginIndex = config.expo.plugins.findIndex((p) => (Array.isArray(p) ? p[0] : p) === pluginName);
+
         if (existingPluginIndex === -1) {
             // Plugin não existe, adicionar novo
             config.expo.plugins.push([pluginName, pluginsWithConfig[pluginName]]);
@@ -157,7 +168,7 @@ function handleConfigFlag() {
             // Plugin existe, verificar se tem configuração
             const existingPlugin = config.expo.plugins[existingPluginIndex];
             const hasConfig = Array.isArray(existingPlugin) && existingPlugin.length > 1;
-            
+
             if (!hasConfig) {
                 // Plugin existe mas sem configuração, substituir por versão com configuração
                 config.expo.plugins[existingPluginIndex] = [pluginName, pluginsWithConfig[pluginName]];
@@ -171,7 +182,7 @@ function handleConfigFlag() {
     // Configure Android permissions
     config.expo.android = config.expo.android || {};
     config.expo.android.permissions = config.expo.android.permissions || [];
-    
+
     const adIdPermission = "com.google.android.gms.permission.AD_ID";
     if (!config.expo.android.permissions.includes(adIdPermission)) {
         config.expo.android.permissions.push(adIdPermission);
@@ -181,21 +192,25 @@ function handleConfigFlag() {
     }
 
     writeAppConfig(config);
-    console.log(chalk.green('✅ Plugin configuration step complete.'));
+    console.log(chalk.green("✅ Plugin configuration step complete."));
 }
 
 function handleLayoutFlag() {
-    console.log(chalk.cyan('📝 Replacing root layout file...'));
-    
-    const layoutTemplatePath = path.join(path.dirname(require.resolve('expo-utils/package.json')), 'templates', 'RootLayout.tsx');
+    console.log(chalk.cyan("📝 Replacing root layout file..."));
+
+    const layoutTemplatePath = path.join(
+        path.dirname(require.resolve("expo-utils/package.json")),
+        "templates",
+        "RootLayout.tsx",
+    );
     if (!fs.existsSync(layoutTemplatePath)) {
-        console.error(chalk.red('❌ Could not find RootLayout.tsx template in the expo-utils module.'));
+        console.error(chalk.red("❌ Could not find RootLayout.tsx template in the expo-utils module."));
         return;
     }
-    const layoutContent = fs.readFileSync(layoutTemplatePath, 'utf-8');
+    const layoutContent = fs.readFileSync(layoutTemplatePath, "utf-8");
 
-    const path1 = path.join(projectRoot, 'app', '_layout.tsx');
-    const path2 = path.join(projectRoot, 'src', 'app', '_layout.tsx');
+    const path1 = path.join(projectRoot, "app", "_layout.tsx");
+    const path2 = path.join(projectRoot, "src", "app", "_layout.tsx");
 
     if (fs.existsSync(path2)) {
         fs.writeFileSync(path2, layoutContent);
@@ -204,15 +219,19 @@ function handleLayoutFlag() {
         fs.writeFileSync(path1, layoutContent);
         console.log(chalk.green(`✅ Replaced ${path1}`));
     } else {
-        console.error(chalk.red('❌ Could not find an existing layout file at app/_layout.tsx or src/app/_layout.tsx. The template was not applied.'));
+        console.error(
+            chalk.red(
+                "❌ Could not find an existing layout file at app/_layout.tsx or src/app/_layout.tsx. The template was not applied.",
+            ),
+        );
     }
 }
 
 function handleSrcAppFlag() {
-    console.log(chalk.cyan('📁 Moving app directory to src/app...'));
-    const oldPath = path.join(projectRoot, 'app');
-    const newDirPath = path.join(projectRoot, 'src');
-    const newPath = path.join(newDirPath, 'app');
+    console.log(chalk.cyan("📁 Moving app directory to src/app..."));
+    const oldPath = path.join(projectRoot, "app");
+    const newDirPath = path.join(projectRoot, "src");
+    const newPath = path.join(newDirPath, "app");
 
     if (!fs.existsSync(oldPath)) {
         console.error(chalk.red(`❌ Directory not found at ${oldPath}.`));
@@ -228,38 +247,38 @@ function handleSrcAppFlag() {
 }
 
 function handleLanguagesFlag() {
-    console.log(chalk.cyan('🌐 Setting up language files...'));
+    console.log(chalk.cyan("🌐 Setting up language files..."));
 
     const config = getAppConfig();
     if (!config) return;
 
-    const langDir = path.join(projectRoot, 'languages');
+    const langDir = path.join(projectRoot, "languages");
     ensureDirExists(langDir);
 
-    const baseAppName = config.expo?.name || 'MyApp';
+    const baseAppName = config.expo?.name || "MyApp";
     const languages = {
-        'pt': { name: `${baseAppName}`, file: 'pt.json' },
-        'en': { name: `${baseAppName}`, file: 'en.json' },
-        'es': { name: `${baseAppName}`, file: 'es.json' },
+        pt: {name: `${baseAppName}`, file: "pt.json"},
+        en: {name: `${baseAppName}`, file: "en.json"},
+        es: {name: `${baseAppName}`, file: "es.json"},
     };
 
-    Object.keys(languages).forEach(langCode => {
+    Object.keys(languages).forEach((langCode) => {
         const langInfo = languages[langCode];
         const filePath = path.join(langDir, langInfo.file);
-        
+
         if (!fs.existsSync(filePath)) {
             const localizedConfig = {
                 expo: {
                     name: langInfo.name,
                     ios: {
                         infoPlist: {
-                            CFBundleDisplayName: langInfo.name
-                        }
+                            CFBundleDisplayName: langInfo.name,
+                        },
                     },
                     android: {
-                        app_name: langInfo.name
-                    }
-                }
+                        app_name: langInfo.name,
+                    },
+                },
             };
             fs.writeFileSync(filePath, JSON.stringify(localizedConfig, null, 2));
             console.log(chalk.green(`  -> Created ${filePath} with localized names.`));
@@ -268,7 +287,7 @@ function handleLanguagesFlag() {
 
     // Configure app.json
     config.expo = config.expo || {};
-    
+
     // 1. Add assetBundlePatterns
     config.expo.assetBundlePatterns = config.expo.assetBundlePatterns || ["**/*"];
     const pattern = "languages/*";
@@ -287,7 +306,7 @@ function handleLanguagesFlag() {
 
     // 3. Configure locales mapping
     config.expo.locales = config.expo.locales || {};
-    Object.keys(languages).forEach(langCode => {
+    Object.keys(languages).forEach((langCode) => {
         const langFile = languages[langCode].file;
         const localePath = `./languages/${langFile}`;
         if (config.expo.locales[langCode] !== localePath) {
@@ -297,18 +316,22 @@ function handleLanguagesFlag() {
     });
 
     writeAppConfig(config);
-    console.log(chalk.green('✅ Advanced language setup complete.'));
+    console.log(chalk.green("✅ Advanced language setup complete."));
 }
 
 function handleSkadnetworkFlag() {
-    console.log(chalk.cyan('📊 Ensuring all SKAdNetworkItems are present...'));
+    console.log(chalk.cyan("📊 Ensuring all SKAdNetworkItems are present..."));
     const config = getAppConfig();
     if (!config) return;
 
     // Load the complete list of required IDs from the module's data file
-    const skadNetworkItemsPath = path.join(path.dirname(require.resolve('expo-utils/package.json')), 'data', 'skadnetwork_ids.json');
+    const skadNetworkItemsPath = path.join(
+        path.dirname(require.resolve("expo-utils/package.json")),
+        "data",
+        "skadnetwork_ids.json",
+    );
     if (!fs.existsSync(skadNetworkItemsPath)) {
-        console.error(chalk.red('❌ Could not find skadnetwork_ids.json in the expo-utils module.'));
+        console.error(chalk.red("❌ Could not find skadnetwork_ids.json in the expo-utils module."));
         return;
     }
     const requiredItems = require(skadNetworkItemsPath);
@@ -316,21 +339,21 @@ function handleSkadnetworkFlag() {
     config.expo = config.expo || {};
     config.expo.ios = config.expo.ios || {};
     config.expo.ios.infoPlist = config.expo.ios.infoPlist || {};
-    
+
     const existingItems = config.expo.ios.infoPlist.SKAdNetworkItems || [];
 
     // Use a Map to ensure uniqueness based on the SKAdNetworkIdentifier
     const combinedItemsMap = new Map();
-    
+
     // First, add existing items to the map
-    existingItems.forEach(item => {
+    existingItems.forEach((item) => {
         if (item.SKAdNetworkIdentifier) {
             combinedItemsMap.set(item.SKAdNetworkIdentifier, item);
         }
     });
 
     // Then, add/overwrite with the required items
-    requiredItems.forEach(item => {
+    requiredItems.forEach((item) => {
         if (item.SKAdNetworkIdentifier) {
             combinedItemsMap.set(item.SKAdNetworkIdentifier, item);
         }
@@ -341,7 +364,7 @@ function handleSkadnetworkFlag() {
 
     // For better readability and consistency, sort the items alphabetically
     newSkadItems.sort((a, b) => a.SKAdNetworkIdentifier.localeCompare(b.SKAdNetworkIdentifier));
-    
+
     const originalCount = existingItems.length;
     const finalCount = newSkadItems.length;
 
@@ -349,20 +372,23 @@ function handleSkadnetworkFlag() {
     config.expo.ios.infoPlist.SKAdNetworkItems = newSkadItems;
 
     if (finalCount > originalCount) {
-        console.log(chalk.green(`  -> Added ${finalCount - originalCount} new SKAdNetworkIdentifier(s). Total is now ${finalCount}.`));
+        console.log(
+            chalk.green(
+                `  -> Added ${finalCount - originalCount} new SKAdNetworkIdentifier(s). Total is now ${finalCount}.`,
+            ),
+        );
     } else if (finalCount === originalCount && originalCount > 0) {
         console.log(chalk.yellow(`  -> All ${finalCount} required SKAdNetworkIdentifiers were already present.`));
     } else if (finalCount > 0) {
         console.log(chalk.green(`  -> Ensured all ${finalCount} SKAdNetworkIdentifiers are present.`));
     }
 
-
     writeAppConfig(config);
-    console.log(chalk.green('✅ SKAdNetworkItems setup complete.'));
+    console.log(chalk.green("✅ SKAdNetworkItems setup complete."));
 }
 
 function handleFirebasePlaceholdersFlag() {
-    console.log(chalk.cyan('🔥 Creating Firebase placeholder files...'));
+    console.log(chalk.cyan("🔥 Creating Firebase placeholder files..."));
     const config = getAppConfig();
     if (!config) return;
 
@@ -377,46 +403,48 @@ function handleFirebasePlaceholdersFlag() {
         console.log(chalk.yellow(`  -> ⚠️  Android package not found. Using a placeholder.`));
         console.log(chalk.yellow(`     You MUST set 'expo.android.package' in your app.json for Firebase to work.`));
     }
-    
+
     if (iosBundleId) {
         console.log(chalk.gray(`  -> Using iOS bundleIdentifier: ${iosBundleId}`));
     } else {
         console.log(chalk.yellow(`  -> ⚠️  iOS bundleIdentifier not found. Using a placeholder.`));
-        console.log(chalk.yellow(`     You MUST set 'expo.ios.bundleIdentifier' in your app.json for Firebase to work.`));
+        console.log(
+            chalk.yellow(`     You MUST set 'expo.ios.bundleIdentifier' in your app.json for Firebase to work.`),
+        );
     }
 
-    const finalAndroidPackage = androidPackage || 'com.placeholder.app';
-    const finalIosBundleId = iosBundleId || 'com.placeholder.app';
-    
-    const moduleDir = path.dirname(require.resolve('expo-utils/package.json'));
+    const finalAndroidPackage = androidPackage || "com.placeholder.app";
+    const finalIosBundleId = iosBundleId || "com.placeholder.app";
+
+    const moduleDir = path.dirname(require.resolve("expo-utils/package.json"));
 
     // --- Android Placeholder ---
-    const googleServicesJsonPath = path.join(projectRoot, 'google-services.json');
+    const googleServicesJsonPath = path.join(projectRoot, "google-services.json");
     if (!fs.existsSync(googleServicesJsonPath)) {
-        const templatePath = path.join(moduleDir, 'templates', 'google-services.template.json');
+        const templatePath = path.join(moduleDir, "templates", "google-services.template.json");
         if (fs.existsSync(templatePath)) {
-            const template = fs.readFileSync(templatePath, 'utf-8');
+            const template = fs.readFileSync(templatePath, "utf-8");
             const content = template.replace(/\$\{androidPackage\}/g, finalAndroidPackage);
             fs.writeFileSync(googleServicesJsonPath, content);
             console.log(chalk.green(`  -> Created placeholder google-services.json`));
         } else {
-            console.error(chalk.red('❌ google-services.template.json not found in expo-utils module.'));
+            console.error(chalk.red("❌ google-services.template.json not found in expo-utils module."));
         }
     } else {
         console.log(chalk.yellow(`  -> File google-services.json already exists. Skipping.`));
     }
 
     // --- iOS Placeholder ---
-    const googleServicesPlistPath = path.join(projectRoot, 'GoogleService-Info.plist');
+    const googleServicesPlistPath = path.join(projectRoot, "GoogleService-Info.plist");
     if (!fs.existsSync(googleServicesPlistPath)) {
-        const templatePath = path.join(moduleDir, 'templates', 'GoogleService-Info.template.plist');
+        const templatePath = path.join(moduleDir, "templates", "GoogleService-Info.template.plist");
         if (fs.existsSync(templatePath)) {
-            const template = fs.readFileSync(templatePath, 'utf-8');
+            const template = fs.readFileSync(templatePath, "utf-8");
             const content = template.replace(/\$\{iosBundleId\}/g, finalIosBundleId);
             fs.writeFileSync(googleServicesPlistPath, content);
             console.log(chalk.green(`  -> Created placeholder GoogleService-Info.plist`));
         } else {
-            console.error(chalk.red('❌ GoogleService-Info.template.plist not found in expo-utils module.'));
+            console.error(chalk.red("❌ GoogleService-Info.template.plist not found in expo-utils module."));
         }
     } else {
         console.log(chalk.yellow(`  -> File GoogleService-Info.plist already exists. Skipping.`));
@@ -429,30 +457,30 @@ function handleFirebasePlaceholdersFlag() {
 
     // Set placeholder values in app.json if not present
     if (!androidPackage) {
-        config.expo.android.package = 'com.placeholder.app';
+        config.expo.android.package = "com.placeholder.app";
         console.log(chalk.green(`  -> Set 'expo.android.package' to 'com.placeholder.app' in app.json.`));
     }
     if (!iosBundleId) {
-        config.expo.ios.bundleIdentifier = 'com.placeholder.app';
+        config.expo.ios.bundleIdentifier = "com.placeholder.app";
         console.log(chalk.green(`  -> Set 'expo.ios.bundleIdentifier' to 'com.placeholder.app' in app.json.`));
     }
 
-    if (config.expo.ios.googleServicesFile !== './GoogleService-Info.plist') {
-        config.expo.ios.googleServicesFile = './GoogleService-Info.plist';
+    if (config.expo.ios.googleServicesFile !== "./GoogleService-Info.plist") {
+        config.expo.ios.googleServicesFile = "./GoogleService-Info.plist";
         console.log(chalk.green(`  -> Updated 'ios.googleServicesFile' in app.json.`));
     }
-    if (config.expo.android.googleServicesFile !== './google-services.json') {
-        config.expo.android.googleServicesFile = './google-services.json';
+    if (config.expo.android.googleServicesFile !== "./google-services.json") {
+        config.expo.android.googleServicesFile = "./google-services.json";
         console.log(chalk.green(`  -> Updated 'android.googleServicesFile' in app.json.`));
     }
-    
+
     writeAppConfig(config);
 
-    console.log(chalk.green('✅ Firebase placeholder step complete.'));
+    console.log(chalk.green("✅ Firebase placeholder step complete."));
 }
 
 function handleIosBuildFixFlag() {
-    console.log(chalk.cyan('🔧 Applying iOS build fixes and configurations...'));
+    console.log(chalk.cyan("🔧 Applying iOS build fixes and configurations..."));
     const config = getAppConfig();
     if (!config) return;
 
@@ -461,72 +489,69 @@ function handleIosBuildFixFlag() {
 
     // --- Configure build properties for Firebase ---
     config.expo.plugins = config.expo.plugins || [];
-    const buildPropertiesPlugin = config.expo.plugins.find(p => 
-        Array.isArray(p) && p[0] === 'expo-build-properties'
-    );
+    const buildPropertiesPlugin = config.expo.plugins.find((p) => Array.isArray(p) && p[0] === "expo-build-properties");
 
     const iosBuildConfig = {
-        useFrameworks: 'static',
+        useFrameworks: "static",
         useModularHeaders: true,
     };
 
     if (buildPropertiesPlugin) {
         buildPropertiesPlugin[1] = buildPropertiesPlugin[1] || {};
-        buildPropertiesPlugin[1].ios = { ...buildPropertiesPlugin[1].ios, ...iosBuildConfig };
-        console.log(chalk.green('  -> Configured expo-build-properties for iOS in app.json.'));
+        buildPropertiesPlugin[1].ios = {...buildPropertiesPlugin[1].ios, ...iosBuildConfig};
+        console.log(chalk.green("  -> Configured expo-build-properties for iOS in app.json."));
     } else {
-        config.expo.plugins.push(['expo-build-properties', { ios: iosBuildConfig }]);
-        console.log(chalk.green('  -> Added and configured expo-build-properties for iOS.'));
+        config.expo.plugins.push(["expo-build-properties", {ios: iosBuildConfig}]);
+        console.log(chalk.green("  -> Added and configured expo-build-properties for iOS."));
     }
 
     // --- Configure entitlements for Push Notifications ---
     config.expo.ios.entitlements = config.expo.ios.entitlements || {};
-    if (config.expo.ios.entitlements['aps-environment'] !== 'production') {
-        config.expo.ios.entitlements['aps-environment'] = 'production';
+    if (config.expo.ios.entitlements["aps-environment"] !== "production") {
+        config.expo.ios.entitlements["aps-environment"] = "production";
         console.log(chalk.green('  -> Set "aps-environment" to "production" for Push Notifications.'));
     }
-    
+
     writeAppConfig(config);
-    console.log(chalk.green('✅ iOS build configurations applied.'));
+    console.log(chalk.green("✅ iOS build configurations applied."));
 }
 
 function handleEasLoginScriptFlag() {
-    console.log(chalk.cyan('📜 Creating EAS login script...'));
-    const moduleDir = path.dirname(require.resolve('expo-utils/package.json'));
-    const templatePath = path.join(moduleDir, 'templates', 'eas_login.sh');
-    const destPath = path.join(projectRoot, 'eas_login.sh');
+    console.log(chalk.cyan("📜 Creating EAS login script..."));
+    const moduleDir = path.dirname(require.resolve("expo-utils/package.json"));
+    const templatePath = path.join(moduleDir, "templates", "eas_login.sh");
+    const destPath = path.join(projectRoot, "eas_login.sh");
 
     if (!fs.existsSync(templatePath)) {
-        console.error(chalk.red('❌ eas_login.sh template not found in expo-utils module.'));
+        console.error(chalk.red("❌ eas_login.sh template not found in expo-utils module."));
         return;
     }
 
     if (!fs.existsSync(destPath)) {
         fs.copyFileSync(templatePath, destPath);
         // Make the script executable
-        fs.chmodSync(destPath, '755');
+        fs.chmodSync(destPath, "755");
         console.log(chalk.green(`  -> Created eas_login.sh and made it executable.`));
     } else {
         console.log(chalk.yellow(`  -> File eas_login.sh already exists. Skipping.`));
     }
-    console.log(chalk.green('✅ EAS login script setup complete.'));
+    console.log(chalk.green("✅ EAS login script setup complete."));
 }
 
 function handleTrackingPermissionFlag() {
-    console.log(chalk.cyan('🔒 Configuring Tracking Transparency permission...'));
+    console.log(chalk.cyan("🔒 Configuring Tracking Transparency permission..."));
     const config = getAppConfig();
     if (!config) return;
 
     config.expo = config.expo || {};
     config.expo.plugins = config.expo.plugins || [];
 
-    const pluginName = 'expo-tracking-transparency';
-    const trackingPlugin = config.expo.plugins.find(p => 
-        Array.isArray(p) && p[0] === pluginName
-    );
+    const pluginName = "expo-tracking-transparency";
+    const trackingPlugin = config.expo.plugins.find((p) => Array.isArray(p) && p[0] === pluginName);
 
     const trackingConfig = {
-        userTrackingPermission: "We need your permission to personalize your experience with relevant ads and content. Your data helps us improve recommendations and ensure you see what's most interesting to you."
+        userTrackingPermission:
+            "We need your permission to personalize your experience with relevant ads and content. Your data helps us improve recommendations and ensure you see what's most interesting to you.",
     };
 
     if (!trackingPlugin) {
@@ -535,13 +560,13 @@ function handleTrackingPermissionFlag() {
     } else {
         console.log(chalk.yellow(`  -> Plugin ${pluginName} already exists. Skipping.`));
     }
-    
+
     writeAppConfig(config);
-    console.log(chalk.green('✅ Tracking permission setup complete.'));
+    console.log(chalk.green("✅ Tracking permission setup complete."));
 }
 
 function handleEasConfigFlag() {
-    console.log(chalk.cyan('🚀 Configuring EAS Build and Updates...'));
+    console.log(chalk.cyan("🚀 Configuring EAS Build and Updates..."));
     const config = getAppConfig();
     if (!config) return;
 
@@ -556,8 +581,8 @@ function handleEasConfigFlag() {
     // Rebuild the object, injecting runtimeVersion after version
     for (const key in oldExpo) {
         newExpo[key] = oldExpo[key];
-        if (key === 'version' && !oldExpo.runtimeVersion) {
-            newExpo.runtimeVersion = '1.0.0';
+        if (key === "version" && !oldExpo.runtimeVersion) {
+            newExpo.runtimeVersion = "1.0.0";
             console.log(chalk.green(`  -> Set "runtimeVersion" to "1.0.0" after "version".`));
             runtimeVersionInjected = true;
         }
@@ -565,18 +590,18 @@ function handleEasConfigFlag() {
 
     // If version didn't exist, but runtimeVersion also doesn't, add it.
     if (!runtimeVersionInjected && !oldExpo.runtimeVersion) {
-        newExpo.runtimeVersion = '1.0.0';
+        newExpo.runtimeVersion = "1.0.0";
         console.log(chalk.green(`  -> Set "runtimeVersion" to "1.0.0".`));
     }
 
     // --- Configure other expo properties ---
     newExpo.extra = newExpo.extra || {};
     newExpo.extra.router = newExpo.extra.router || {};
-    if(newExpo.extra.router.origin !== false) {
+    if (newExpo.extra.router.origin !== false) {
         newExpo.extra.router.origin = false;
         console.log(chalk.green(`  -> Set "extra.router.origin" to false.`));
     }
-    
+
     newExpo.extra.eas = newExpo.extra.eas || {};
     if (newExpo.extra.eas.projectId !== projectId) {
         newExpo.extra.eas.projectId = projectId;
@@ -588,32 +613,32 @@ function handleEasConfigFlag() {
         newExpo.updates.url = `https://u.expo.dev/${projectId}`;
         console.log(chalk.green(`  -> Set placeholder "updates.url".`));
     }
-    
+
     config.expo = newExpo;
     writeAppConfig(config);
 
     // --- Create eas.json ---
-    const easJsonPath = path.join(projectRoot, 'eas.json');
+    const easJsonPath = path.join(projectRoot, "eas.json");
     const easConfig = {
-      "cli": {
-        "version": ">= 13.2.0",
-        "appVersionSource": "remote"
-      },
-      "build": {
-        "development": {
-          "developmentClient": true,
-          "distribution": "internal"
+        cli: {
+            version: ">= 13.2.0",
+            appVersionSource: "remote",
         },
-        "preview": {
-          "distribution": "internal"
+        build: {
+            development: {
+                developmentClient: true,
+                distribution: "internal",
+            },
+            preview: {
+                distribution: "internal",
+            },
+            production: {
+                autoIncrement: true,
+            },
         },
-        "production": {
-          "autoIncrement": true
-        }
-      },
-      "submit": {
-        "production": {}
-      }
+        submit: {
+            production: {},
+        },
     };
 
     if (!fs.existsSync(easJsonPath)) {
@@ -624,9 +649,8 @@ function handleEasConfigFlag() {
     }
 
     // --- Create .easignore ---
-    const easIgnorePath = path.join(projectRoot, '.easignore');
-    const easIgnoreContent = 
-`/android
+    const easIgnorePath = path.join(projectRoot, ".easignore");
+    const easIgnoreContent = `/android
 /ios
 /docs
 /coverage
@@ -647,97 +671,109 @@ eas_login.sh`;
     } else {
         console.log(chalk.yellow(`  -> File .easignore already exists. Skipping creation.`));
     }
-    
-    console.log(chalk.green('✅ EAS configuration complete.'));
+
+    console.log(chalk.green("✅ EAS configuration complete."));
 }
 
 function handleConstantsFlag() {
-    console.log(chalk.cyan('📁 Creating constants folder and copiando Strings.ts do expo-utils...'));
+    console.log(chalk.cyan("📁 Creating constants folder and copiando Strings.ts do expo-utils..."));
     // Verifica se o projeto usa estrutura src
-    const srcAppExists = fs.existsSync(path.join(projectRoot, 'src', 'app'));
-    const appExists = fs.existsSync(path.join(projectRoot, 'app'));
+    const srcAppExists = fs.existsSync(path.join(projectRoot, "src", "app"));
+    const appExists = fs.existsSync(path.join(projectRoot, "app"));
     let constantsPath;
     if (srcAppExists) {
-        constantsPath = path.join(projectRoot, 'src', 'constants');
+        constantsPath = path.join(projectRoot, "src", "constants");
     } else if (appExists) {
-        constantsPath = path.join(projectRoot, 'constants');
+        constantsPath = path.join(projectRoot, "constants");
     } else {
-        constantsPath = path.join(projectRoot, 'constants');
+        constantsPath = path.join(projectRoot, "constants");
     }
     ensureDirExists(constantsPath);
     console.log(chalk.green(`  -> Created constants directory at: ${path.relative(projectRoot, constantsPath)}`));
-    const stringsFilePath = path.join(constantsPath, 'Strings.ts');
+    const stringsFilePath = path.join(constantsPath, "Strings.ts");
     // Caminho do Strings.ts do expo-utils
-    const expoUtilsStringsPath = path.join(path.dirname(require.resolve('expo-utils/package.json')), 'constants', 'Strings.ts');
+    const expoUtilsStringsPath = path.join(
+        path.dirname(require.resolve("expo-utils/package.json")),
+        "constants",
+        "Strings.ts",
+    );
     if (!fs.existsSync(stringsFilePath)) {
         if (fs.existsSync(expoUtilsStringsPath)) {
             fs.copyFileSync(expoUtilsStringsPath, stringsFilePath);
-            console.log(chalk.green(`  -> Copied Strings.ts from expo-utils to: ${path.relative(projectRoot, stringsFilePath)}`));
+            console.log(
+                chalk.green(
+                    `  -> Copied Strings.ts from expo-utils to: ${path.relative(projectRoot, stringsFilePath)}`,
+                ),
+            );
         } else {
             console.log(chalk.red(`  -> Não foi encontrado Strings.ts em ${expoUtilsStringsPath}.`));
         }
     } else {
-        console.log(chalk.yellow(`  -> File Strings.ts already exists at ${path.relative(projectRoot, stringsFilePath)}. Skipping copy.`));
+        console.log(
+            chalk.yellow(
+                `  -> File Strings.ts already exists at ${path.relative(projectRoot, stringsFilePath)}. Skipping copy.`,
+            ),
+        );
     }
-    console.log(chalk.green('✅ Constants setup complete.'));
+    console.log(chalk.green("✅ Constants setup complete."));
 }
 
 function handleGitignoreFlag() {
-    console.log(chalk.cyan('📁 Atualizando .gitignore...'));
-    const gitignorePath = path.join(projectRoot, '.gitignore');
-    let content = '';
+    console.log(chalk.cyan("📁 Atualizando .gitignore..."));
+    const gitignorePath = path.join(projectRoot, ".gitignore");
+    let content = "";
     if (fs.existsSync(gitignorePath)) {
-        content = fs.readFileSync(gitignorePath, 'utf8');
+        content = fs.readFileSync(gitignorePath, "utf8");
     }
-    const linesToAdd = ['ios/', 'android/', 'package-lock.json', '.idea/', '.vscode/', 'app-example'];
-    linesToAdd.forEach(line => {
+    const linesToAdd = ["ios/", "android/", "package-lock.json", ".idea/", ".vscode/", "app-example"];
+    linesToAdd.forEach((line) => {
         if (!content.includes(line)) {
             content += `\n${line}`;
         }
     });
-    fs.writeFileSync(gitignorePath, content.trim() + '\n');
-    console.log(chalk.green('✅ Atualizado .gitignore com ios/ e android/.'));
+    fs.writeFileSync(gitignorePath, content.trim() + "\n");
+    console.log(chalk.green("✅ Atualizado .gitignore com ios/ e android/."));
 }
 
 async function handleAppReset() {
-    console.log(chalk.cyan('♻️ Resetting app structure...'));
+    console.log(chalk.cyan("♻️ Resetting app structure..."));
 
-    const oldAppDir = path.join(projectRoot, 'app');
-    const newSrcDir = path.join(projectRoot, 'src');
-    const newAppDir = path.join(newSrcDir, 'app');
+    const oldAppDir = path.join(projectRoot, "app");
+    const newSrcDir = path.join(projectRoot, "src");
+    const newAppDir = path.join(newSrcDir, "app");
 
     // Clean up old directories
     if (fs.existsSync(oldAppDir)) {
-        fs.rmSync(oldAppDir, { recursive: true, force: true });
+        fs.rmSync(oldAppDir, {recursive: true, force: true});
         console.log(chalk.yellow(`  -> Removed existing 'app' directory.`));
     }
     if (fs.existsSync(newAppDir)) {
-        fs.rmSync(newAppDir, { recursive: true, force: true });
+        fs.rmSync(newAppDir, {recursive: true, force: true});
         console.log(chalk.yellow(`  -> Removed existing 'src/app' directory for a clean slate.`));
     }
 
     // Remove additional directories
-    const dirsToRemove = ['constants', 'hooks', 'components', 'scripts', path.join('assets', 'fonts')];
-    dirsToRemove.forEach(dir => {
+    const dirsToRemove = ["constants", "hooks", "components", "scripts", path.join("assets", "fonts")];
+    dirsToRemove.forEach((dir) => {
         const dirPath = path.join(projectRoot, dir);
         if (fs.existsSync(dirPath)) {
-            fs.rmSync(dirPath, { recursive: true, force: true });
+            fs.rmSync(dirPath, {recursive: true, force: true});
             console.log(chalk.yellow(`  -> Removed '${dir}' directory.`));
         }
     });
 
     // Remove specific image files
     const imagesToRemove = [
-        path.join('assets', 'images', 'favicon.png'),
-        path.join('assets', 'images', 'react-logo.png'),
-        path.join('assets', 'images', 'react-logo@2x.png'),
-        path.join('assets', 'images', 'react-logo@3x.png'),
-        path.join('assets', 'images', 'partial-react-logo.png')
+        path.join("assets", "images", "favicon.png"),
+        path.join("assets", "images", "react-logo.png"),
+        path.join("assets", "images", "react-logo@2x.png"),
+        path.join("assets", "images", "react-logo@3x.png"),
+        path.join("assets", "images", "partial-react-logo.png"),
     ];
-    imagesToRemove.forEach(imagePath => {
+    imagesToRemove.forEach((imagePath) => {
         const fullPath = path.join(projectRoot, imagePath);
         if (fs.existsSync(fullPath)) {
-            fs.rmSync(fullPath, { force: true });
+            fs.rmSync(fullPath, {force: true});
             console.log(chalk.yellow(`  -> Removed '${imagePath}'.`));
         }
     });
@@ -747,36 +783,35 @@ async function handleAppReset() {
     console.log(chalk.green(`  -> Created 'src/app' directory.`));
 
     // Create _layout.tsx and index.tsx from templates
-    const moduleDir = path.dirname(require.resolve('expo-utils/package.json'));
-    const layoutTemplatePath = path.join(moduleDir, 'templates', 'RootLayout.tsx');
-    const indexTemplatePath = path.join(moduleDir, 'templates', 'index.tsx');
+    const moduleDir = path.dirname(require.resolve("expo-utils/package.json"));
+    const layoutTemplatePath = path.join(moduleDir, "templates", "RootLayout.tsx");
+    const indexTemplatePath = path.join(moduleDir, "templates", "index.tsx");
 
     if (fs.existsSync(layoutTemplatePath)) {
-        fs.copyFileSync(layoutTemplatePath, path.join(newAppDir, '_layout.tsx'));
+        fs.copyFileSync(layoutTemplatePath, path.join(newAppDir, "_layout.tsx"));
         console.log(chalk.green(`  -> Created src/app/_layout.tsx.`));
     }
     if (fs.existsSync(indexTemplatePath)) {
-        fs.copyFileSync(indexTemplatePath, path.join(newAppDir, 'index.tsx'));
+        fs.copyFileSync(indexTemplatePath, path.join(newAppDir, "index.tsx"));
         console.log(chalk.green(`  -> Created src/app/index.tsx.`));
     }
-    
-    console.log(chalk.green('✅ App structure reset complete.'));
-}
 
+    console.log(chalk.green("✅ App structure reset complete."));
+}
 
 // --- Main Execution ---
 
 async function main() {
     const args = process.argv.slice(2);
-    
+
     // Always run dependency install first
     await handleDependencyInstall();
-    
-    console.log(chalk.blue('\n--- Running Scaffolding Steps ---'));
 
-    if (args.includes('--new')) {
-        console.log(chalk.magenta.bold('🚀 New project setup! Running non-destructive steps...'));
-        
+    console.log(chalk.blue("\n--- Running Scaffolding Steps ---"));
+
+    if (args.includes("--new")) {
+        console.log(chalk.magenta.bold("🚀 New project setup! Running non-destructive steps..."));
+
         // Run all non-destructive steps first
         handleEasConfigFlag();
         handleIosBuildFixFlag();
@@ -787,44 +822,52 @@ async function main() {
         handleEasLoginScriptFlag();
         handleTrackingPermissionFlag();
         handleGitignoreFlag(); // Nova chamada para atualizar .gitignore
-        
-        const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-        
-        rl.question(chalk.yellow.bold("\n❓ Tem certeza que deseja limpar a pasta 'app' e criar uma nova em 'src/app'? (Y/n) "), async (answer) => {
-            if (answer.toLowerCase() === 'n') {
-                console.log(chalk.gray('  -> Skipping app structure reset.'));
-                // Explain what to do next if they skip
-                console.log(chalk.cyan("\n💡 To manually move your 'app' folder, run 'npx expo-utils-install --srcapp'"));
-                console.log(chalk.cyan("💡 To replace the layout, run 'npx expo-utils-install --layout'"));
-            } else {
-                await handleAppReset();
-                handleConstantsFlag(); // Execute after app reset
-            }
-            rl.close();
-            console.log(chalk.bold.magenta('\n✨ All done! ✨'));
-        });
 
+        const rl = readline.createInterface({input: process.stdin, output: process.stdout});
+
+        rl.question(
+            chalk.yellow.bold("\n❓ Tem certeza que deseja limpar a pasta 'app' e criar uma nova em 'src/app'? (Y/n) "),
+            async (answer) => {
+                if (answer.toLowerCase() === "n") {
+                    console.log(chalk.gray("  -> Skipping app structure reset."));
+                    // Explain what to do next if they skip
+                    console.log(
+                        chalk.cyan("\n💡 To manually move your 'app' folder, run 'npx expo-utils-install --srcapp'"),
+                    );
+                    console.log(chalk.cyan("💡 To replace the layout, run 'npx expo-utils-install --layout'"));
+                } else {
+                    await handleAppReset();
+                    handleConstantsFlag(); // Execute after app reset
+                }
+                rl.close();
+                console.log(chalk.bold.magenta("\n✨ All done! ✨"));
+            },
+        );
     } else if (args.length === 0) {
-        console.log(chalk.yellow('No flags provided. Only dependency check was performed.\nUse --new to run all setup steps, or pass individual flags like --config, --layout, etc.'));
-        console.log(chalk.bold.magenta('\n✨ All done! ✨'));
+        console.log(
+            chalk.yellow(
+                "No flags provided. Only dependency check was performed.\nUse --new to run all setup steps, or pass individual flags like --config, --layout, etc.",
+            ),
+        );
+        console.log(chalk.bold.magenta("\n✨ All done! ✨"));
     } else {
-        if (args.includes('--config')) handleConfigFlag();
-        if (args.includes('--layout')) handleLayoutFlag();
-        if (args.includes('--srcapp')) handleSrcAppFlag();
-        if (args.includes('--languages')) handleLanguagesFlag();
-        if (args.includes('--skadnetwork')) handleSkadnetworkFlag();
-        if (args.includes('--firebase-placeholders')) handleFirebasePlaceholdersFlag();
-        if (args.includes('--fix-ios-build')) handleIosBuildFixFlag();
-        if (args.includes('--eas-login-script')) handleEasLoginScriptFlag();
-        if (args.includes('--tracking-permission')) handleTrackingPermissionFlag();
-        if (args.includes('--eas-config')) handleEasConfigFlag();
-        if (args.includes('--constants')) handleConstantsFlag();
-        if (args.includes('--gitignore')) handleGitignoreFlag(); // Nova flag para atualizar .gitignore
-        console.log(chalk.bold.magenta('\n✨ All done! ✨'));
+        if (args.includes("--config")) handleConfigFlag();
+        if (args.includes("--layout")) handleLayoutFlag();
+        if (args.includes("--srcapp")) handleSrcAppFlag();
+        if (args.includes("--languages")) handleLanguagesFlag();
+        if (args.includes("--skadnetwork")) handleSkadnetworkFlag();
+        if (args.includes("--firebase-placeholders")) handleFirebasePlaceholdersFlag();
+        if (args.includes("--fix-ios-build")) handleIosBuildFixFlag();
+        if (args.includes("--eas-login-script")) handleEasLoginScriptFlag();
+        if (args.includes("--tracking-permission")) handleTrackingPermissionFlag();
+        if (args.includes("--eas-config")) handleEasConfigFlag();
+        if (args.includes("--constants")) handleConstantsFlag();
+        if (args.includes("--gitignore")) handleGitignoreFlag(); // Nova flag para atualizar .gitignore
+        console.log(chalk.bold.magenta("\n✨ All done! ✨"));
     }
 }
 
-main().catch(err => {
-    console.error(chalk.red.bold('\nA critical error occurred:'), err);
+main().catch((err) => {
+    console.error(chalk.red.bold("\nA critical error occurred:"), err);
     process.exit(1);
 });

@@ -1,13 +1,14 @@
-import { StatusBar } from "react-native";
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import {StatusBar} from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
     AdEventListener,
     AdEventType,
     InterstitialAd,
-    RewardedAd, RewardedAdEventType,
+    RewardedAd,
+    RewardedAdEventType,
 } from "react-native-google-mobile-ads";
-import { getAnalytics, logEvent } from '@react-native-firebase/analytics';
-import { expoUtilsWarn, expoUtilsLog } from './Utils';
+import {getAnalytics, logEvent} from "@react-native-firebase/analytics";
+import {expoUtilsWarn, expoUtilsLog} from "./Utils";
 
 type LoadAdsManagerType = {
     showInterstitial: (unitId?: string) => Promise<boolean>;
@@ -16,7 +17,7 @@ type LoadAdsManagerType = {
 
 const getFirebaseApp = () => {
     try {
-        const { getApp } = require("@react-native-firebase/app");
+        const {getApp} = require("@react-native-firebase/app");
         return getApp();
     } catch (error) {
         expoUtilsWarn("Firebase app not configured. Some features will be disabled.");
@@ -27,15 +28,15 @@ const getFirebaseApp = () => {
 const LoadAdsManager: LoadAdsManagerType = {
     showInterstitial: (unitId?: string): Promise<boolean> => {
         return new Promise(async (resolve, reject) => {
-            const isPremium = await AsyncStorage.getItem('@isPremium');
+            const isPremium = await AsyncStorage.getItem("@isPremium");
             expoUtilsLog("isPremium", isPremium);
-            if (isPremium === 'true') {
+            if (isPremium === "true") {
                 resolve(true);
                 return;
             }
             const app = getFirebaseApp();
             const analytics = app ? getAnalytics(app) : null;
-            if(global.isAdsEnabled === false || global?.remoteConfigs?.is_ads_enabled === false){
+            if (global.isAdsEnabled === false || global?.remoteConfigs?.is_ads_enabled === false) {
                 resolve(true);
                 return;
             }
@@ -44,10 +45,7 @@ const LoadAdsManager: LoadAdsManagerType = {
             expoUtilsLog("interstitialUnitIds", adUnits);
 
             const interstitialAdUnitId = unitId ?? adUnits.interstitial;
-            const interstitial = InterstitialAd.createForAdRequest(
-                interstitialAdUnitId,
-                {}
-            );
+            const interstitial = InterstitialAd.createForAdRequest(interstitialAdUnitId, {});
             const onAdLoaded: AdEventListener = async (e) => {
                 if (analytics) await logEvent(analytics, "AdLOADED", e);
                 interstitial.show().then();
@@ -72,25 +70,22 @@ const LoadAdsManager: LoadAdsManagerType = {
             interstitial.load();
         });
     },
-    showRewarded: (unitId?: string): Promise<boolean> =>  {
+    showRewarded: (unitId?: string): Promise<boolean> => {
         return new Promise(async (resolve, reject) => {
-            const isPremium = await AsyncStorage.getItem('@isPremium');
-            if (isPremium === 'true') {
+            const isPremium = await AsyncStorage.getItem("@isPremium");
+            if (isPremium === "true") {
                 resolve(true);
                 return;
             }
             const app = getFirebaseApp();
             const analytics = app ? getAnalytics(app) : null;
-            if(global.isAdsEnabled === false || global?.remoteConfigs?.is_ads_enabled === false){
+            if (global.isAdsEnabled === false || global?.remoteConfigs?.is_ads_enabled === false) {
                 resolve(true);
                 return;
             }
             const adUnits = (global as any).adUnits || {};
             const adUnitId = unitId ?? adUnits.rewarded;
-            const ad = RewardedAd.createForAdRequest(
-                adUnitId,
-                {}
-            );
+            const ad = RewardedAd.createForAdRequest(adUnitId, {});
             const onAdLoaded: AdEventListener = async (e) => {
                 if (analytics) await logEvent(analytics, "AdLOADED", e);
                 ad.show().then();
@@ -120,7 +115,7 @@ const LoadAdsManager: LoadAdsManagerType = {
             ad.addAdEventListener(AdEventType.ERROR, onAdError);
             ad.load();
         });
-    }
+    },
 };
 
 export default LoadAdsManager;

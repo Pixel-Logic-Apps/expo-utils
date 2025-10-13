@@ -27,7 +27,7 @@ const getFirebaseApp = () => {
 
 import {AppConfig, RemoteConfigSettings} from "./types";
 import {getLocalizedMessages} from "./i18n";
-const safeGetLocales = (): Array<{ languageCode?: string }> => {
+const safeGetLocales = (): Array<{languageCode?: string}> => {
     try {
         // eslint-disable-next-line @typescript-eslint/no-var-requires
         const mod = require("expo-localization");
@@ -35,7 +35,7 @@ const safeGetLocales = (): Array<{ languageCode?: string }> => {
             return mod.getLocales();
         }
     } catch {}
-    return [{ languageCode: "en" }];
+    return [{languageCode: "en"}];
 };
 
 // Static imports for runtime dependencies
@@ -44,7 +44,7 @@ import * as Application from "expo-application";
 import {AppEventsLogger, Settings as FbsdkSettings} from "react-native-fbsdk-next";
 import Purchases from "react-native-purchases";
 import * as SplashScreen from "expo-splash-screen";
-import { requireOptionalNativeModule } from 'expo-modules-core';
+import {requireOptionalNativeModule} from "expo-modules-core";
 import {Alert, Platform, Linking} from "react-native";
 // Importações modulares do Firebase
 import {
@@ -145,7 +145,6 @@ const Utils = {
 
     setupAttributions: async (clarityProjectId?: string) => {
         try {
-
             await Purchases.enableAdServicesAttributionTokenCollection();
             await Purchases.collectDeviceIdentifiers();
 
@@ -154,11 +153,10 @@ const Utils = {
                 await Purchases.setFBAnonymousID(anonymousId);
             }
 
-            if(clarityProjectId){
+            if (clarityProjectId) {
                 const Clarity = require("@microsoft/react-native-clarity");
-                Clarity.setCustomUserId(anonymousId || ""); 
+                Clarity.setCustomUserId(anonymousId || "");
             }
-
         } catch (error) {
             console.error("Error setting up attributions:", error);
         }
@@ -229,7 +227,7 @@ const Utils = {
         }
         try {
             const Clarity = require("@microsoft/react-native-clarity");
-            Clarity.initialize(clarityProjectId, { logLevel: Clarity.LogLevel.None });
+            Clarity.initialize(clarityProjectId, {logLevel: Clarity.LogLevel.None});
         } catch {}
     },
 
@@ -257,7 +255,6 @@ const Utils = {
 
     checkForRequiredUpdateAsync: async (remoteConfigSettings: RemoteConfigSettings) => {
         try {
-
             if (!Application.nativeApplicationVersion) return;
             const version = parseFloat(Application.nativeApplicationVersion);
             const minVersion = parseFloat((remoteConfigSettings?.min_version ?? 0).toString());
@@ -291,12 +288,19 @@ const Utils = {
                 Alert.alert(
                     messages.updateRequired,
                     messages.updateMessage,
-                    [{text: messages.updateNow, onPress: async () => { await openStore(); present(); }}],
+                    [
+                        {
+                            text: messages.updateNow,
+                            onPress: async () => {
+                                await openStore();
+                                present();
+                            },
+                        },
+                    ],
                     {cancelable: false},
                 );
             };
             present();
-
         } catch (error) {
             console.error("Error checking for required update:", error);
         }

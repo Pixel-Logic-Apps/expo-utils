@@ -5,7 +5,6 @@ import Purchases from "react-native-purchases";
  * Classe utilitária para gerenciar funcionalidades relacionadas ao status premium
  */
 export class PremiumUtils {
-
     /**
      * Define o status premium do usuário
      * @param isPremium - true se o usuário é premium, false caso contrário
@@ -26,14 +25,14 @@ export class PremiumUtils {
     static async getIsPremiumStatus(): Promise<boolean> {
         try {
             if (__DEV__) {
-                return await AsyncStorage.getItem("@isPremium") === "true";
+                return (await AsyncStorage.getItem("@isPremium")) === "true";
             }
 
             const customerInfo = await Purchases.getCustomerInfo();
 
-            // Se o trial opted out estiver habilitado, retorna true se o usuário 
+            // Se o trial opted out estiver habilitado, retorna true se o usuário
             // tem uma assinatura ativa mesmo que cancelado logo em seguida.
-            if(global?.remoteConfigs?.is_opted_out_trial_enabled === true) {
+            if (global?.remoteConfigs?.is_opted_out_trial_enabled === true) {
                 return customerInfo.activeSubscriptions.length > 0;
             }
 

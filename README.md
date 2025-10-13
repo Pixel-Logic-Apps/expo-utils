@@ -13,7 +13,7 @@
 ✅ **Tela de Avaliação**: Abertura automática da loja para reviews (iOS/Android)  
 ✅ **Estrutura do Projeto**: Templates pré-configurados com melhores práticas  
 ✅ **TypeScript Completo**: Tipagem completa e interfaces bem definidas  
-✅ **Compatibilidade Moderna**: Firebase v22+ com API modular  
+✅ **Compatibilidade Moderna**: Firebase v22+ com API modular
 
 ## 📦 Instalação Rápida
 
@@ -41,29 +41,31 @@ npx expo-utils-install
 ## 🛠️ Comandos CLI Disponíveis
 
 ### Comando Principal
+
 ```bash
 npx expo-utils-install --new
 ```
+
 **Executa configuração completa para novos projetos** (com confirmação para mudanças destrutivas)
 
 ### Comandos Individuais
 
-| Comando | Descrição |
-|---------|-----------|
-| `npx expo-utils-install` | Instala apenas dependências faltantes |
-| `--config` | Adiciona plugins AdMob e Facebook ao app.json |
-| `--firebase-placeholders` | Cria arquivos Firebase placeholder |
-| `--layout` | Substitui _layout.tsx por template configurado |
-| `--srcapp` | Move pasta app para src/app |
-| `--languages` | Cria pasta languages com traduções |
-| `--skadnetwork` | Adiciona SKAdNetworkItems para iOS |
-| `--constants` | Cria pasta constants e copia Strings.ts |
-| `--eas-config` | Configura eas.json básico |
-| `--tracking-permission` | Adiciona permissão de rastreamento iOS |
+| Comando                   | Descrição                                       |
+| ------------------------- | ----------------------------------------------- |
+| `npx expo-utils-install`  | Instala apenas dependências faltantes           |
+| `--config`                | Adiciona plugins AdMob e Facebook ao app.json   |
+| `--firebase-placeholders` | Cria arquivos Firebase placeholder              |
+| `--layout`                | Substitui \_layout.tsx por template configurado |
+| `--srcapp`                | Move pasta app para src/app                     |
+| `--languages`             | Cria pasta languages com traduções              |
+| `--skadnetwork`           | Adiciona SKAdNetworkItems para iOS              |
+| `--constants`             | Cria pasta constants e copia Strings.ts         |
+| `--eas-config`            | Configura eas.json básico                       |
+| `--tracking-permission`   | Adiciona permissão de rastreamento iOS          |
 
 ## 📱 Configuração do Projeto
 
-### 1. Template _layout.tsx
+### 1. Template \_layout.tsx
 
 O `expo-utils` fornece um template completo para `_layout.tsx`:
 
@@ -82,7 +84,7 @@ declare global {
 
 export default function RootLayout() {
     const [appIsReady, setAppIsReady] = useState(false);
-    
+
     useEffect(() => {
         global.isAdsEnabled = !__DEV__;
         Utils.prepare(setAppIsReady, appConfig, adUnits).then();
@@ -106,12 +108,12 @@ A função principal que inicializa tudo automaticamente:
 
 ```typescript
 Utils.prepare(
-    setAppIsReady,     // Callback quando app estiver pronto
-    appConfig,         // Configuração do app (opcional)
-    adUnits,           // Unit IDs dos anúncios (opcional)
-    revenueCatKeys,    // Chaves RevenueCat (opcional)
-    clarityProjectId   // ID Microsoft Clarity (opcional)
-)
+    setAppIsReady, // Callback quando app estiver pronto
+    appConfig, // Configuração do app (opcional)
+    adUnits, // Unit IDs dos anúncios (opcional)
+    revenueCatKeys, // Chaves RevenueCat (opcional)
+    clarityProjectId, // ID Microsoft Clarity (opcional)
+);
 ```
 
 **O que a função prepare() faz automaticamente:**
@@ -125,7 +127,7 @@ Utils.prepare(
 ✅ Solicita permissões de rastreamento iOS  
 ✅ Configura push notifications  
 ✅ Inscreve em tópicos Firebase específicos do app  
-✅ Oculta splash screen quando pronto  
+✅ Oculta splash screen quando pronto
 
 ## 🎯 Sistema de Anúncios Inteligente
 
@@ -156,19 +158,22 @@ if (userEarnedReward) {
 ### Verificações Automáticas
 
 **Usuários Premium** (via AsyncStorage):
+
 ```typescript
 // Marcar como premium (anúncios não aparecem)
-await AsyncStorage.setItem('@isPremium', 'true');
+await AsyncStorage.setItem("@isPremium", "true");
 
 // Remover premium
-await AsyncStorage.removeItem('@isPremium');
+await AsyncStorage.removeItem("@isPremium");
 ```
 
 **Configurações Remotas** (Firebase):
+
 - `is_ads_enabled: false` → Desabilita anúncios globalmente
 - Respeita configuração `global.isAdsEnabled`
 
 **Unit IDs Inteligentes**:
+
 - Usa unit IDs do `constants/Strings.ts` como padrão
 - Permite override via parâmetro
 - Configuração por plataforma (iOS/Android)
@@ -177,19 +182,19 @@ await AsyncStorage.removeItem('@isPremium');
 
 ### Idiomas Suportados
 
-| Código | Idioma | Código | Idioma |
-|--------|--------|--------|--------|
-| `pt` | Português | `en` | English |
-| `es` | Español | `fr` | Français |
-| `de` | Deutsch | `it` | Italiano |
-| `ja` | 日本語 | `ko` | 한국어 |
-| `zh` | 中文 | `ru` | Русский |
-| `ar` | العربية | `nl` | Nederlands |
+| Código | Idioma    | Código | Idioma     |
+| ------ | --------- | ------ | ---------- |
+| `pt`   | Português | `en`   | English    |
+| `es`   | Español   | `fr`   | Français   |
+| `de`   | Deutsch   | `it`   | Italiano   |
+| `ja`   | 日本語    | `ko`   | 한국어     |
+| `zh`   | 中文      | `ru`   | Русский    |
+| `ar`   | العربية   | `nl`   | Nederlands |
 
 ### Uso das Traduções
 
 ```typescript
-import { getLocalizedMessages } from 'expo-utils';
+import {getLocalizedMessages} from "expo-utils";
 
 const messages = getLocalizedMessages();
 
@@ -201,8 +206,9 @@ const systemLang = getSystemLanguage(); // 'pt-BR' → 'pt'
 ```
 
 **Mensagens Disponíveis:**
+
 - `updateRequired` - Título para atualização obrigatória
-- `updateMessage` - Mensagem de atualização disponível  
+- `updateMessage` - Mensagem de atualização disponível
 - `updateNow` - Botão "Atualizar Agora"
 - `newMessage` - Mensagem genérica
 
@@ -229,16 +235,16 @@ import { ExpoUtilsStyles } from 'expo-utils';
 
 ### Estilos Disponíveis
 
-| Estilo | Descrição |
-|--------|-----------|
-| `footerBanner` | Banner fixo no rodapé (position absolute, bottom 0) |
-| `container` | Container flex centralizado |
-| `centerContent` | Conteúdo centralizado |
-| `fullWidth` | Largura 100% |
-| `fullHeight` | Altura 100% |
-| `absoluteFill` | Preenchimento absoluto (top, left, right, bottom = 0) |
-| `shadow` | Sombra padrão para iOS/Android |
-| `card` | Card com fundo branco, bordas arredondadas e sombra |
+| Estilo          | Descrição                                             |
+| --------------- | ----------------------------------------------------- |
+| `footerBanner`  | Banner fixo no rodapé (position absolute, bottom 0)   |
+| `container`     | Container flex centralizado                           |
+| `centerContent` | Conteúdo centralizado                                 |
+| `fullWidth`     | Largura 100%                                          |
+| `fullHeight`    | Altura 100%                                           |
+| `absoluteFill`  | Preenchimento absoluto (top, left, right, bottom = 0) |
+| `shadow`        | Sombra padrão para iOS/Android                        |
+| `card`          | Card com fundo branco, bordas arredondadas e sombra   |
 
 ### BannerAdComponent com Estilos
 
@@ -262,7 +268,7 @@ O componente de banner agora aceita o parâmetro `useFooterStyle`:
 Abre automaticamente a tela de avaliação da loja apropriada usando os dados já configurados no projeto:
 
 ```typescript
-import Utils from 'expo-utils/utils/Utils';
+import Utils from "expo-utils/utils/Utils";
 
 // Usar configurações automáticas (recomendado)
 await Utils.openReviewURL();
@@ -273,14 +279,14 @@ await Utils.openReviewURL(false);
 // Verificar se abriu com sucesso
 const success = await Utils.openReviewURL();
 if (success) {
-    console.log('Review aberto com sucesso!');
+    console.log("Review aberto com sucesso!");
 }
 ```
 
 ### Parâmetros
 
-| Parâmetro | Tipo | Padrão | Descrição |
-|-----------|------|--------|-----------|
+| Parâmetro           | Tipo      | Padrão | Descrição                                            |
+| ------------------- | --------- | ------ | ---------------------------------------------------- |
 | `preferNativeStore` | `boolean` | `true` | `true` = abre loja nativa, `false` = abre no browser |
 
 ### Dados Utilizados Automaticamente
@@ -291,11 +297,13 @@ if (success) {
 ### Comportamento por Plataforma
 
 **🤖 Android:**
+
 - **Loja nativa**: `market://details?id=PACKAGE&showAllReviews=true`
 - **Browser**: `https://play.google.com/store/apps/details?id=PACKAGE&showAllReviews=true`
 - Detecta package automaticamente via `Application.applicationId`
 
 **🍎 iOS:**
+
 - **Loja nativa**: `itms-apps://itunes.apple.com/app/viewContentsUserReviews/id=APP_ID?action=write-review`
 - **Browser**: `https://apps.apple.com/app/apple-store/id=APP_ID?action=write-review`
 - **App ID detectado automaticamente** via iTunes API usando o bundle ID
@@ -303,17 +311,20 @@ if (success) {
 ### Busca Automática do App ID (iOS)
 
 O expo-utils busca automaticamente o App ID do iOS fazendo uma requisição para:
+
 ```
 https://itunes.apple.com/lookup?bundleId=SEU_BUNDLE_ID
 ```
 
 **✅ Vantagens:**
+
 - **Zero configuração** necessária
 - **Busca automática** via iTunes API oficial
 - **Cache inteligente** para melhor performance
 - **Fallback seguro** para remote config se necessário
 
 ### Retorno
+
 - `Promise<boolean>` - `true` se abriu com sucesso, `false` se houve erro
 
 ## 🔧 Dependências e Compatibilidade
@@ -321,14 +332,16 @@ https://itunes.apple.com/lookup?bundleId=SEU_BUNDLE_ID
 ### Dependências Principais Incluídas
 
 **🔥 Firebase (v22+ API Modular)**
+
 - `@react-native-firebase/app` - Core Firebase
 - `@react-native-firebase/analytics` - Analytics e eventos
-- `@react-native-firebase/auth` - Autenticação 
+- `@react-native-firebase/auth` - Autenticação
 - `@react-native-firebase/firestore` - Banco de dados
 - `@react-native-firebase/messaging` - Push notifications
 - `@react-native-firebase/remote-config` - Configurações remotas
 
 **📱 Expo Utilities**
+
 - `expo-application` - Informações do app
 - `expo-insights` - Monitoramento de crashes
 - `expo-store-review` - Solicitação de avaliações
@@ -336,10 +349,12 @@ https://itunes.apple.com/lookup?bundleId=SEU_BUNDLE_ID
 - `expo-updates` - Atualizações OTA
 
 **💰 Monetização**
+
 - `react-native-google-mobile-ads` - Sistema de anúncios Google
 - `react-native-purchases` - Compras in-app e assinaturas
 
 **🔧 Utilitários**
+
 - `@react-native-async-storage/async-storage` - Armazenamento local
 - `react-native-fbsdk-next` - Facebook SDK
 - `@microsoft/react-native-clarity` - Analytics Microsoft
@@ -352,24 +367,26 @@ O `expo-utils` usa **peer dependencies** para não duplicar bibliotecas:
 ✅ **Sem Duplicação**: Usa as mesmas versões do seu projeto  
 ✅ **Imports Dinâmicos**: Carrega apenas quando necessário  
 ✅ **Fallbacks Seguros**: Funciona mesmo sem algumas dependências  
-✅ **Bundle Otimizado**: Não adiciona peso desnecessário  
+✅ **Bundle Otimizado**: Não adiciona peso desnecessário
 
 ### Resolvendo Erros TypeScript
 
 Se aparecerem erros como `Cannot find module 'expo-splash-screen'`:
 
 **Opção 1 - Instalar dependência (Recomendado):**
+
 ```bash
 npm install expo-splash-screen
 ```
 
 **Opção 2 - Usar tipos mock:**
+
 ```json
 // tsconfig.json
 {
-  "compilerOptions": {
-    "typeRoots": ["./node_modules/@types", "./node_modules/expo-utils/types"]
-  }
+    "compilerOptions": {
+        "typeRoots": ["./node_modules/@types", "./node_modules/expo-utils/types"]
+    }
 }
 ```
 
@@ -382,10 +399,10 @@ const appConfig = {
     expo: {
         slug: "meu-app",
         android: {
-            package: "com.meuapp.app"
+            package: "com.meuapp.app",
         },
         ios: {
-            bundleIdentifier: "com.meuapp.app"
+            bundleIdentifier: "com.meuapp.app",
         },
         plugins: [
             [
@@ -393,27 +410,27 @@ const appConfig = {
                 {
                     appID: "1234567890",
                     clientToken: "abc123...",
-                    displayName: "Meu App"
-                }
+                    displayName: "Meu App",
+                },
             ],
             [
                 "react-native-purchases",
                 {
                     androidApiKey: "goog_xxx",
-                    iosApiKey: "appl_xxx"
-                }
+                    iosApiKey: "appl_xxx",
+                },
             ],
             [
                 "react-native-google-mobile-ads",
                 {
                     androidAppId: "ca-app-pub-xxx~xxx",
-                    iosAppId: "ca-app-pub-xxx~xxx"
-                }
+                    iosAppId: "ca-app-pub-xxx~xxx",
+                },
             ],
             // Plugin expo-utils é opcional, apenas para configurações avançadas
             // ["expo-utils", { "disableWarnings": true }]
-        ]
-    }
+        ],
+    },
 };
 ```
 
@@ -421,11 +438,11 @@ const appConfig = {
 
 ```typescript
 // constants/Strings.ts
-import { Platform } from "react-native";
+import {Platform} from "react-native";
 
 const iosAdUnits = {
     appOpen: "ca-app-pub-xxx/xxx",
-    banner: "ca-app-pub-xxx/xxx", 
+    banner: "ca-app-pub-xxx/xxx",
     interstitial: "ca-app-pub-xxx/xxx",
     rewarded: "ca-app-pub-xxx/xxx",
 };
@@ -433,7 +450,7 @@ const iosAdUnits = {
 const androidAdUnits = {
     appOpen: "ca-app-pub-xxx/xxx",
     banner: "ca-app-pub-xxx/xxx",
-    interstitial: "ca-app-pub-xxx/xxx", 
+    interstitial: "ca-app-pub-xxx/xxx",
     rewarded: "ca-app-pub-xxx/xxx",
 };
 
@@ -464,12 +481,12 @@ As seguintes configurações remotas são suportadas automaticamente:
 ### Interfaces Principais
 
 ```typescript
-import type { 
-    AppConfig, 
-    RemoteConfigSettings, 
+import type {
+    AppConfig,
+    RemoteConfigSettings,
     FacebookConfig,
     RevenueCatKeys,
-    Translations 
+    Translations
 } from 'expo-utils';
 
 const myConfig: AppConfig = {
@@ -499,19 +516,22 @@ declare global {
 ## 🎁 Recursos Incluídos
 
 ### Templates Prontos
+
 - `_layout.tsx` - Layout principal com inicialização completa
-- `index.tsx` - Tela inicial básica  
+- `index.tsx` - Tela inicial básica
 - `google-services.json` - Placeholder Firebase Android
 - `GoogleService-Info.plist` - Placeholder Firebase iOS
 - `eas_login.sh` - Script de login EAS
 
 ### Configurações Automáticas
+
 - `eas.json` - Configuração básica EAS Build
 - `app.json` - Plugins pré-configurados
 - SKAdNetwork IDs - Lista completa para iOS
 - Permissões - Rastreamento e notificações
 
 ### Utilitários de Desenvolvimento
+
 - Sistema de warnings configurável
 - Imports dinâmicos com fallbacks
 - Verificação de dependências automática
@@ -524,21 +544,22 @@ Para suprimir warnings e/ou logs do expo-utils, adicione a configuração no seu
 ```json
 // app.json
 {
-  "expo": {
-    "plugins": [
-      [
-        "expo-utils", 
-        { 
-          "disableWarnings": true,  // Suprime warnings
-          "disableLogs": true       // Suprime console.log (opcional)
-        }
-      ]
-    ]
-  }
+    "expo": {
+        "plugins": [
+            [
+                "expo-utils",
+                {
+                    "disableWarnings": true, // Suprime warnings
+                    "disableLogs": true // Suprime console.log (opcional)
+                }
+            ]
+        ]
+    }
 }
 ```
 
 **Configurações disponíveis:**
+
 - `disableWarnings: true` - Suprime todos os warnings do expo-utils
 - `disableLogs: true` - Suprime todos os console.log do expo-utils (útil em produção)
 
@@ -551,12 +572,12 @@ Totalmente compatível com a **API modular** do React Native Firebase v22+:
 ✅ Não usa métodos deprecated  
 ✅ Imports modulares otimizados  
 ✅ Inicialização moderna  
-✅ Sem warnings de compatibilidade  
+✅ Sem warnings de compatibilidade
 
 ```typescript
 // Exemplo de uso moderno automático
-import { getAnalytics, logEvent } from '@react-native-firebase/analytics';
-import { getRemoteConfig, fetchAndActivate } from '@react-native-firebase/remote-config';
+import {getAnalytics, logEvent} from "@react-native-firebase/analytics";
+import {getRemoteConfig, fetchAndActivate} from "@react-native-firebase/remote-config";
 
 // Tudo já configurado automaticamente pelo Utils.prepare()
 ```
@@ -572,7 +593,7 @@ import adUnits from '@/constants/Strings';
 
 export default function RootLayout() {
     const [appIsReady, setAppIsReady] = useState(false);
-    
+
     useEffect(() => {
         global.isAdsEnabled = !__DEV__;
         Utils.prepare(setAppIsReady, appConfig, adUnits);
@@ -606,22 +627,22 @@ function MinhaScreen() {
 useEffect(() => {
     Utils.prepare(
         setAppIsReady,
-        appConfig, 
+        appConfig,
         adUnits,
-        { 
+        {
             androidApiKey: "goog_xxx",
-            iosApiKey: "appl_xxx" 
+            iosApiKey: "appl_xxx",
         },
-        "clarity_project_id"
+        "clarity_project_id",
     );
 }, []);
 
 // Verificação de premium
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const checkPremium = async () => {
-    const isPremium = await AsyncStorage.getItem('@isPremium');
-    if (isPremium === 'true') {
+    const isPremium = await AsyncStorage.getItem("@isPremium");
+    if (isPremium === "true") {
         // Usuário é premium - não mostrar anúncios
     }
 };
@@ -634,7 +655,7 @@ import { getLocalizedMessages } from 'expo-utils';
 
 function UpdateScreen() {
     const messages = getLocalizedMessages();
-    
+
     return (
         <View>
             <Text>{messages.updateRequired}</Text>
@@ -648,7 +669,7 @@ function UpdateScreen() {
 ### Abertura de Tela de Avaliação
 
 ```typescript
-import Utils from 'expo-utils/utils/Utils';
+import Utils from "expo-utils/utils/Utils";
 
 // Uso simples - detecta tudo automaticamente
 await Utils.openReviewURL();
@@ -667,4 +688,4 @@ ISC License - veja o arquivo LICENSE para detalhes.
 
 ---
 
-**💡 Dica**: Execute `npx expo-utils-install --new` em um projeto novo para ver toda a magia acontecer! 
+**💡 Dica**: Execute `npx expo-utils-install --new` em um projeto novo para ver toda a magia acontecer!
