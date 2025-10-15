@@ -274,8 +274,8 @@ const Utils = {
         setAppIsReady: (ready: boolean) => void,
         appConfig?: any,
         adUnits?: any,
-        clarityProjectId?: string,
-        RevenueCatUtilsClass?: any, // <- Classe opcional com método setup estático
+        RevenueCatUtilsClass?: any,
+        clarityProjectId?: string
     ) => {
         try {
             const remoteConfigs = await Utils.getRemoteConfigSettings();
