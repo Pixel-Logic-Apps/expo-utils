@@ -243,7 +243,7 @@ const Utils = {
                     }
                 });
                 const topicName = appConfig?.expo?.slug || "default-topic";
-                await subscribeToTopic(messaging, topicName)
+                subscribeToTopic(messaging, topicName)
                     .then(() => expoUtilsWarn("Subscribed to topic:", topicName))
                     .catch(() => expoUtilsWarn("Failed to subscribe to topic:", topicName));
             }
@@ -336,7 +336,7 @@ const Utils = {
                     const messaging = getMessaging(app);
                     await requestPermission(messaging);
                 }
-                await Utils.setupPushNotifications(appConfig);
+                Utils.setupPushNotifications(appConfig);
             } catch (e) {
                 expoUtilsWarn("Error setting up notifications:", e);
             } finally {
