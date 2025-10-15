@@ -83,9 +83,6 @@
   "peerDependenciesMeta": {
     "expo-updates": {
       "optional": true
-    },
-    "react-native-purchases": {
-      "optional": true
     }
   },
   "devDependencies": {

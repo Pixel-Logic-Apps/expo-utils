@@ -14,17 +14,37 @@ export function expoUtilsLog(...args: any[]) {
     }
 }
 
+// Firebase imports com fallback seguro
+const getFirebaseApp = () => {
+    try {
+        const {getApp} = require("@react-native-firebase/app");
+        return getApp();
+    } catch (error) {
+        expoUtilsWarn("Firebase app not configured. Some features will be disabled.");
+        return null;
+    }
+};
+
 import {AppConfig, RemoteConfigSettings} from "./types";
 import {getLocalizedMessages} from "./i18n";
+const safeGetLocales = (): Array<{languageCode?: string}> => {
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const mod = require("expo-localization");
+        if (mod && typeof mod.getLocales === "function") {
+            return mod.getLocales();
+        }
+    } catch {}
+    return [{languageCode: "en"}];
+};
 
 // Static imports for runtime dependencies
 import {requestTrackingPermissionsAsync} from "expo-tracking-transparency";
 import * as Application from "expo-application";
 import {AppEventsLogger, Settings as FbsdkSettings} from "react-native-fbsdk-next";
+import Purchases from "react-native-purchases";
 import {requireOptionalNativeModule} from "expo-modules-core";
 import {Alert, Platform, Linking} from "react-native";
-import Clarity from "@microsoft/react-native-clarity";
-import * as Localization from "expo-localization";
 // Importações modulares do Firebase
 import {
     getRemoteConfig,
@@ -35,7 +55,6 @@ import {
 } from "@react-native-firebase/remote-config";
 import {getMessaging, requestPermission, onMessage, subscribeToTopic} from "@react-native-firebase/messaging";
 import {getAnalytics, logEvent} from "@react-native-firebase/analytics";
-import { getApp } from "@react-native-firebase/app";
 
 function getExpoUtilsDisableWarnings(appConfig?: any): boolean {
     if (!appConfig?.expo?.plugins) return false;
@@ -66,27 +85,6 @@ function getExpoUtilsDisableLogs(appConfig?: any): boolean {
     }
     return false;
 }
-
-const safeGetLocales = (): Array<{languageCode?: string}> => {
-    try {
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const mod = Localization;
-        if (mod && typeof mod.getLocales === "function") {
-            return mod.getLocales();
-        }
-    } catch {}
-    return [{languageCode: "en"}];
-};
-
-// Firebase imports com fallback seguro
-const getFirebaseApp = () => {
-    try {
-        return getApp();
-    } catch (error) {
-        expoUtilsWarn("Firebase app not configured. Some features will be disabled.");
-        return null;
-    }
-};
 
 const Utils = {
     // Função para buscar App ID iOS a partir do bundle ID
@@ -144,6 +142,25 @@ const Utils = {
         }
     },
 
+    setupAttributions: async (clarityProjectId?: string) => {
+        try {
+            await Purchases.enableAdServicesAttributionTokenCollection();
+            await Purchases.collectDeviceIdentifiers();
+
+            const anonymousId = await AppEventsLogger.getAnonymousID();
+            if (anonymousId) {
+                await Purchases.setFBAnonymousID(anonymousId);
+            }
+
+            if (clarityProjectId) {
+                const Clarity = require("@microsoft/react-native-clarity");
+                Clarity.setCustomUserId(anonymousId || "");
+            }
+        } catch (error) {
+            console.error("Error setting up attributions:", error);
+        }
+    },
+
     didUpdate: async () => {
         const app = getFirebaseApp();
         if (!app) return;
@@ -160,6 +177,26 @@ const Utils = {
         } catch (e) {
             expoUtilsWarn("expo-updates is not installed. Skipping update check.");
             await logEvent(analytics, "checking_update_error", {error: e?.message});
+        }
+    },
+
+    setupRevenueCat: async (revenueCatKeys?: {androidApiKey: string; iosApiKey: string}) => {
+        try {
+            if (!revenueCatKeys) {
+                expoUtilsWarn("RevenueCat keys not provided, skipping configuration");
+                return;
+            }
+
+            const apiKey = Platform.OS === "android" ? revenueCatKeys.androidApiKey : revenueCatKeys.iosApiKey;
+
+            if (!apiKey) {
+                expoUtilsWarn("RevenueCat API key not found for platform:", Platform.OS);
+                return;
+            }
+
+            Purchases.configure({apiKey});
+        } catch (error) {
+            console.error("Error setting up RevenueCat:", error);
         }
     },
 
@@ -182,16 +219,14 @@ const Utils = {
         }
     },
 
-    setupClarity: async (clarityProjectId?: string, userId?: string) => {
+    setupClarity: async (clarityProjectId?: string) => {
         if (!clarityProjectId) {
             expoUtilsWarn("Clarity project ID not provided, skipping initialization.");
             return;
         }
         try {
+            const Clarity = require("@microsoft/react-native-clarity");
             Clarity.initialize(clarityProjectId, {logLevel: Clarity.LogLevel.None});
-            if (userId) {
-                Clarity.setCustomUserId(userId);
-            }
         } catch {}
     },
 
@@ -274,28 +309,20 @@ const Utils = {
         setAppIsReady: (ready: boolean) => void,
         appConfig?: any,
         adUnits?: any,
-        RevenueCatUtilsClass?: any,
-        clarityProjectId?: string
+        revenueCatKeys?: {androidApiKey: string; iosApiKey: string},
+        clarityProjectId?: string,
     ) => {
         try {
             const remoteConfigs = await Utils.getRemoteConfigSettings();
             await Utils.setupGlobalConfigs(appConfig, adUnits, remoteConfigs);
-
-            // Se a classe RevenueCatUtils foi fornecida, chama o método setup dela
-            let revenueCatUserId: string | null = null;
-            if (RevenueCatUtilsClass && typeof RevenueCatUtilsClass.setup === "function") {
-                // Pega o Facebook Anonymous ID para attribution
-                const facebookAnonymousId = await AppEventsLogger.getAnonymousID();
-                revenueCatUserId = await RevenueCatUtilsClass.setup(facebookAnonymousId);
-            }
-
+            await Utils.setupRevenueCat(revenueCatKeys);
             await Utils.didUpdate();
             await Utils.checkForRequiredUpdateAsync(remoteConfigs);
             await Utils.initFBSDK(appConfig);
-
-            // Configura o Clarity com o User ID do RevenueCat (se disponível)
-            await Utils.setupClarity(clarityProjectId, revenueCatUserId);
-
+            await Utils.setupClarity(clarityProjectId);
+            if (revenueCatKeys) {
+                await Utils.setupAttributions(clarityProjectId);
+            }
             await requestTrackingPermissionsAsync();
             // After the user grants or denies permission, Facebook SDK will automatically handle it
             // via the setAdvertiserTrackingEnabled call made during init.
