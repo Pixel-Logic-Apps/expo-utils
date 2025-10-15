@@ -14,17 +14,6 @@ export function expoUtilsLog(...args: any[]) {
     }
 }
 
-// Firebase imports com fallback seguro
-const getFirebaseApp = () => {
-    try {
-        const {getApp} = require("@react-native-firebase/app");
-        return getApp();
-    } catch (error) {
-        expoUtilsWarn("Firebase app not configured. Some features will be disabled.");
-        return null;
-    }
-};
-
 import {AppConfig, RemoteConfigSettings} from "./types";
 import {getLocalizedMessages} from "./i18n";
 const safeGetLocales = (): Array<{languageCode?: string}> => {
@@ -55,6 +44,7 @@ import {
 } from "@react-native-firebase/remote-config";
 import {getMessaging, requestPermission, onMessage, subscribeToTopic} from "@react-native-firebase/messaging";
 import {getAnalytics, logEvent} from "@react-native-firebase/analytics";
+import { getApp } from "@react-native-firebase/app";
 
 function getExpoUtilsDisableWarnings(appConfig?: any): boolean {
     if (!appConfig?.expo?.plugins) return false;
@@ -121,7 +111,7 @@ const Utils = {
     },
 
     getRemoteConfigSettings: async (): Promise<RemoteConfigSettings> => {
-        const app = getFirebaseApp();
+        const app = getApp();
         if (!app) {
             expoUtilsWarn("Firebase not configured, using default settings");
             return {
@@ -162,7 +152,7 @@ const Utils = {
     },
 
     didUpdate: async () => {
-        const app = getFirebaseApp();
+        const app = getApp();
         if (!app) return;
         const analytics = getAnalytics(app);
         try {
@@ -232,7 +222,7 @@ const Utils = {
 
     setupPushNotifications: async (appConfig?: AppConfig) => {
         try {
-            const app = getFirebaseApp();
+            const app = getApp();
             if (app) {
                 const messaging = getMessaging(app);
                 onMessage(messaging, async (remoteMessage) => {
@@ -331,7 +321,7 @@ const Utils = {
             expoUtilsWarn("Error in prepare:", e);
         } finally {
             try {
-                const app = getFirebaseApp();
+                const app = getApp();
                 if (app) {
                     const messaging = getMessaging(app);
                     await requestPermission(messaging);
