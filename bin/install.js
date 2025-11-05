@@ -489,18 +489,42 @@ function handleIosBuildFixFlag() {
 
     // --- Configure build properties for Firebase ---
     config.expo.plugins = config.expo.plugins || [];
-    const buildPropertiesPlugin = config.expo.plugins.find((p) => Array.isArray(p) && p[0] === "expo-build-properties");
+
+    // Find the index of the expo-build-properties plugin
+    const buildPropertiesIndex = config.expo.plugins.findIndex((p) =>
+        (Array.isArray(p) && p[0] === "expo-build-properties") || p === "expo-build-properties"
+    );
 
     const iosBuildConfig = {
         useFrameworks: "static",
         useModularHeaders: true,
+        forceStaticLinking: ["RNFBApp", "RNFBAuth", "RNFBFirestore"]
     };
 
-    if (buildPropertiesPlugin) {
-        buildPropertiesPlugin[1] = buildPropertiesPlugin[1] || {};
-        buildPropertiesPlugin[1].ios = {...buildPropertiesPlugin[1].ios, ...iosBuildConfig};
-        console.log(chalk.green("  -> Configured expo-build-properties for iOS in app.json."));
+    if (buildPropertiesIndex !== -1) {
+        const existingPlugin = config.expo.plugins[buildPropertiesIndex];
+
+        // Handle both array and string formats
+        if (Array.isArray(existingPlugin)) {
+            // Merge with existing configuration
+            existingPlugin[1] = existingPlugin[1] || {};
+            existingPlugin[1].ios = {
+                ...existingPlugin[1].ios,  // Keep existing iOS config
+                ...iosBuildConfig,         // Add our required config
+                // If forceStaticLinking already exists, merge the arrays
+                forceStaticLinking: [
+                    ...(existingPlugin[1].ios?.forceStaticLinking || []),
+                    ...iosBuildConfig.forceStaticLinking
+                ].filter((value, index, self) => self.indexOf(value) === index) // Remove duplicates
+            };
+            config.expo.plugins[buildPropertiesIndex] = existingPlugin;
+        } else {
+            // Convert string format to array format with configuration
+            config.expo.plugins[buildPropertiesIndex] = ["expo-build-properties", {ios: iosBuildConfig}];
+        }
+        console.log(chalk.green("  -> Updated expo-build-properties for iOS in app.json."));
     } else {
+        // Plugin doesn't exist, add it
         config.expo.plugins.push(["expo-build-properties", {ios: iosBuildConfig}]);
         console.log(chalk.green("  -> Added and configured expo-build-properties for iOS."));
     }
