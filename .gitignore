@@ -1,5 +1,7 @@
 node_modules
 package-lock.json
-.ideia/
+/.ideia/
 .vscode/
 .DS_Store
+/.idea/
+/.vscode/
