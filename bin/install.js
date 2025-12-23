@@ -571,18 +571,37 @@ function handleTrackingPermissionFlag() {
     config.expo.plugins = config.expo.plugins || [];
 
     const pluginName = "expo-tracking-transparency";
-    const trackingPlugin = config.expo.plugins.find((p) => Array.isArray(p) && p[0] === pluginName);
+
+    // Find the index of the expo-tracking-transparency plugin
+    const trackingIndex = config.expo.plugins.findIndex((p) =>
+        (Array.isArray(p) && p[0] === pluginName) || p === pluginName
+    );
 
     const trackingConfig = {
         userTrackingPermission:
             "We need your permission to personalize your experience with relevant ads and content. Your data helps us improve recommendations and ensure you see what's most interesting to you.",
     };
 
-    if (!trackingPlugin) {
+    if (trackingIndex !== -1) {
+        const existingPlugin = config.expo.plugins[trackingIndex];
+
+        // Handle both array and string formats
+        if (Array.isArray(existingPlugin)) {
+            // Merge with existing configuration
+            existingPlugin[1] = {
+                ...existingPlugin[1],  // Keep existing config
+                ...trackingConfig      // Add our required config
+            };
+            config.expo.plugins[trackingIndex] = existingPlugin;
+        } else {
+            // Convert string format to array format with configuration
+            config.expo.plugins[trackingIndex] = [pluginName, trackingConfig];
+        }
+        console.log(chalk.green(`  -> Updated ${pluginName} plugin configuration.`));
+    } else {
+        // Plugin doesn't exist, add it
         config.expo.plugins.push([pluginName, trackingConfig]);
         console.log(chalk.green(`  -> Added and configured ${pluginName} plugin.`));
-    } else {
-        console.log(chalk.yellow(`  -> Plugin ${pluginName} already exists. Skipping.`));
     }
 
     writeAppConfig(config);
