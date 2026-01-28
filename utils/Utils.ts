@@ -311,6 +311,7 @@ const Utils = {
     initTikTokSDK: async (remoteConfigs: RemoteConfigSettings) => {
         if (!remoteConfigs?.tiktokads) return;
         const tkads = remoteConfigs?.tiktokads;
+        if (!tkads.token || !tkads.appid || !tkads.tkappid) return;
         await TiktokAdsEvents.initializeSdk(tkads.token, tkads.appid, tkads.tkappid, tkads.isdebug);
         if (await TikTokWaitForConfig(10 * 1000)) {
             if (remoteConfigs?.rckey) await TiktokAdsEvents.identify(await Purchases.getAppUserID());
