@@ -112,7 +112,7 @@ interface ColorProps {
 interface AskForReviewOverlayProps {
     visible: boolean;
     onClose: () => void;
-    image: any; // Required image source
+    image?: any; // Optional image source - uses default if not provided
     delay?: number; // Delay in seconds to disable "not now" button
     colors?: ColorProps;
     texts?: AskForReviewTexts; // Now optional, will use translations if not provided
@@ -121,6 +121,9 @@ interface AskForReviewOverlayProps {
     rateNowText?: string;
     notNowText?: string;
 }
+
+// Default review banner image
+const DEFAULT_REVIEW_IMAGE = require("../assets/banner-star.jpg");
 
 // Default translations
 const TRANSLATIONS: Record<string, {title: string; message: string; rateNow: string; notNow: string}> = {
@@ -349,15 +352,18 @@ const AskForReviewOverlay: React.FC<AskForReviewOverlayProps> = ({
     // Use provided colors or fall back to defaults
     const displayColors = colors || DEFAULT_COLORS;
 
+    // Use provided image or default
+    const displayImage = image || DEFAULT_REVIEW_IMAGE;
+
     // Store texts and image globally when component mounts
     useEffect(() => {
         if (texts) {
             AskForReviewEvents.setTexts(texts);
         }
-        if (image) {
-            AskForReviewEvents.setImage(image);
+        if (displayImage) {
+            AskForReviewEvents.setImage(displayImage);
         }
-    }, [texts, image]);
+    }, [texts, displayImage]);
 
     useEffect(() => {
         if (visible) {
@@ -482,7 +488,7 @@ const AskForReviewOverlay: React.FC<AskForReviewOverlayProps> = ({
                                 {borderRadius: cardRadius as any, backgroundColor: displayColors.systemBackground},
                             ]}>
                             <Image
-                                source={image}
+                                source={displayImage}
                                 style={styles.image}
                                 resizeMode="cover"
                             />

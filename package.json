@@ -1,6 +1,6 @@
 {
   "name": "expo-utils",
-  "version": "1.0.13",
+  "version": "1.0.14",
   "description": "CLI tool and utility library that automates 90% of the initial setup for Expo/React Native projects",
   "keywords": [
     "expo",
@@ -19,6 +19,7 @@
     "url": "git+https://github.com/Pixel-Logic-Apps/expo-utils.git"
   },
   "files": [
+    "assets/",
     "bin/",
     "constants/",
     "data/",
