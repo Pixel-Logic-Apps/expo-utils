@@ -32,8 +32,12 @@
   ],
   "type": "commonjs",
   "types": "./index.d.ts",
+  "main": "./app.plugin.js",
   "exports": {
-    ".": "./index.ts",
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./app.plugin.js"
+    },
     "./utils/*": "./utils/*",
     "./constants/*": "./constants/*",
     "./package.json": "./package.json"
