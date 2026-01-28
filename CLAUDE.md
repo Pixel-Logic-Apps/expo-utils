@@ -38,6 +38,7 @@ This is a **library package** that gets installed into user projects, not a stan
     - `--fix-ios-build`: Apply iOS build fixes (expo-build-properties, static frameworks)
     - `--eas-login-script`: Create eas_login.sh script
     - `--gitignore`: Update .gitignore with ios/, android/, etc.
+    - `--hot-updater`: Setup Hot Updater (babel.config.js, .env files, dependencies)
 
 ## Architecture
 

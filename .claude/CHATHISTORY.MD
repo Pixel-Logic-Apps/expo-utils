@@ -1,5 +1,38 @@
 # Chat History - expo-utils
 
+## Sessao: 2026-01-28 (nova feature hot-updater)
+
+### Nova Flag --hot-updater Adicionada
+
+#### Problema Identificado
+- Ao instalar `hot-updater` em projetos Expo SDK 54, ocorre conflito de peer dependencies
+- `react-dom@19.2.4` requer `react@^19.2.4`, mas Expo SDK 54 usa `react@19.1.0`
+- Usuario precisava manualmente criar `babel.config.js`, `.env` e `.env.hotupdater`
+
+#### Solucao Implementada
+Nova flag `--hot-updater` no CLI que automaticamente:
+1. Adiciona `react-dom` (mesma versao do react) ao package.json
+2. Adiciona `hot-updater@^0.25.7` ao package.json
+3. Adiciona `overrides` no package.json para forcar versao do react-dom
+4. Cria/atualiza `babel.config.js` com plugin `hot-updater/babel-plugin`
+5. Cria `.env` e `.env.hotupdater` com placeholders Cloudflare
+6. Atualiza `.gitignore` para ignorar arquivos .env
+
+#### Arquivos Criados/Modificados
+- `templates/babel.config.js` - Template do babel config
+- `templates/.env.hotupdater.template` - Template dos arquivos .env
+- `bin/install.js` - Nova funcao `handleHotUpdaterFlag()`
+- `CLAUDE.md` - Documentacao atualizada
+
+#### Uso
+```bash
+npx expo-utils-install --hot-updater
+# ou incluido automaticamente no --new
+npx expo-utils-install --new
+```
+
+---
+
 ## Sessao: 2026-01-28 (continuacao)
 
 ### Deploy 1.0.15 - Fix expo-image

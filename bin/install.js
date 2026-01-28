@@ -769,6 +769,127 @@ function handleGitignoreFlag() {
     console.log(chalk.green("✅ Atualizado .gitignore com ios/ e android/."));
 }
 
+function handleHotUpdaterFlag() {
+    console.log(chalk.cyan("🔥 Configuring Hot Updater..."));
+    const moduleDir = path.dirname(require.resolve("expo-utils/package.json"));
+
+    // --- 1. Update package.json to add hot-updater and react-dom ---
+    const projectPkgPath = path.join(projectRoot, "package.json");
+    const projectPkg = require(projectPkgPath);
+    let pkgUpdated = false;
+
+    projectPkg.dependencies = projectPkg.dependencies || {};
+
+    // Add react-dom matching react version if not present
+    if (!projectPkg.dependencies["react-dom"]) {
+        const reactVersion = projectPkg.dependencies["react"] || "19.1.0";
+        projectPkg.dependencies["react-dom"] = reactVersion;
+        console.log(chalk.green(`  -> Added react-dom@${reactVersion} to dependencies.`));
+        pkgUpdated = true;
+    } else {
+        console.log(chalk.yellow(`  -> react-dom already in dependencies.`));
+    }
+
+    // Add hot-updater if not present
+    if (!projectPkg.dependencies["hot-updater"]) {
+        projectPkg.dependencies["hot-updater"] = "^0.25.7";
+        console.log(chalk.green(`  -> Added hot-updater@^0.25.7 to dependencies.`));
+        pkgUpdated = true;
+    } else {
+        console.log(chalk.yellow(`  -> hot-updater already in dependencies.`));
+    }
+
+    // Add overrides to force react-dom version
+    if (!projectPkg.overrides) {
+        projectPkg.overrides = {};
+    }
+    if (!projectPkg.overrides["react-dom"]) {
+        const reactVersion = projectPkg.dependencies["react"] || "19.1.0";
+        projectPkg.overrides["react-dom"] = reactVersion;
+        console.log(chalk.green(`  -> Added overrides for react-dom@${reactVersion}.`));
+        pkgUpdated = true;
+    }
+
+    if (pkgUpdated) {
+        fs.writeFileSync(projectPkgPath, JSON.stringify(projectPkg, null, 2));
+        console.log(chalk.green(`  -> Updated package.json.`));
+    }
+
+    // --- 2. Create/Update babel.config.js ---
+    const babelConfigPath = path.join(projectRoot, "babel.config.js");
+    const babelTemplatePath = path.join(moduleDir, "templates", "babel.config.js");
+
+    if (fs.existsSync(babelTemplatePath)) {
+        if (!fs.existsSync(babelConfigPath)) {
+            fs.copyFileSync(babelTemplatePath, babelConfigPath);
+            console.log(chalk.green(`  -> Created babel.config.js with hot-updater plugin.`));
+        } else {
+            // Check if hot-updater plugin is already in babel.config.js
+            const existingBabel = fs.readFileSync(babelConfigPath, "utf-8");
+            if (!existingBabel.includes("hot-updater/babel-plugin")) {
+                // Replace with template
+                fs.copyFileSync(babelTemplatePath, babelConfigPath);
+                console.log(chalk.green(`  -> Updated babel.config.js with hot-updater plugin.`));
+            } else {
+                console.log(chalk.yellow(`  -> babel.config.js already has hot-updater plugin.`));
+            }
+        }
+    } else {
+        console.error(chalk.red("❌ babel.config.js template not found in expo-utils module."));
+    }
+
+    // --- 3. Create .env and .env.hotupdater placeholder files ---
+    const envTemplatePath = path.join(moduleDir, "templates", ".env.hotupdater.template");
+    const envPath = path.join(projectRoot, ".env");
+    const envHotUpdaterPath = path.join(projectRoot, ".env.hotupdater");
+
+    if (fs.existsSync(envTemplatePath)) {
+        const envContent = fs.readFileSync(envTemplatePath, "utf-8");
+
+        if (!fs.existsSync(envPath)) {
+            fs.writeFileSync(envPath, envContent);
+            console.log(chalk.green(`  -> Created .env with hot-updater placeholders.`));
+        } else {
+            console.log(chalk.yellow(`  -> .env already exists. Skipping.`));
+        }
+
+        if (!fs.existsSync(envHotUpdaterPath)) {
+            fs.writeFileSync(envHotUpdaterPath, envContent);
+            console.log(chalk.green(`  -> Created .env.hotupdater with placeholders.`));
+        } else {
+            console.log(chalk.yellow(`  -> .env.hotupdater already exists. Skipping.`));
+        }
+    } else {
+        console.error(chalk.red("❌ .env.hotupdater.template not found in expo-utils module."));
+    }
+
+    // --- 4. Update .gitignore to include .env files ---
+    const gitignorePath = path.join(projectRoot, ".gitignore");
+    let gitignoreContent = "";
+    if (fs.existsSync(gitignorePath)) {
+        gitignoreContent = fs.readFileSync(gitignorePath, "utf-8");
+    }
+
+    const envLinesToAdd = [".env", ".env.hotupdater", ".env.local", ".env.*.local"];
+    let gitignoreUpdated = false;
+
+    envLinesToAdd.forEach((line) => {
+        if (!gitignoreContent.includes(line)) {
+            gitignoreContent += `\n${line}`;
+            gitignoreUpdated = true;
+        }
+    });
+
+    if (gitignoreUpdated) {
+        fs.writeFileSync(gitignorePath, gitignoreContent.trim() + "\n");
+        console.log(chalk.green(`  -> Updated .gitignore with .env files.`));
+    }
+
+    console.log(chalk.green("✅ Hot Updater setup complete."));
+    console.log(chalk.cyan("   📝 Remember to fill in your Cloudflare credentials in .env and .env.hotupdater"));
+    console.log(chalk.cyan("   📝 Then run: npm install"));
+}
+
 async function handleAppReset() {
     console.log(chalk.cyan("♻️ Resetting app structure..."));
 
@@ -856,6 +977,7 @@ async function main() {
         handleEasLoginScriptFlag();
         handleTrackingPermissionFlag();
         handleGitignoreFlag(); // Nova chamada para atualizar .gitignore
+        handleHotUpdaterFlag(); // Setup hot-updater
 
         const rl = readline.createInterface({input: process.stdin, output: process.stdout});
 
@@ -897,6 +1019,7 @@ async function main() {
         if (args.includes("--eas-config")) handleEasConfigFlag();
         if (args.includes("--constants")) handleConstantsFlag();
         if (args.includes("--gitignore")) handleGitignoreFlag(); // Nova flag para atualizar .gitignore
+        if (args.includes("--hot-updater")) handleHotUpdaterFlag(); // Setup hot-updater
         console.log(chalk.bold.magenta("\n✨ All done! ✨"));
     }
 }

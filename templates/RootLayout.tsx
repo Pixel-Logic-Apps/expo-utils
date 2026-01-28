@@ -23,9 +23,7 @@ export default function RootLayout() {
         Utils.prepare(setAppIsReady, appConfig).then(() => {
             showPromoModal();
         });
-    }, []);
-
-    useEffect(() => {
+        
         const unsubscribe = AskForReviewEvents.onShowPopup(() => {
             setShowReviewOverlay(true);
         });
