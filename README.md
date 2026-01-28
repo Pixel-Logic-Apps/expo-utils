@@ -25,16 +25,75 @@ npx create-expo-app@latest MeuApp
 cd MeuApp
 
 # 2. Instalar expo-utils
-npm install https://github.com/Pixel-Logic-Apps/expo-utils.git
+npm install github:Pixel-Logic-Apps/expo-utils
 
 # 3. Configurar tudo automaticamente
 npx expo-utils-install --new
 ```
 
+### 4. Configurar Firebase Remote Config
+
+Após criar seu projeto no Firebase Console, vá em **Remote Config** e adicione o seguinte JSON como template:
+
+```json
+{
+  "is_ads_enabled": true,
+  "rckey": "appl_SuaChaveRevenueCatAqui",
+  "hotupdater_url": "",
+  "trends_tracking_url": "",
+  "adunits": {
+    "ios": {
+      "appOpen": "ca-app-pub-xxx/xxx",
+      "banner": "ca-app-pub-xxx/xxx",
+      "interstitial": "ca-app-pub-xxx/xxx",
+      "rewarded": "ca-app-pub-xxx/xxx"
+    },
+    "android": {
+      "appOpen": "ca-app-pub-xxx/xxx",
+      "banner": "ca-app-pub-xxx/xxx",
+      "interstitial": "ca-app-pub-xxx/xxx",
+      "rewarded": "ca-app-pub-xxx/xxx"
+    }
+  },
+  "tiktokads": {
+    "token": "",
+    "appid": "",
+    "tkappid": "",
+    "isdebug": false
+  },
+  "clarity_id": "",
+  "min_version": 0,
+  "review_mode": 0,
+  "repeat_ads_count": 3,
+  "delay_close_paywall_button": 5,
+  "ios_app_id": "",
+  "is_paywall_disabled": false
+}
+```
+
+**Descrição dos campos:**
+
+| Campo | Tipo | Descrição |
+|-------|------|-----------|
+| `is_ads_enabled` | boolean | Habilita/desabilita anúncios globalmente |
+| `rckey` | string | Chave do RevenueCat (começa com `appl_` ou `goog_`) |
+| `hotupdater_url` | string | URL do servidor HotUpdater para updates OTA |
+| `trends_tracking_url` | string | URL do Trendings Tracker para rastreamento |
+| `adunits` | object | Unit IDs do AdMob por plataforma |
+| `tiktokads` | object | Configurações do TikTok Ads SDK |
+| `clarity_id` | string | Project ID do Microsoft Clarity |
+| `min_version` | number | Versão mínima obrigatória (ex: 100 = 1.0.0) |
+| `min_version_force` | boolean | Se true, força atualização bloqueando o app |
+| `review_mode` | number | Modo de review (0 = normal) |
+| `repeat_ads_count` | number | Quantidade de ações antes de mostrar anúncio |
+| `delay_close_paywall_button` | number | Segundos antes de mostrar botão de fechar paywall |
+| `ios_app_id` | string | App ID do iOS (fallback se busca automática falhar) |
+| `is_paywall_disabled` | boolean | Desabilita paywall globalmente |
+
 ### Projeto Existente
 
 ```bash
-npm install https://github.com/Pixel-Logic-Apps/expo-utils.git
+npm install github:Pixel-Logic-Apps/expo-utils
 npx expo-utils-install
 ```
 
