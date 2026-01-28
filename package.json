@@ -1,6 +1,6 @@
 {
   "name": "expo-utils",
-  "version": "1.0.15",
+  "version": "1.0.16",
   "description": "CLI tool and utility library that automates 90% of the initial setup for Expo/React Native projects",
   "keywords": [
     "expo",
@@ -32,16 +32,6 @@
   ],
   "type": "commonjs",
   "types": "./index.d.ts",
-  "main": "./app.plugin.js",
-  "exports": {
-    ".": {
-      "types": "./index.d.ts",
-      "default": "./app.plugin.js"
-    },
-    "./utils/*": "./utils/*",
-    "./constants/*": "./constants/*",
-    "./package.json": "./package.json"
-  },
   "bin": {
     "expo-utils-install": "bin/install.js"
   },
