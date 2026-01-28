@@ -1,10 +1,28 @@
 # Chat History - expo-utils
 
+## Sessao: 2026-01-28 (continuacao)
+
+### Deploy 1.0.15 - Fix expo-image
+
+#### Problema Identificado
+- App de teste crashou ao rodar com erro: "Cannot find native module 'ExpoImage'"
+- `modal-promotional-content.tsx` estava usando `expo-image` ao inves de React Native Image
+
+#### Correcao Aplicada
+- Mudou import de `import {Image} from "expo-image"` para usar Image do `react-native`
+- Mudou `contentFit="cover"` para `resizeMode="cover"` (sintaxe React Native)
+
+#### Deploy
+- Versao: 1.0.15
+- Motivo: Fix para nao depender de expo-image
+
+---
+
 ## Sessao: 2026-01-28
 
 ### Contexto do Projeto
 - **Nome:** expo-utils
-- **Versao:** 1.0.12
+- **Versao:** 1.0.12 → 1.0.14
 - **Tipo:** Biblioteca/CLI para projetos Expo/React Native
 - **Autor:** Pixel Logic Apps
 

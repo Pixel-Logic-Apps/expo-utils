@@ -1,9 +1,8 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import {Image} from "expo-image";
 import {LinearGradient} from "expo-linear-gradient";
 import * as Linking from "expo-linking";
 import React, {useEffect, useRef} from "react";
-import {Animated, Dimensions, Modal, PanResponder, Pressable, StyleSheet, Text, View} from "react-native";
+import {Animated, Dimensions, Image, Modal, PanResponder, Pressable, StyleSheet, Text, View} from "react-native";
 import {useSafeAreaInsets} from "react-native-safe-area-context";
 
 const STORAGE_KEY_NAO_MOSTRAR = "@nao_mostrar_app_promocionals";
@@ -181,7 +180,7 @@ export default function ModalPromotionalContent({visible, onClose, colors, t}: P
                     ]}>
                     {config.bannerImg ? (
                         <View style={[styles.bannerContainer, {height: config.bannerHeight ?? 200}]}>
-                            <Image source={{uri: config.bannerImg}} style={styles.bannerImage} contentFit="cover" />
+                            <Image source={{uri: config.bannerImg}} style={styles.bannerImage} resizeMode="cover" />
                             <View style={styles.handleContainer}>
                                 <View style={[styles.handle, {backgroundColor: c.handleColor}]} />
                             </View>
@@ -232,7 +231,7 @@ export default function ModalPromotionalContent({visible, onClose, colors, t}: P
                                             <Image
                                                 source={{uri: config.icon}}
                                                 style={styles.iconImage}
-                                                contentFit="cover"
+                                                resizeMode="cover"
                                             />
                                         </View>
                                     </View>
