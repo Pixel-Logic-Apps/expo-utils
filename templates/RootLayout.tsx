@@ -1,6 +1,7 @@
 import {SplashScreen, Stack} from "expo-router";
 import React, {useEffect, useState} from "react";
 import Utils from "expo-utils/utils/Utils";
+import {setupAppOpenListener} from "expo-utils/utils/appopen-ads";
 import AskForReviewOverlay, {AskForReviewEvents} from "expo-utils/utils/ask-for-review";
 import ModalPromotionalContent, {usePromotionalModal} from "expo-utils/utils/modal-promotional-content";
 import appConfig from "../../app.json";
@@ -21,6 +22,7 @@ export default function RootLayout() {
     useEffect(() => {
         global.isAdsEnabled = !__DEV__;
         Utils.prepare(setAppIsReady, appConfig).then(() => {
+            setupAppOpenListener();
             showPromoModal();
         });
         
