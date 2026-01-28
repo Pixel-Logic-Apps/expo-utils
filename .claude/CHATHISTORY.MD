@@ -31,6 +31,16 @@ npx expo-utils-install --hot-updater
 npx expo-utils-install --new
 ```
 
+#### Correcao Adicional
+- CLI usava `require("expo-utils/package.json")` que falhava em algumas instalacoes
+- Corrigido para usar `path.join(__dirname, "..")` para resolver caminhos relativos ao script
+
+#### Teste
+- Projeto de teste criado do zero com `create-expo-app`
+- CLI `--new` executado com sucesso
+- Build iOS compilou sem erros
+- App executou no simulador iPhone 16e
+
 ---
 
 ## Sessao: 2026-01-28 (continuacao)
