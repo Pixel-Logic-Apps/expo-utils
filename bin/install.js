@@ -10,6 +10,7 @@ const readline = require("readline");
 
 const projectRoot = process.cwd();
 const appJsonPath = path.join(projectRoot, "app.json");
+const moduleDir = path.join(__dirname, "..");
 
 /**
  * Safely reads and parses the app.json file.
@@ -58,7 +59,7 @@ function hasPackage(pkgSubPath) {
 
 async function handleDependencyInstall() {
     console.log(chalk.cyan("🚀 Checking for missing peer dependencies..."));
-    const modulePkg = require("expo-utils/package.json");
+    const modulePkg = require(path.join(moduleDir, "package.json"));
     const peerDependencies = modulePkg.peerDependencies || {};
     const projectPkg = require(path.join(projectRoot, "package.json"));
     const existingDeps = {...projectPkg.dependencies, ...projectPkg.devDependencies};
@@ -125,7 +126,7 @@ function handleConfigFlag() {
     if (!config) return;
 
     const pluginsConfigPath = path.join(
-        path.dirname(require.resolve("expo-utils/package.json")),
+        moduleDir,
         "data",
         "standard_plugins.json",
     );
@@ -199,7 +200,7 @@ function handleLayoutFlag() {
     console.log(chalk.cyan("📝 Replacing root layout file..."));
 
     const layoutTemplatePath = path.join(
-        path.dirname(require.resolve("expo-utils/package.json")),
+        moduleDir,
         "templates",
         "RootLayout.tsx",
     );
@@ -317,7 +318,7 @@ function handleSkadnetworkFlag() {
 
     // Load the complete list of required IDs from the module's data file
     const skadNetworkItemsPath = path.join(
-        path.dirname(require.resolve("expo-utils/package.json")),
+        moduleDir,
         "data",
         "skadnetwork_ids.json",
     );
@@ -407,7 +408,6 @@ function handleFirebasePlaceholdersFlag() {
     const finalAndroidPackage = androidPackage || "com.placeholder.app";
     const finalIosBundleId = iosBundleId || "com.placeholder.app";
 
-    const moduleDir = path.dirname(require.resolve("expo-utils/package.json"));
 
     // --- Android Placeholder ---
     const googleServicesJsonPath = path.join(projectRoot, "google-services.json");
@@ -533,7 +533,6 @@ function handleIosBuildFixFlag() {
 
 function handleEasLoginScriptFlag() {
     console.log(chalk.cyan("📜 Creating EAS login script..."));
-    const moduleDir = path.dirname(require.resolve("expo-utils/package.json"));
     const templatePath = path.join(moduleDir, "templates", "eas_login.sh");
     const destPath = path.join(projectRoot, "eas_login.sh");
 
@@ -727,7 +726,7 @@ function handleConstantsFlag() {
     const stringsFilePath = path.join(constantsPath, "Strings.ts");
     // Caminho do Strings.ts do expo-utils
     const expoUtilsStringsPath = path.join(
-        path.dirname(require.resolve("expo-utils/package.json")),
+        moduleDir,
         "constants",
         "Strings.ts",
     );
@@ -771,7 +770,6 @@ function handleGitignoreFlag() {
 
 function handleHotUpdaterFlag() {
     console.log(chalk.cyan("🔥 Configuring Hot Updater..."));
-    const moduleDir = path.dirname(require.resolve("expo-utils/package.json"));
 
     // --- 1. Update package.json to add hot-updater and react-dom ---
     const projectPkgPath = path.join(projectRoot, "package.json");
@@ -938,7 +936,6 @@ async function handleAppReset() {
     console.log(chalk.green(`  -> Created 'src/app' directory.`));
 
     // Create _layout.tsx and index.tsx from templates
-    const moduleDir = path.dirname(require.resolve("expo-utils/package.json"));
     const layoutTemplatePath = path.join(moduleDir, "templates", "RootLayout.tsx");
     const indexTemplatePath = path.join(moduleDir, "templates", "index.tsx");
 
