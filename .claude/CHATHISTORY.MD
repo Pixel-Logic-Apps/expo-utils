@@ -1,5 +1,166 @@
 # Chat History - expo-utils
 
+## 2026-01-28 (Sessao Atual)
+
+### Tarefa 1: Resolver conflito de dependencias do hot-updater
+
+**Pedido:** Usuario tentou instalar `hot-updater` e recebeu erro de conflito de peer dependencies. Pediu para resolver SEM usar `--force` ou `--legacy-peer-deps`.
+
+**Acoes realizadas:**
+- Analisado erro: `react-dom@19.2.4` requer `react@^19.2.4`, mas Expo SDK 54 usa `react@19.1.0`
+- Adicionado `react-dom@19.1.0` como dependencia explicita
+- Adicionado `overrides` no package.json para forcar versao correta
+
+**Justificativa:** O npm tenta instalar a versao mais recente do `react-dom` quando o `expo-router` tem `react-dom@"*"` como peer dependency opcional. O override forca a versao compativel.
+
+**Arquivos modificados:**
+- `/Users/plapps/Documents/projetos/expo-utils-test/package.json`
+
+**Resultado:** Parcialmente resolvido - usuario pediu para automatizar no CLI
+
+---
+
+### Tarefa 2: Criar flag --hot-updater no CLI
+
+**Pedido:** Automatizar a instalacao do hot-updater na flag `--new` do CLI, incluindo criacao de `babel.config.js`, `.env` e `.env.hotupdater`.
+
+**Acoes realizadas:**
+1. Criado template `templates/babel.config.js` com plugin hot-updater
+2. Criado template `templates/.env.hotupdater.template` com placeholders Cloudflare
+3. Implementada funcao `handleHotUpdaterFlag()` no `bin/install.js`
+4. Adicionada chamada no bloco `--new` e como flag individual
+5. Atualizado `CLAUDE.md` com documentacao da nova flag
+
+**Justificativa:** Usuarios precisavam manualmente configurar 4+ arquivos para usar hot-updater. Automatizar reduz erros e tempo de setup.
+
+**Comandos/Ferramentas:**
+```bash
+# Uso da nova flag
+npx expo-utils-install --hot-updater
+# Ou incluido no --new
+npx expo-utils-install --new
+```
+
+**Arquivos modificados:**
+- `templates/babel.config.js` (novo)
+- `templates/.env.hotupdater.template` (novo)
+- `bin/install.js` - nova funcao `handleHotUpdaterFlag()`
+- `CLAUDE.md` - documentacao atualizada
+
+**Resultado:** Sucesso - commits `6aeaac2` e `94ac0d9`
+
+---
+
+### Tarefa 3: Corrigir erro de resolucao de modulo no CLI
+
+**Pedido:** CLI falhou ao executar com erro `Cannot find module 'expo-utils/package.json'`
+
+**Acoes realizadas:**
+- Identificado que `require("expo-utils/package.json")` nao funciona quando instalado via path local
+- Substituido por `path.join(__dirname, "..")` para resolver caminhos relativos ao script
+- Removidas redeclaracoes locais de `moduleDir` que ficaram redundantes
+
+**Justificativa:** O `require.resolve` nao consegue resolver o proprio pacote quando executado via symlink de instalacao local.
+
+**Comandos/Ferramentas:**
+```javascript
+// Antes (falhava)
+const modulePkg = require("expo-utils/package.json");
+
+// Depois (funciona)
+const moduleDir = path.join(__dirname, "..");
+const modulePkg = require(path.join(moduleDir, "package.json"));
+```
+
+**Arquivos modificados:**
+- `bin/install.js` - linha 13 e todas ocorrencias de `path.dirname(require.resolve(...))`
+
+**Resultado:** Sucesso - commit `94ac0d9`
+
+---
+
+### Tarefa 4: Testar instalacao completa do zero
+
+**Pedido:** Apagar projeto de teste e recriar do zero para validar que tudo funciona.
+
+**Acoes realizadas:**
+1. Removido `/Users/plapps/Documents/projetos/expo-utils-test`
+2. Criado novo projeto com `npx create-expo-app expo-utils-test`
+3. Instalado expo-utils via GitHub
+4. Executado `npx expo-utils-install --new`
+5. Executado `npx expo run:ios`
+
+**Comandos/Ferramentas:**
+```bash
+rm -rf /Users/plapps/Documents/projetos/expo-utils-test
+cd /Users/plapps/Documents/projetos && npx create-expo-app expo-utils-test
+npm install github:Pixel-Logic-Apps/expo-utils
+npx expo-utils-install --new
+npx expo run:ios
+```
+
+**Erros encontrados:**
+```
+Unable to resolve module expo-utils/utils/Utils from src/app/_layout.tsx:
+expo-utils/utils/Utils could not be found within the project or in these directories:
+  node_modules
+```
+
+**Resultado:** Build iOS compilou, mas Metro bundler falhou ao resolver imports
+
+---
+
+### Tarefa 5: Corrigir imports de subpath do expo-utils
+
+**Pedido:** (Identificado durante teste) Metro nao consegue resolver `expo-utils/utils/Utils`
+
+**Acoes realizadas:**
+- Adicionado campo `exports` no `package.json` do expo-utils
+- Configurado exports para permitir subpath imports
+
+**Justificativa:** Sem o campo `exports`, o Node/Metro nao sabe como resolver imports como `expo-utils/utils/Utils`. O campo exports define explicitamente quais subpaths sao permitidos.
+
+**Comandos/Ferramentas:**
+```json
+"exports": {
+  ".": "./index.ts",
+  "./utils/*": "./utils/*",
+  "./constants/*": "./constants/*",
+  "./package.json": "./package.json"
+}
+```
+
+**Arquivos modificados:**
+- `package.json` - adicionado campo `exports`
+
+**Resultado:** PENDENTE - commit `1ca6ece` feito, aguardando teste
+
+---
+
+### Commits desta sessao
+
+| Hash | Mensagem |
+|------|----------|
+| `6aeaac2` | feat: add --hot-updater flag to CLI |
+| `94ac0d9` | fix: use __dirname for module resolution in CLI |
+| `fb57ef0` | docs: update CHATHISTORY |
+| `1ca6ece` | fix: add exports field to package.json for subpath imports |
+
+### Problemas Pendentes
+
+1. **Metro bundler nao resolve imports** - Adicionado `exports` no package.json, precisa testar
+2. **Warnings no build iOS:**
+   - `A firebase.json file was not found` - Normal sem config real
+   - `ios_app_id key not found in react-native-google-mobile-ads` - Usando placeholder
+
+### Licoes Aprendidas
+
+1. **Sempre testar instalacao via GitHub, nao via path local** - Symlinks tem comportamento diferente
+2. **Verificar se `exports` esta configurado** quando biblioteca tem subpath imports
+3. **`require.resolve` nao funciona bem** com symlinks de instalacao local
+
+---
+
 ## Sessao: 2026-01-28 (nova feature hot-updater)
 
 ### Nova Flag --hot-updater Adicionada

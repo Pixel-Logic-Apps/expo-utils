@@ -47,6 +47,7 @@
   },
   "peerDependencies": {
     "@hot-updater/react-native": ">=0.25.7",
+    "hot-updater": ">=0.25.7",
     "@microsoft/react-native-clarity": ">=4.3.3",
     "@react-native-async-storage/async-storage": ">=2.2.0",
     "@react-native-community/slider": ">=5.0.1",
@@ -90,6 +91,9 @@
   },
   "peerDependenciesMeta": {
     "@hot-updater/react-native": {
+      "optional": true
+    },
+    "hot-updater": {
       "optional": true
     },
     "expo-tiktok-ads-events": {
