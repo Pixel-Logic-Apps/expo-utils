@@ -32,6 +32,12 @@
   ],
   "type": "commonjs",
   "types": "./index.d.ts",
+  "exports": {
+    ".": "./index.ts",
+    "./utils/*": "./utils/*",
+    "./constants/*": "./constants/*",
+    "./package.json": "./package.json"
+  },
   "bin": {
     "expo-utils-install": "bin/install.js"
   },
