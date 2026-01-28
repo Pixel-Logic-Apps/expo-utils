@@ -2,6 +2,51 @@
 
 ## 2026-01-28 (Sessao Atual)
 
+### Tarefa 0: Corrigir erro de config plugin e imports - PluginError + Metro
+
+**Problemas:**
+1. Ao usar expo-utils como plugin no app.json:
+```
+PluginError: Unable to resolve a valid config plugin for expo-utils.
+• No "app.plugin.js" file found in expo-utils
+• main export of expo-utils does not appear to be a config plugin: Stripping types is currently unsupported for files under node_modules
+```
+
+2. Metro bundler nao conseguia resolver subpath imports:
+```
+Unable to resolve module expo-utils/utils/Utils from src/app/_layout.tsx
+```
+
+**Causa raiz:**
+- Commits `1ca6ece` e `f1f4f57` adicionaram campos `main` e `exports` no package.json
+- O campo `exports` restringe quais arquivos podem ser importados do pacote
+- `main` foi alterado para `./app.plugin.js` (config plugin, nao a biblioteca)
+- Na versao 1.0.15 que funcionava, NAO havia nem `main` nem `exports`
+
+**Investigacao:**
+- Inicialmente tentei varias combinacoes de `main` e `exports` sem sucesso
+- Descobri que o projeto de teste estava instalado via `file:../expo-utils` (symlink) ao inves de via GitHub
+- O watchman (usado pelo Metro) NAO segue symlinks, entao nao conseguia ver os arquivos
+- A instalacao correta e via `npm install github:Pixel-Logic-Apps/expo-utils`
+
+**Solucao final aplicada:**
+- Removido campo `main` completamente (nao existia na 1.0.15)
+- Removido campo `exports` completamente (nao existia na 1.0.15)
+- O Expo encontra `app.plugin.js` automaticamente pelo nome do arquivo
+- Sem `exports`, o Metro resolve subpaths normalmente
+
+**Arquivos modificados:**
+- `package.json` - removido `main` e `exports`
+
+**Commit:** `c32bf67` - fix: remove main and exports fields to restore subpath imports
+
+**Licao aprendida:**
+- Instalacao via `file:` cria symlink que o watchman nao segue
+- Sempre testar com `npm install github:user/repo` para simular instalacao real
+- Campos `main` e `exports` podem quebrar resolucao de subpaths se nao configurados corretamente
+
+---
+
 ### Tarefa 1: Resolver conflito de dependencias do hot-updater
 
 **Pedido:** Usuario tentou instalar `hot-updater` e recebeu erro de conflito de peer dependencies. Pediu para resolver SEM usar `--force` ou `--legacy-peer-deps`.
