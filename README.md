@@ -108,26 +108,40 @@ A função principal que inicializa tudo automaticamente:
 
 ```typescript
 Utils.prepare(
-    setAppIsReady, // Callback quando app estiver pronto
-    appConfig, // Configuração do app (opcional)
-    adUnits, // Unit IDs dos anúncios (opcional)
-    revenueCatKeys, // Chaves RevenueCat (opcional)
-    clarityProjectId, // ID Microsoft Clarity (opcional)
+    setAppIsReady,        // Callback quando app estiver pronto
+    appConfig,            // Configuração do app (opcional)
+    requestPermissions    // Solicitar permissões ATT/Push no início (default: true)
 );
+```
+
+**Parâmetros:**
+
+| Parâmetro | Tipo | Default | Descrição |
+|-----------|------|---------|-----------|
+| `setAppIsReady` | `(ready: boolean) => void` | - | Callback chamado quando inicialização termina |
+| `appConfig` | `any` | `undefined` | Configuração do app.json |
+| `requestPermissions` | `boolean` | `true` | Se deve solicitar permissões ATT e Push no início |
+
+**Exemplo sem solicitar permissões no início:**
+```typescript
+// Útil quando você quer controlar quando mostrar os diálogos
+Utils.prepare(setAppIsReady, appConfig, false);
 ```
 
 **O que a função prepare() faz automaticamente:**
 
-✅ Configura RevenueCat com chaves iOS/Android  
-✅ Carrega configurações remotas do Firebase  
-✅ Verifica atualizações disponíveis  
-✅ Valida versão mínima obrigatória  
-✅ Inicializa Facebook SDK  
-✅ Configura Microsoft Clarity analytics  
-✅ Solicita permissões de rastreamento iOS  
-✅ Configura push notifications  
-✅ Inscreve em tópicos Firebase específicos do app  
-✅ Oculta splash screen quando pronto
+✅ Solicita permissões de rastreamento iOS (ATT)
+✅ Solicita permissão de Push Notifications
+✅ Carrega configurações remotas do Firebase
+✅ Verifica e aplica atualizações OTA (HotUpdater)
+✅ Valida versão mínima obrigatória
+✅ Configura RevenueCat com chave do Remote Config
+✅ Inicializa Facebook SDK
+✅ Inicializa TikTok Ads SDK
+✅ Configura Microsoft Clarity analytics
+✅ Configura atribuições (IDFA, FCM Token, Firebase App Instance)
+✅ Gerencia tópicos FCM baseado no status do usuário
+✅ Configura push notifications e inscreve em tópicos
 
 ## 🎯 Sistema de Anúncios Inteligente
 
@@ -261,6 +275,69 @@ O componente de banner agora aceita o parâmetro `useFooterStyle`:
 <BannerAdComponent unitId="ca-app-pub-xxx/xxx" useFooterStyle={true} />
 ```
 
+## 📬 Gerenciamento de Tópicos FCM
+
+### Tópicos Baseados no Status do Usuário
+
+O expo-utils gerencia automaticamente a inscrição em tópicos FCM baseado no status de assinatura do usuário:
+
+```typescript
+// Formato do tópico: {slug}-purchase-{status}
+// Exemplos:
+// meu-app-purchase-free
+// meu-app-purchase-active
+// meu-app-purchase-trial
+// meu-app-purchase-expired
+```
+
+### Status Disponíveis
+
+| Status | Descrição |
+|--------|-----------|
+| `trial` | Usuário em período de trial |
+| `intro` | Usuário em período introdutório |
+| `billing_issue` | Problema de cobrança detectado |
+| `cancelled` | Cancelou mas ainda está ativo |
+| `active` | Assinatura ativa normal |
+| `refunded` | Usuário foi reembolsado |
+| `expired` | Assinatura expirada |
+| `free` | Nunca comprou nada |
+
+### Uso Manual
+
+```typescript
+import Utils from "expo-utils/utils/Utils";
+
+// Atualizar tópico manualmente
+await Utils.updateMessagingTopic(appConfig, remoteConfigs);
+
+// Obter status do usuário
+const customerInfo = await Purchases.getCustomerInfo();
+const status = Utils.getRevenueCatStatus(customerInfo);
+console.log(status); // "active", "free", "trial", etc.
+```
+
+### Segmentação de Push Notifications
+
+Use os tópicos para enviar notificações segmentadas:
+
+```javascript
+// Firebase Admin SDK (servidor)
+admin.messaging().sendToTopic('meu-app-purchase-free', {
+    notification: {
+        title: 'Oferta Especial!',
+        body: 'Assine agora com 50% de desconto!'
+    }
+});
+
+admin.messaging().sendToTopic('meu-app-purchase-billing_issue', {
+    notification: {
+        title: 'Problema com pagamento',
+        body: 'Atualize seus dados de pagamento para continuar.'
+    }
+});
+```
+
 ## ⭐ Sistema de Avaliações
 
 ### Função openReviewURL()
@@ -326,6 +403,61 @@ https://itunes.apple.com/lookup?bundleId=SEU_BUNDLE_ID
 ### Retorno
 
 - `Promise<boolean>` - `true` se abriu com sucesso, `false` se houve erro
+
+## 🔌 Integrações Opcionais
+
+### TikTok Ads SDK
+
+Configuração via Firebase Remote Config:
+
+```json
+{
+    "tiktokads": {
+        "token": "seu_token",
+        "appid": "seu_app_id",
+        "tkappid": "seu_tiktok_app_id",
+        "isdebug": false
+    }
+}
+```
+
+**Eventos rastreados automaticamente:**
+- `launch_app` - A cada abertura do app
+- `install_app` - Na primeira instalação
+
+### HotUpdater (Updates OTA)
+
+Configuração via Firebase Remote Config:
+
+```json
+{
+    "hotupdater_url": "https://seu-servidor.com/updates"
+}
+```
+
+O expo-utils verifica automaticamente por updates e aplica se necessário.
+
+### Trendings Tracker
+
+Configuração via Firebase Remote Config:
+
+```json
+{
+    "trends_tracking_url": "https://trendings.app/api"
+}
+```
+
+Rastreia instalações automaticamente na primeira abertura do app.
+
+### Microsoft Clarity
+
+Configuração via Firebase Remote Config:
+
+```json
+{
+    "clarity_id": "seu_project_id"
+}
+```
 
 ## 🔧 Dependências e Compatibilidade
 
@@ -564,6 +696,29 @@ Para suprimir warnings e/ou logs do expo-utils, adicione a configuração no seu
 - `disableLogs: true` - Suprime todos os console.log do expo-utils (útil em produção)
 
 **Nota**: O plugin expo-utils é completamente opcional. O projeto funciona normalmente sem ele.
+
+## ⚠️ Notas Importantes sobre iOS
+
+### Ordem de Permissões
+
+O iOS tem um comportamento específico com diálogos de permissão que pode causar problemas:
+
+1. **Diálogos são exibidos "out of process"** - fora do processo do app
+2. **Quando um diálogo aparece, o app entra em estado `inactive`**
+3. **ATT (App Tracking Transparency) REQUER estado `active`**
+
+Se você chamar múltiplas permissões em sequência rápida, o diálogo ATT pode:
+- Não aparecer (iOS 15)
+- Retornar `not-determined` silenciosamente
+- Se sobrepor com outros diálogos
+
+**Solução aplicada no expo-utils:**
+- As permissões são chamadas em sequência com tratamento adequado
+- Use `requestPermissions: false` se quiser controlar o timing manualmente
+
+### Ordem de Inicialização de SDKs
+
+O Facebook SDK **DEVE** ser inicializado antes do RevenueCat para que `getAnonymousID()` funcione corretamente. O expo-utils já gerencia essa ordem automaticamente.
 
 ## 🔄 Compatibilidade Firebase v22+
 

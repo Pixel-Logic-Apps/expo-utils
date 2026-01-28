@@ -1,6 +1,6 @@
 {
   "name": "expo-utils",
-  "version": "1.0.12",
+  "version": "1.0.13",
   "description": "CLI tool and utility library that automates 90% of the initial setup for Expo/React Native projects",
   "keywords": [
     "expo",
@@ -39,6 +39,7 @@
     "chalk": "^4.1.2"
   },
   "peerDependencies": {
+    "@hot-updater/react-native": ">=0.25.7",
     "@microsoft/react-native-clarity": ">=4.3.3",
     "@react-native-async-storage/async-storage": ">=2.2.0",
     "@react-native-community/slider": ">=5.0.1",
@@ -69,8 +70,8 @@
     "expo-status-bar": ">=3.0.8",
     "expo-store-review": ">=9.0.7",
     "expo-symbols": ">=1.0.7",
+    "expo-tiktok-ads-events": ">=0.1.6",
     "expo-tracking-transparency": ">=6.0.7",
-    "expo-updates": ">=29.0.10",
     "react": ">=19.1.0",
     "react-native": ">=0.81.4",
     "react-native-edge-to-edge": ">=1.7.0",
@@ -81,6 +82,12 @@
     "react-native-webview": ">=13.15.0"
   },
   "peerDependenciesMeta": {
+    "@hot-updater/react-native": {
+      "optional": true
+    },
+    "expo-tiktok-ads-events": {
+      "optional": true
+    },
     "@microsoft/react-native-clarity": {
       "optional": true
     },
@@ -174,9 +181,6 @@
     "expo-tracking-transparency": {
       "optional": true
     },
-    "expo-updates": {
-      "optional": true
-    },
     "react": {
       "optional": true
     },
@@ -203,6 +207,8 @@
     }
   },
   "devDependencies": {
+    "@hot-updater/react-native": "^0.25.7",
+    "expo-tiktok-ads-events": "^0.1.6",
     "@microsoft/react-native-clarity": "^4.3.3",
     "@react-native-async-storage/async-storage": "^2.2.0",
     "@react-native-firebase/analytics": "^23.3.1",

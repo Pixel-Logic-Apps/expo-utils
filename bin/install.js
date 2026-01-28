@@ -268,17 +268,8 @@ function handleLanguagesFlag() {
 
         if (!fs.existsSync(filePath)) {
             const localizedConfig = {
-                expo: {
-                    name: langInfo.name,
-                    ios: {
-                        infoPlist: {
-                            CFBundleDisplayName: langInfo.name,
-                        },
-                    },
-                    android: {
-                        app_name: langInfo.name,
-                    },
-                },
+                CFBundleDisplayName: langInfo.name,
+                app_name: langInfo.name
             };
             fs.writeFileSync(filePath, JSON.stringify(localizedConfig, null, 2));
             console.log(chalk.green(`  -> Created ${filePath} with localized names.`));

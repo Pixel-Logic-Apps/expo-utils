@@ -35,6 +35,9 @@ This is a **library package** that gets installed into user projects, not a stan
     - `--constants`: Create constants folder and copy Strings.ts template
     - `--eas-config`: Setup EAS Build and Updates configuration
     - `--tracking-permission`: Add iOS tracking transparency permission
+    - `--fix-ios-build`: Apply iOS build fixes (expo-build-properties, static frameworks)
+    - `--eas-login-script`: Create eas_login.sh script
+    - `--gitignore`: Update .gitignore with ios/, android/, etc.
 
 ## Architecture
 
@@ -114,44 +117,13 @@ The package can be configured via the Expo config plugin in app.json:
 
 These flags suppress console output from expo-utils in production.
 
-## File Structure
-
-```
-/bin
-  install.js          # CLI entry point
-/constants
-  Strings.ts          # AdMob unit ID template
-/data
-  skadnetwork_ids.json       # iOS SKAdNetwork IDs for ad attribution
-  standard_plugins.json       # Default plugin configurations
-/templates
-  RootLayout.tsx              # Template _layout.tsx with Utils.prepare() call
-  index.tsx                   # Basic index screen template
-  google-services.template.json    # Android Firebase placeholder
-  GoogleService-Info.template.plist # iOS Firebase placeholder
-  eas_login.sh                # EAS authentication script
-/utils
-  Utils.ts            # Core initialization logic
-  LoadAdsManager.ts   # Ad display helpers (interstitial, rewarded)
-  banner-ad.tsx       # Banner ad React component
-  safe-banner-ad.tsx  # Safe banner with error boundaries
-  i18n.ts            # Translation system
-  styles.ts          # Pre-built StyleSheet helpers
-  types.ts           # TypeScript interfaces
-  PremiumUtils.ts    # Premium user utilities
-  peer-deps.d.ts     # Type definitions for peer dependencies
-app.plugin.js        # Expo config plugin (currently minimal)
-index.ts            # Main package exports
-index.d.ts          # TypeScript declarations
-```
-
 ## Common Patterns
 
 ### Adding a New CLI Flag
 
 1. Create a `handle*Flag()` function in `bin/install.js`
-2. Add flag handling in `main()` function
-3. Document the flag in README.md
+2. Add flag handling in `main()` function (both in `--new` block and individual flags section)
+3. Document the flag in this file and README.md
 4. If creating files, add templates to `/templates` directory
 
 ### Adding a New Utility Function
@@ -163,7 +135,7 @@ index.d.ts          # TypeScript declarations
 
 ### Modifying app.json via CLI
 
-Use the helper functions:
+Use the helper functions in `bin/install.js`:
 
 - `getAppConfig()`: Read current app.json
 - `writeAppConfig(config)`: Write back to app.json
@@ -215,15 +187,3 @@ Since this is a library:
 3. Run CLI: `npx expo-utils-install --new`
 4. Test the generated structure, imports, and runtime behavior
 5. Verify that ads, Firebase, and other integrations work correctly
-
-## Key Dependencies to Know
-
-- `@expo/config-plugins`: Expo plugin system (used minimally)
-- `chalk`: Terminal colors for CLI output
-- `react-native-google-mobile-ads`: AdMob integration
-- `@react-native-firebase/*`: Firebase modules (all optional)
-- `react-native-purchases`: RevenueCat for IAP
-- `react-native-fbsdk-next`: Facebook SDK
-- `expo-tracking-transparency`: iOS ATT framework
-
-All peer dependencies are listed in package.json with minimum version constraints.
