@@ -39,21 +39,13 @@ Após criar seu projeto no Firebase Console, vá em **Remote Config** e adicione
 {
   "is_ads_enabled": true,
   "rckey": "appl_SuaChaveRevenueCatAqui",
-  "hotupdater_url": "",
   "trends_tracking_url": "",
+  "review_type": "popup",
   "adunits": {
-    "ios": {
-      "appOpen": "ca-app-pub-xxx/xxx",
-      "banner": "ca-app-pub-xxx/xxx",
-      "interstitial": "ca-app-pub-xxx/xxx",
-      "rewarded": "ca-app-pub-xxx/xxx"
-    },
-    "android": {
-      "appOpen": "ca-app-pub-xxx/xxx",
-      "banner": "ca-app-pub-xxx/xxx",
-      "interstitial": "ca-app-pub-xxx/xxx",
-      "rewarded": "ca-app-pub-xxx/xxx"
-    }
+    "appOpen": "ca-app-pub-xxx/xxx",
+    "banner": "ca-app-pub-xxx/xxx",
+    "interstitial": "ca-app-pub-xxx/xxx",
+    "rewarded": "ca-app-pub-xxx/xxx"
   },
   "tiktokads": {
     "token": "",
@@ -63,7 +55,6 @@ Após criar seu projeto no Firebase Console, vá em **Remote Config** e adicione
   },
   "clarity_id": "",
   "min_version": 0,
-  "review_mode": 0,
   "repeat_ads_count": 3,
   "delay_close_paywall_button": 5,
   "ios_app_id": "",
@@ -77,14 +68,12 @@ Após criar seu projeto no Firebase Console, vá em **Remote Config** e adicione
 |-------|------|-----------|
 | `is_ads_enabled` | boolean | Habilita/desabilita anúncios globalmente |
 | `rckey` | string | Chave do RevenueCat (começa com `appl_` ou `goog_`) |
-| `hotupdater_url` | string | URL do servidor HotUpdater para updates OTA |
 | `trends_tracking_url` | string | URL do Trendings Tracker para rastreamento |
 | `adunits` | object | Unit IDs do AdMob por plataforma |
 | `tiktokads` | object | Configurações do TikTok Ads SDK |
 | `clarity_id` | string | Project ID do Microsoft Clarity |
 | `min_version` | number | Versão mínima obrigatória (ex: 100 = 1.0.0) |
-| `min_version_force` | boolean | Se true, força atualização bloqueando o app |
-| `review_mode` | number | Modo de review (0 = normal) |
+| `review_type` | number | Modo de review (store-review, dialog e popup) |
 | `repeat_ads_count` | number | Quantidade de ações antes de mostrar anúncio |
 | `delay_close_paywall_button` | number | Segundos antes de mostrar botão de fechar paywall |
 | `ios_app_id` | string | App ID do iOS (fallback se busca automática falhar) |
@@ -462,6 +451,136 @@ https://itunes.apple.com/lookup?bundleId=SEU_BUNDLE_ID
 ### Retorno
 
 - `Promise<boolean>` - `true` se abriu com sucesso, `false` se houve erro
+
+## 🎁 Modal Promocional
+
+O expo-utils inclui um componente de modal promocional elegante para promover outros apps ou conteúdos. Configurável via Firebase Remote Config.
+
+### Configuração no Remote Config
+
+Adicione o objeto `appmodal` no seu Firebase Remote Config:
+
+```json
+{
+    "appmodal": {
+        "enabled": true,
+        "icon": "https://exemplo.com/icone-app.png",
+        "name": "Meu Outro App",
+        "description": "Descrição incrível do app que você quer promover",
+        "buttonText": "Baixar Agora",
+        "gradientColors": ["#22C55E", "#16A34A"],
+        "primaryColor": "#22C55E",
+        "storeUrl": "https://apps.apple.com/app/id123456789",
+        "delayMs": 5000,
+        "bannerImg": "https://exemplo.com/banner.png",
+        "bannerHeight": 200,
+        "showDontShowAgain": true
+    }
+}
+```
+
+### Campos da Configuração
+
+| Campo | Tipo | Descrição |
+|-------|------|-----------|
+| `enabled` | boolean | Habilita/desabilita o modal |
+| `icon` | string | URL do ícone do app (exibido no círculo central) |
+| `name` | string | Nome/título do app ou conteúdo |
+| `description` | string | Descrição promocional |
+| `buttonText` | string | Texto do botão principal |
+| `gradientColors` | [string, string] | Cores do gradiente de fundo |
+| `primaryColor` | string | Cor do botão principal |
+| `storeUrl` | string | URL da loja para download |
+| `delayMs` | number | Delay em ms antes de mostrar (default: 5000) |
+| `bannerImg` | string | URL de imagem banner (substitui o gradiente) |
+| `bannerHeight` | number | Altura do banner em pixels (default: 200) |
+| `showDontShowAgain` | boolean | Mostrar botão "Não mostrar novamente" |
+
+### Uso no Código
+
+```typescript
+import ModalPromotionalContent, { usePromotionalModal } from 'expo-utils/utils/modal-promotional-content';
+
+function MyScreen() {
+    const { visible, show, hide } = usePromotionalModal();
+
+    useEffect(() => {
+        // Mostra o modal automaticamente após o delay configurado
+        show();
+    }, []);
+
+    return (
+        <View>
+            {/* Seu conteúdo */}
+            <ModalPromotionalContent
+                visible={visible}
+                onClose={hide}
+            />
+        </View>
+    );
+}
+```
+
+### Customização de Cores
+
+```typescript
+<ModalPromotionalContent
+    visible={visible}
+    onClose={hide}
+    colors={{
+        overlayBackground: "rgba(0,0,0,0.7)",
+        modalBackground: "#1F2937",
+        handleColor: "rgba(255,255,255,0.5)",
+        titleText: "#FFFFFF",
+        descriptionText: "#9CA3AF",
+        primaryButtonText: "#FFFFFF",
+        secondaryButtonText: "#9CA3AF",
+    }}
+/>
+```
+
+### Suporte a Internacionalização
+
+Use a prop `t` para traduzir textos dinâmicos com o pattern `%{key}`:
+
+```json
+{
+    "appmodal": {
+        "name": "%{app_name}",
+        "description": "%{app_description}",
+        "buttonText": "%{download_button}"
+    }
+}
+```
+
+```typescript
+import { useTranslation } from 'sua-lib-i18n';
+
+function MyScreen() {
+    const { t } = useTranslation();
+    const { visible, hide } = usePromotionalModal();
+
+    return (
+        <ModalPromotionalContent
+            visible={visible}
+            onClose={hide}
+            t={t}
+        />
+    );
+}
+```
+
+### Características
+
+- ✅ **Swipe para fechar** - Arraste para baixo para dispensar
+- ✅ **Animações suaves** - Spring animations nativas
+- ✅ **Banner ou Gradiente** - Escolha entre imagem ou gradiente animado
+- ✅ **Círculos decorativos** - Design moderno com círculos concêntricos
+- ✅ **"Não mostrar novamente"** - Persiste preferência no AsyncStorage
+- ✅ **Safe Area** - Respeita insets do dispositivo
+- ✅ **Cores customizáveis** - Todas as cores podem ser sobrescritas
+
+---
 
 ## 🔌 Integrações Opcionais
 

@@ -1,5 +1,131 @@
 # Chat History - expo-utils
 
+## 2026-01-30
+
+### Tarefa: Teste de Build iOS com expo-utils-test
+
+**Pedido:** Continuar testes de integracao do expo-utils em projeto novo. Usuario queria validar se as correcoes anteriores (try-catch global, HotUpdater API) funcionam.
+
+**Acoes realizadas:**
+1. Tentativa de recriar projeto expo-utils-test do zero
+2. Build iOS iniciado com `npx expo run:ios`
+3. Encontrados erros de dependencias e configuracao
+
+**Erros encontrados:**
+
+1. **PluginError @hot-updater/react-native:**
+```
+PluginError: Failed to resolve plugin for module "@hot-updater/react-native" relative to "/Users/plapps/Documents/projetos/expo-utils-test". Do you have node modules installed?
+```
+- Causa: Plugin listado no app.json mas pacote nao instalado nos node_modules
+
+2. **Build iOS - no such module 'FirebaseCore':**
+```
+❌  (ios/expoutilstest/AppDelegate.swift:2:8)
+
+  1 | import Expo
+> 2 | import FirebaseCore
+    |        ^ no such module 'FirebaseCore'
+  3 | import React
+```
+- Causa: Firebase pods nao instalados corretamente
+- O Podfile usa `use_frameworks! :linkage => :static` conforme app.json
+- Prebuild rodou, CocoaPods instalou, mas Firebase nao foi incluido
+
+**Arquivos relevantes:**
+- `/Users/plapps/Documents/projetos/expo-utils-test/package.json` - dependencias do projeto teste
+- `/Users/plapps/Documents/projetos/expo-utils-test/ios/Podfile` - configuracao CocoaPods
+- `/Users/plapps/Documents/projetos/expo-utils-test/app.json` - plugins Expo
+
+**Configuracao do projeto teste:**
+```json
+{
+  "plugins": [
+    "@hot-updater/react-native",
+    "@react-native-firebase/app",
+    "@react-native-firebase/auth",
+    "@react-native-firebase/crashlytics",
+    "@react-native-firebase/messaging",
+    ["expo-build-properties", {
+      "ios": {
+        "useFrameworks": "static",
+        "useModularHeaders": true,
+        "forceStaticLinking": ["RNFBApp", "RNFBAuth", "RNFBFirestore"]
+      }
+    }]
+  ]
+}
+```
+
+**Resultado:** Bloqueado - Build iOS falhou por Firebase nao estar nos Pods
+
+**Proximos passos necessarios:**
+1. Deletar projeto expo-utils-test
+2. Recriar projeto do zero
+3. Garantir que `npm install` complete antes de `expo run:ios`
+4. Verificar se Firebase pods estao sendo incluidos pelo autolinking
+
+---
+
+### Contexto: Estado Atual das Versoes
+
+**expo-utils versao atual:** 1.0.18 (publicada em 2026-01-29)
+
+**Ultimos commits relevantes:**
+- `f2220e5` - fix: validate TikTok SDK initialization parameters in initTikTokSDK function
+- `43e0a2c` - fix: add setupAppOpenListener call in RootLayout component
+- `402e591` - docs: update README and template files with placeholder values for Firebase configuration
+- `cfde219` - docs: update CHATHISTORY with details on config plugin error resolution
+- `c32bf67` - fix: remove main and exports fields to restore subpath imports
+
+**Problema Firebase API_KEY (sessao anterior):**
+- Template `GoogleService-Info.template.plist` tinha `YOUR_API_KEY_HERE`
+- Firebase SDK valida formato da API_KEY e crashava
+- Corrigido para `AIzaSyDUMMYKEY000000000000000000000000` (formato valido)
+- MAS Firebase ainda valida a key contra servidores Google e crasha
+
+**Conclusao importante:**
+Firebase SDK NAO PODE funcionar com credenciais placeholder. Usuarios DEVEM fornecer GoogleService-Info.plist real para testar builds iOS com Firebase.
+
+---
+
+## 2026-01-29
+
+### Refatoracao HotUpdater + Try-Catch Global
+
+**Arquivos modificados:**
+- `utils/Utils.ts`
+- `templates/RootLayout.tsx`
+
+**Mudancas em Utils.ts:**
+1. Removido `getUpdateSource` do import do HotUpdater
+2. Adicionado try-catch em TODAS as chamadas no `prepare()`:
+   - `maybeApplyUpdate`, `checkForRequiredUpdateDialog`, `setupRevenueCat`, `setupGlobalConfigs`
+   - `initFBSDK`, `initTikTokSDK`, `setupClarity`, `initLinkInBioTracking`
+   - `setupAttribution`, `updateMessagingTopic`, `addCustomerInfoUpdateListener`
+3. Descomentado `expoUtilsWarn("Error in prepare:", e)`
+4. Adicionado early return em `initLinkInBioTracking` se nao tiver `trends_tracking_url`
+5. Simplificado `maybeApplyUpdate()`:
+   - Removido parametro `remoteConfigs` (URL agora vem do wrapper)
+   - Mudou de `runUpdateProcess` + `getUpdateSource` para nova API `checkForUpdate` + `updateBundle`
+
+**Mudancas em RootLayout.tsx:**
+1. Removido `React` do import (usa destructuring direto)
+2. Adicionado import do `HotUpdater`
+3. Mudou de `export default function RootLayout()` para `function RootLayout()`
+4. Export com wrapper: `export default HotUpdater.wrap({baseURL, updateMode})(RootLayout)`
+
+**Nova arquitetura HotUpdater:**
+- Antes: URL vinha do RemoteConfig (`remoteConfigs.hotupdater_url`)
+- Agora: URL configurada no wrapper do componente root
+
+**Nota:** URL no template mudada para placeholder `https://YOUR-WORKER.workers.dev/api/check-update`
+
+**Commit:** `d50fea6` - refactor: add try-catch to all SDK initializations and update HotUpdater API
+**Versao:** 1.0.17
+
+---
+
 ## 2026-01-28 (Sessao Atual)
 
 ### Tarefa 0: Corrigir erro de config plugin e imports - PluginError + Metro
