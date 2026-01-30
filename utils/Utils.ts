@@ -34,7 +34,7 @@ import {AppEventsLogger, Settings as FbsdkSettings} from "react-native-fbsdk-nex
 import Purchases, {LOG_LEVEL} from "react-native-purchases";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {Alert, Platform, Linking, LogBox} from "react-native";
-import {getUpdateSource, HotUpdater} from "@hot-updater/react-native";
+import {HotUpdater} from "@hot-updater/react-native";
 
 // Importações modulares do Firebase
 import {
@@ -267,35 +267,38 @@ const Utils = {
 
             //Setup do remoteconfig (Precisa de internet).
             const remoteConfigs = await Utils.getRemoteConfigSettings();
-            await Utils.maybeApplyUpdate(remoteConfigs);
-            await Utils.checkForRequiredUpdateDialog(remoteConfigs);
-            await Utils.setupRevenueCat(remoteConfigs);
-            await Utils.setupGlobalConfigs(appConfig, remoteConfigs);
+            try { await Utils.maybeApplyUpdate(); }                             catch (e) { expoUtilsWarn("maybeApplyUpdate:", e); }
+            try { await Utils.checkForRequiredUpdateDialog(remoteConfigs); }    catch (e) { expoUtilsWarn("checkForRequiredUpdateDialog:", e); }
+            try { await Utils.setupRevenueCat(remoteConfigs); }                 catch (e) { expoUtilsWarn("setupRevenueCat:", e); }
+            try { await Utils.setupGlobalConfigs(appConfig, remoteConfigs); }   catch (e) { expoUtilsWarn("setupGlobalConfigs:", e); }
 
             //Precisa de carregar todas as libs pra setar os ids.
             (async () => {
-                await Utils.initFBSDK(appConfig);
-                await Utils.initTikTokSDK(remoteConfigs);
-                await Utils.setupClarity(remoteConfigs);
-                await Utils.initLinkInBioTracking(remoteConfigs, appConfig);
-                await Utils.setupAttribution(remoteConfigs);
-                await Utils.updateMessagingTopic(appConfig, remoteConfigs);
+                try { await Utils.initFBSDK(appConfig); }                            catch (e) { expoUtilsWarn("initFBSDK:", e); }
+                try { await Utils.initTikTokSDK(remoteConfigs); }                    catch (e) { expoUtilsWarn("initTikTokSDK:", e); }
+                try { await Utils.setupClarity(remoteConfigs); }                     catch (e) { expoUtilsWarn("setupClarity:", e); }
+                try { await Utils.initLinkInBioTracking(remoteConfigs, appConfig); } catch (e) { expoUtilsWarn("initLinkInBioTracking:", e); }
+                try { await Utils.setupAttribution(remoteConfigs); }                 catch (e) { expoUtilsWarn("setupAttribution:", e); }
+                try { await Utils.updateMessagingTopic(appConfig, remoteConfigs); }  catch (e) { expoUtilsWarn("updateMessagingTopic:", e); }
             })();
 
             //Listener se mudou informacao do Usuário.
-            if (remoteConfigs?.rckey) {
-                Purchases.addCustomerInfoUpdateListener(() => {
-                    Utils.updateMessagingTopic(appConfig, remoteConfigs);
-                });
-            }
+            try {
+                if (remoteConfigs?.rckey) {
+                    Purchases.addCustomerInfoUpdateListener(() => {
+                        Utils.updateMessagingTopic(appConfig, remoteConfigs);
+                    });
+                }
+            } catch (e) { expoUtilsWarn("addCustomerInfoUpdateListener:", e); }
         } catch (e) {
-            // expoUtilsWarn("Error in prepare:", e);
+            expoUtilsWarn("Error in prepare:", e);
         } finally {
             setAppIsReady(true);
         }
     },
 
     initLinkInBioTracking: async (remoteConfig: RemoteConfigSettings, appConfig: AppConfig) => {
+        if(!remoteConfig?.trends_tracking_url) return;
         const {ios, android} = appConfig?.expo ?? {};
         const appId = Platform.OS === "ios" ? ios?.bundleIdentifier : android?.package;
         const apiUrl = remoteConfig?.trends_tracking_url ?? "https://trendings.app/api";
@@ -324,15 +327,15 @@ const Utils = {
     },
 
     // Função para verificar e aplicar updates do HotUpdater
-    maybeApplyUpdate: async (remoteConfigs: RemoteConfigSettings) => {
-        if (!remoteConfigs?.hotupdater_url) return;
-        const result = await HotUpdater.runUpdateProcess({
-            source: getUpdateSource(remoteConfigs?.hotupdater_url, {
-                updateStrategy: "appVersion",
-            }),
+    maybeApplyUpdate: async () => {
+        const updateInfo = await HotUpdater.checkForUpdate({
+            updateStrategy: "appVersion",
         });
-        if (result.status !== "UP_TO_DATE" && result.shouldForceUpdate && HotUpdater.isUpdateDownloaded()) {
-            await HotUpdater.reload();
+        if (updateInfo) {
+            await updateInfo.updateBundle();
+            if (updateInfo.shouldForceUpdate) {
+                await HotUpdater.reload();
+            }
         }
     },
 

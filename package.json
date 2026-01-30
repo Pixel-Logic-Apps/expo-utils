@@ -1,6 +1,6 @@
 {
   "name": "expo-utils",
-  "version": "1.0.16",
+  "version": "1.0.17",
   "description": "CLI tool and utility library that automates 90% of the initial setup for Expo/React Native projects",
   "keywords": [
     "expo",

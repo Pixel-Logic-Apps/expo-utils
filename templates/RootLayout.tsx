@@ -1,10 +1,11 @@
 import {SplashScreen, Stack} from "expo-router";
-import React, {useEffect, useState} from "react";
+import {useEffect, useState} from "react";
 import Utils from "expo-utils/utils/Utils";
 import {setupAppOpenListener} from "expo-utils/utils/appopen-ads";
 import AskForReviewOverlay, {AskForReviewEvents} from "expo-utils/utils/ask-for-review";
 import ModalPromotionalContent, {usePromotionalModal} from "expo-utils/utils/modal-promotional-content";
 import appConfig from "../../app.json";
+import {HotUpdater} from "@hot-updater/react-native";
 
 declare global {
     var remoteConfigs: any;
@@ -14,7 +15,7 @@ declare global {
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
-export default function RootLayout() {
+function RootLayout() {
     const [appIsReady, setAppIsReady] = useState(false);
     const [showReviewOverlay, setShowReviewOverlay] = useState(false);
     const {visible: showPromo, show: showPromoModal, hide: hidePromoModal} = usePromotionalModal();
@@ -54,3 +55,8 @@ export default function RootLayout() {
         </>
     );
 }
+
+export default HotUpdater.wrap({
+    baseURL: "https://YOUR-WORKER.workers.dev/api/check-update",
+    updateMode: "manual",
+})(RootLayout);
