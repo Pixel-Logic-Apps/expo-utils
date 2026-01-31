@@ -31,7 +31,6 @@ export interface RemoteConfigSettings {
     tiktokads: {token: string; appid: string; tkappid: string; isdebug: boolean};
     clarity_id: string;
     min_version: number;
-    min_version_force?: boolean;
     review_mode: number;
     repeat_ads_count: number;
     delay_close_paywall_button: number;
