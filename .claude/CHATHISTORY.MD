@@ -1,5 +1,26 @@
 # Chat History - expo-utils
 
+## 2026-02-04
+
+### Tarefa: Remover Strings.ts (deprecated)
+
+**Pedido:** Remover arquivo `constants/Strings.ts` e código relacionado no CLI, pois não é mais utilizado.
+
+**Ações realizadas:**
+1. Deletado arquivo `constants/Strings.ts`
+2. Simplificada função `handleConstantsFlag()` em `bin/install.js` - agora só cria pasta constants
+3. Atualizada documentação em `CLAUDE.md` e `README.md`
+
+**Arquivos modificados:**
+- `constants/Strings.ts` - DELETADO
+- `bin/install.js` - removido código de cópia do Strings.ts
+- `CLAUDE.md` - atualizada descrição da flag --constants
+- `README.md` - atualizada tabela de flags e seção de Unit IDs (agora usa Firebase Remote Config)
+
+**Motivo:** Unit IDs de anúncios agora são configurados via Firebase Remote Config em vez de arquivo local.
+
+---
+
 ## 2026-01-30
 
 ### Tarefa: Teste de Build iOS com expo-utils-test

@@ -32,7 +32,7 @@ This is a **library package** that gets installed into user projects, not a stan
     - `--languages`: Setup i18n with pt/en/es translations
     - `--firebase-placeholders`: Create placeholder Firebase config files
     - `--skadnetwork`: Add SKAdNetwork IDs for iOS
-    - `--constants`: Create constants folder and copy Strings.ts template
+    - `--constants`: Create constants folder
     - `--eas-config`: Setup EAS Build and Updates configuration
     - `--tracking-permission`: Add iOS tracking transparency permission
     - `--fix-ios-build`: Apply iOS build fixes (expo-build-properties, static frameworks)

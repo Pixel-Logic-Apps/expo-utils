@@ -107,7 +107,7 @@ npx expo-utils-install --new
 | `--srcapp`                | Move pasta app para src/app                     |
 | `--languages`             | Cria pasta languages com traduções              |
 | `--skadnetwork`           | Adiciona SKAdNetworkItems para iOS              |
-| `--constants`             | Cria pasta constants e copia Strings.ts         |
+| `--constants`             | Cria pasta constants                            |
 | `--eas-config`            | Configura eas.json básico                       |
 | `--tracking-permission`   | Adiciona permissão de rastreamento iOS          |
 
@@ -236,7 +236,7 @@ await AsyncStorage.removeItem("@isPremium");
 
 **Unit IDs Inteligentes**:
 
-- Usa unit IDs do `constants/Strings.ts` como padrão
+- Usa unit IDs do Firebase Remote Config (`global.adUnits`)
 - Permite override via parâmetro
 - Configuração por plataforma (iOS/Android)
 
@@ -746,29 +746,18 @@ const appConfig = {
 
 ### Unit IDs de Anúncios
 
-```typescript
-// constants/Strings.ts
-import {Platform} from "react-native";
+Os Unit IDs de anúncios são configurados via Firebase Remote Config:
 
-const iosAdUnits = {
-    appOpen: "ca-app-pub-xxx/xxx",
-    banner: "ca-app-pub-xxx/xxx",
-    interstitial: "ca-app-pub-xxx/xxx",
-    rewarded: "ca-app-pub-xxx/xxx",
-};
-
-const androidAdUnits = {
-    appOpen: "ca-app-pub-xxx/xxx",
-    banner: "ca-app-pub-xxx/xxx",
-    interstitial: "ca-app-pub-xxx/xxx",
-    rewarded: "ca-app-pub-xxx/xxx",
-};
-
-export default Platform.select({
-    android: androidAdUnits,
-    default: iosAdUnits,
-});
+```json
+{
+    "app_open_id": "ca-app-pub-xxx/xxx",
+    "banner_id": "ca-app-pub-xxx/xxx",
+    "interstitial_id": "ca-app-pub-xxx/xxx",
+    "rewarded_id": "ca-app-pub-xxx/xxx"
+}
 ```
+
+Esses valores são carregados automaticamente em `global.adUnits` pela função `prepare()`.
 
 ### Configurações Remotas Firebase
 

@@ -10,7 +10,7 @@
         "allowSyntheticDefaultImports": true,
         "esModuleInterop": true,
         "types": ["node"],
-        "baseUrl": "."
+        "baseUrl": "./src"
     },
     "include": ["**/*.ts", "**/*.tsx"],
     "exclude": ["node_modules", "**/*.test.*", "templates"]
