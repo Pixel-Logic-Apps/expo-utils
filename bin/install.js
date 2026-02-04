@@ -269,8 +269,12 @@ function handleLanguagesFlag() {
 
         if (!fs.existsSync(filePath)) {
             const localizedConfig = {
-                CFBundleDisplayName: langInfo.name,
-                app_name: langInfo.name
+                ios:{
+                    CFBundleDisplayName: langInfo.name
+                },
+                android:{
+                    app_name: langInfo.name
+                }
             };
             fs.writeFileSync(filePath, JSON.stringify(localizedConfig, null, 2));
             console.log(chalk.green(`  -> Created ${filePath} with localized names.`));
@@ -856,6 +860,47 @@ function handleHotUpdaterFlag() {
     if (gitignoreUpdated) {
         fs.writeFileSync(gitignorePath, gitignoreContent.trim() + "\n");
         console.log(chalk.green(`  -> Updated .gitignore with .env files.`));
+    }
+
+    // --- 5. Add @hot-updater/react-native plugin to app.json ---
+    const config = getAppConfig();
+    if (config) {
+        config.expo = config.expo || {};
+        config.expo.plugins = config.expo.plugins || [];
+
+        const pluginName = "@hot-updater/react-native";
+        const hotUpdaterConfig = {
+            channel: "production",
+        };
+
+        // Find the index of the @hot-updater/react-native plugin
+        const hotUpdaterIndex = config.expo.plugins.findIndex((p) =>
+            (Array.isArray(p) && p[0] === pluginName) || p === pluginName
+        );
+
+        if (hotUpdaterIndex !== -1) {
+            const existingPlugin = config.expo.plugins[hotUpdaterIndex];
+
+            // Handle both array and string formats
+            if (Array.isArray(existingPlugin)) {
+                // Merge with existing configuration
+                existingPlugin[1] = {
+                    ...existingPlugin[1],  // Keep existing config
+                    ...hotUpdaterConfig    // Add our required config
+                };
+                config.expo.plugins[hotUpdaterIndex] = existingPlugin;
+            } else {
+                // Convert string format to array format with configuration
+                config.expo.plugins[hotUpdaterIndex] = [pluginName, hotUpdaterConfig];
+            }
+            console.log(chalk.green(`  -> Updated ${pluginName} plugin configuration.`));
+        } else {
+            // Plugin doesn't exist, add it
+            config.expo.plugins.push([pluginName, hotUpdaterConfig]);
+            console.log(chalk.green(`  -> Added and configured ${pluginName} plugin.`));
+        }
+
+        writeAppConfig(config);
     }
 
     console.log(chalk.green("✅ Hot Updater setup complete."));

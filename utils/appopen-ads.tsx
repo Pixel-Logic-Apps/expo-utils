@@ -9,14 +9,29 @@ const appState = {current: "active"};
 export const setupAppOpenListener = (adUnitId?: string) => {
     AppState.addEventListener("change", (nextAppState) => {
         (async () => {
-            try {
+
+            if (!(global as any).isAdsEnabled) {
+                appState.current = nextAppState;
+                return;
+            }
+
+            if (await Purchases.isConfigured()) {
                 const customerInfo = await Purchases.getCustomerInfo();
                 const isPremium = Object.keys(customerInfo.entitlements.active).length > 0;
-                const isPremiumStorage = JSON.parse((await AsyncStorage.getItem("@isPremium")) || "false");
-                if (isPremiumStorage || isPremium || !(global as any).isAdsEnabled) {
+                if (isPremium) {
+                    appState.current = nextAppState;
                     return;
                 }
-            } catch {}
+            }
+
+            const isPremiumStorage = JSON.parse((await AsyncStorage.getItem("@isPremium")) || "false");
+            if (isPremiumStorage) {
+                appState.current = nextAppState;
+                return;
+            }
+
+
+            
 
             const unitId = adUnitId ?? (global as any).remoteConfigs?.adunits?.appOpen;
             if (!unitId) return;

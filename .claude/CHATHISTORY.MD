@@ -19,6 +19,49 @@
 
 **Motivo:** Unit IDs de anúncios agora são configurados via Firebase Remote Config em vez de arquivo local.
 
+**Resultado:** Sucesso
+
+---
+
+### Tarefa: Corrigir configuração do @hot-updater/react-native no app.json
+
+**Pedido:** O plugin `@hot-updater/react-native` estava sendo adicionado ao app.json apenas como string, mas o correto é como array com configuração de channel: `["@hot-updater/react-native", { "channel": "production" }]`
+
+**Ações realizadas:**
+1. Verificado que o código original NÃO adicionava o plugin ao app.json (só configurava package.json, babel.config.js e arquivos .env)
+2. Adicionada seção 5 na função `handleHotUpdaterFlag()` para configurar o plugin no app.json
+3. Seguido padrão do `expo-tracking-transparency` para merge de configuração
+
+**Justificativa:** O hot-updater requer a configuração de channel no plugin do app.json para funcionar corretamente. Sem essa configuração, o plugin não saberia qual canal de updates usar.
+
+**Arquivos modificados:**
+- `bin/install.js` - adicionada seção 5 em `handleHotUpdaterFlag()` para configurar app.json
+
+**Código adicionado:**
+```javascript
+// --- 5. Add @hot-updater/react-native plugin to app.json ---
+const config = getAppConfig();
+if (config) {
+    const pluginName = "@hot-updater/react-native";
+    const hotUpdaterConfig = { channel: "production" };
+
+    // Find existing plugin or add new
+    const hotUpdaterIndex = config.expo.plugins.findIndex((p) =>
+        (Array.isArray(p) && p[0] === pluginName) || p === pluginName
+    );
+
+    if (hotUpdaterIndex !== -1) {
+        // Merge with existing configuration
+        // ...
+    } else {
+        config.expo.plugins.push([pluginName, hotUpdaterConfig]);
+    }
+    writeAppConfig(config);
+}
+```
+
+**Resultado:** Sucesso
+
 ---
 
 ## 2026-01-30
