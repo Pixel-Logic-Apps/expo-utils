@@ -35,6 +35,7 @@ import Purchases, {LOG_LEVEL} from "react-native-purchases";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {Alert, Platform, Linking, LogBox} from "react-native";
 import {HotUpdater} from "@hot-updater/react-native";
+import {logConfigIntegrityValues, reportConfigIntegrity} from "./config-integrity";
 
 // Importações modulares do Firebase
 import {
@@ -271,6 +272,8 @@ const Utils = {
             try { await Utils.checkForRequiredUpdateDialog(remoteConfigs); }    catch (e) { expoUtilsWarn("checkForRequiredUpdateDialog:", e); }
             try { await Utils.setupRevenueCat(remoteConfigs); }                 catch (e) { expoUtilsWarn("setupRevenueCat:", e); }
             try { await Utils.setupGlobalConfigs(appConfig, remoteConfigs); }   catch (e) { expoUtilsWarn("setupGlobalConfigs:", e); }
+            try { logConfigIntegrityValues(remoteConfigs, appConfig); }         catch (e) { expoUtilsWarn("logConfigIntegrityValues:", e); }
+            try { await reportConfigIntegrity(remoteConfigs, appConfig); }      catch (e) { expoUtilsWarn("reportConfigIntegrity:", e); }
 
             //Precisa de carregar todas as libs pra setar os ids.
             (async () => {

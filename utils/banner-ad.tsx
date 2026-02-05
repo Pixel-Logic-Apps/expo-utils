@@ -1,5 +1,4 @@
 import React, {useEffect, useState} from "react";
-import {View} from "react-native";
 import {BannerAd, BannerAdSize} from "react-native-google-mobile-ads";
 import Utils, {expoUtilsLog} from "./Utils";
 import AsyncStorage from "@react-native-async-storage/async-storage";
