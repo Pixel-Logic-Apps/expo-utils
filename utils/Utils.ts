@@ -16,7 +16,7 @@ export function expoUtilsLog(...args: any[]) {
 
 import {AppConfig, RemoteConfigSettings} from "./types";
 import {getLocalizedMessages} from "./i18n";
-const safeGetLocales = (): Array<{languageCode?: string}> => {
+const safeGetLocales = (): Array<{languageCode?: string; regionCode?: string}> => {
     try {
         // eslint-disable-next-line @typescript-eslint/no-var-requires
         const mod = require("expo-localization");
@@ -198,6 +198,13 @@ const Utils = {
                 subscribeToTopic(messaging, topicName)
                     .then(() => expoUtilsWarn("Subscribed to topic:", topicName))
                     .catch(() => expoUtilsWarn("Failed to subscribe to topic:", topicName));
+                const regionCode = safeGetLocales()[0]?.regionCode;
+                if (regionCode) {
+                    const countryTopic = `${topicName}-${regionCode.toLowerCase()}`;
+                    subscribeToTopic(messaging, countryTopic)
+                        .then(() => expoUtilsWarn("Subscribed to country topic:", countryTopic))
+                        .catch(() => expoUtilsWarn("Failed to subscribe to country topic:", countryTopic));
+                }
             }
         } catch (error) {
             console.error("Error setting up push notifications:", error);
@@ -272,7 +279,6 @@ const Utils = {
             try { await Utils.checkForRequiredUpdateDialog(remoteConfigs); }    catch (e) { expoUtilsWarn("checkForRequiredUpdateDialog:", e); }
             try { await Utils.setupRevenueCat(remoteConfigs); }                 catch (e) { expoUtilsWarn("setupRevenueCat:", e); }
             try { await Utils.setupGlobalConfigs(appConfig, remoteConfigs); }   catch (e) { expoUtilsWarn("setupGlobalConfigs:", e); }
-            try { logConfigIntegrityValues(remoteConfigs, appConfig); }         catch (e) { expoUtilsWarn("logConfigIntegrityValues:", e); }
             try { await reportConfigIntegrity(remoteConfigs, appConfig); }      catch (e) { expoUtilsWarn("reportConfigIntegrity:", e); }
 
             //Precisa de carregar todas as libs pra setar os ids.

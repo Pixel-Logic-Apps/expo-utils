@@ -2,6 +2,28 @@
 
 ## 2026-02-04
 
+### Deploy v1.0.20
+
+**Pedido:** Deploy e commit do pacote
+
+**Ações realizadas:**
+1. Verificado que repositório estava limpo (sem mudanças pendentes)
+2. Versão 1.0.19 já estava publicada no npm
+3. Incrementado versão para 1.0.20 (patch)
+4. Publicado pacote no npm: `expo-utils@1.0.20`
+5. Push do commit de versão e tags para GitHub
+
+**Comandos executados:**
+```bash
+npm version patch  # v1.0.20
+npm publish        # + expo-utils@1.0.20
+git push && git push --tags
+```
+
+**Resultado:** Sucesso - pacote publicado e disponível no npm
+
+---
+
 ### Tarefa: Remover Strings.ts (deprecated)
 
 **Pedido:** Remover arquivo `constants/Strings.ts` e código relacionado no CLI, pois não é mais utilizado.
