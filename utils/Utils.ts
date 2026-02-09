@@ -36,6 +36,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import {Alert, Platform, Linking, LogBox} from "react-native";
 import {HotUpdater} from "@hot-updater/react-native";
 import {logConfigIntegrityValues, reportConfigIntegrity} from "./config-integrity";
+import {setBlocklist} from "./AdPlacementTracker";
 
 // Importações modulares do Firebase
 import {
@@ -470,6 +471,9 @@ const Utils = {
             (global as any).isAdsEnabled = false;
         }
         (global as any).remoteConfigs = remoteConfigs;
+        if (remoteConfigs.ad_blocklist) {
+            setBlocklist(remoteConfigs.ad_blocklist);
+        }
     },
 
     openReviewURL: async (preferNativeStore = true) => {

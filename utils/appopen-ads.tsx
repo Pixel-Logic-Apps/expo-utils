@@ -2,6 +2,8 @@ import {AppState} from "react-native";
 import {AppOpenAd, AdEventType} from "react-native-google-mobile-ads";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Purchases from "react-native-purchases";
+import {generatePlacementId, isPlacementBlocked} from "./AdPlacementTracker";
+import {expoUtilsLog} from "./Utils";
 
 let canShowAppOpenAgain = true;
 const appState = {current: "active"};
@@ -30,13 +32,18 @@ export const setupAppOpenListener = (adUnitId?: string) => {
                 return;
             }
 
-
-            
-
             const unitId = adUnitId ?? (global as any).remoteConfigs?.adunits?.appOpen;
             if (!unitId) return;
 
             if (canShowAppOpenAgain && appState.current === "background" && nextAppState === "active") {
+                const placementId = generatePlacementId("appopen");
+
+                if (isPlacementBlocked(placementId)) {
+                    expoUtilsLog(`[expo-utils] AppOpen blocked: ${placementId}`);
+                    appState.current = nextAppState;
+                    return;
+                }
+
                 canShowAppOpenAgain = false;
                 const appOpenAd = AppOpenAd.createForAdRequest(unitId);
 
