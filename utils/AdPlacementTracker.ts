@@ -30,8 +30,8 @@ export function getCurrentRoute(): string {
     return currentRoute;
 }
 
-// Internal strings to filter out expo-utils frames from stack traces
-const INTERNAL_FRAMES = [
+// Expo-utils internal module names to skip in stack traces
+const INTERNAL_MODULES = [
     "AdPlacementTracker",
     "LoadAdsManager",
     "appopen-ads",
@@ -39,7 +39,29 @@ const INTERNAL_FRAMES = [
     "BannerAdComponent",
     "generatePlacementId",
     "getCallerKey",
+    "showInterstitial",
+    "showRewarded",
 ];
+
+/**
+ * Check if a stack frame is infrastructure (async/Promise/React internals)
+ * and should be skipped when looking for the user's call site.
+ */
+function isInfrastructureFrame(line: string): boolean {
+    // Hermes anonymous async functions (compiled from async/await)
+    if (line.includes("?anon_")) return true;
+    // Native frames
+    if (line.includes("(native)")) return true;
+    // Promise/async infrastructure
+    if (/\bat\s+(asyncGeneratorStep|_next|_asyncToGenerator|tryCallOne|tryCallTwo|doResolve|Promise|apply|anonymous)\b/.test(line)) return true;
+    // InternalBytecode (Hermes internals)
+    if (line.includes("InternalBytecode")) return true;
+    // React rendering pipeline
+    if (/\bat\s+(react-stack-bottom-frame|renderWithHooks|updateFunctionComponent|beginWork|performUnitOfWork|workLoop|renderRoot|performWorkOnRoot|runWithFiberInDEV|flushSync)\b/.test(line)) return true;
+    // React event system
+    if (/\bat\s+(executeDispatch|onResponderRelease|_receiveSignal|_performTransitionSideEffects|dispatchEvent|batchedUpdates|forEachAccumulated|executeDispatchesAndReleaseTopLevel)\b/.test(line)) return true;
+    return false;
+}
 
 /**
  * Extract a caller key from the stack trace.
@@ -51,32 +73,35 @@ export function getCallerKey(): string {
         const stack = err.stack || "";
         const lines = stack.split("\n");
 
-        expoUtilsLog("[expo-utils] Stack trace:", stack);
-
-        // Walk the stack to find the first frame NOT from expo-utils internals
+        // Walk the stack to find the first frame from user code
         for (let i = 1; i < lines.length; i++) {
             const line = lines[i];
-            // Skip frames from expo-utils internals
-            if (INTERNAL_FRAMES.some((f) => line.includes(f))) {
+
+            // Skip expo-utils internal frames
+            if (INTERNAL_MODULES.some((f) => line.includes(f))) {
                 continue;
             }
 
-            // Try multiple regex patterns for different JS engines
+            // Skip async/Promise/React infrastructure frames
+            if (isInfrastructureFrame(line)) {
+                continue;
+            }
 
-            // Pattern 1: V8/Metro "at funcName (file:line:col)" or "at file:line:col"
+            // Extract file:line:col as caller key
+
+            // V8/Metro: "at funcName (url:line:col)" or "at url:line:col"
             const v8Match = line.match(/at\s+(?:.*?\s+\()?(.*:\d+:\d+)/);
             if (v8Match) {
                 return v8Match[1];
             }
 
-            // Pattern 2: Hermes "at funcName (address)" - use full line as key
-            // Pattern 3: JSC "funcName@file:line:col"
+            // JSC: "funcName@file:line:col"
             const jscMatch = line.match(/(.+)@(.*:\d+:\d+)/);
             if (jscMatch) {
                 return jscMatch[2];
             }
 
-            // Fallback: use the full trimmed line as a unique key
+            // Fallback: full trimmed line
             const trimmed = line.trim();
             if (trimmed && trimmed !== "Error") {
                 return trimmed;
