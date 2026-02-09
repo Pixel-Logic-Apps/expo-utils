@@ -190,6 +190,45 @@ Utils.prepare(setAppIsReady, appConfig, false);
 ✅ Configura atribuições (IDFA, FCM Token, Firebase App Instance)
 ✅ Gerencia tópicos FCM baseado no status do usuário
 ✅ Configura push notifications e inscreve em tópicos
+✅ Rastreia entrega de push via custom analytics events (`push_received`, `push_received_bg`)
+✅ Habilita export de métricas de entrega para BigQuery (Android)
+
+## 📊 Push Notification Delivery Tracking
+
+O expo-utils rastreia automaticamente a entrega de push notifications via Firebase Analytics custom events. Isso resolve a limitação do Firebase Console que mostra "Recebidas: 0" em apps cross-platform.
+
+### Eventos Rastreados
+
+| Evento | Quando dispara | Plataforma |
+|--------|---------------|------------|
+| `push_received` | App em foreground recebe notificação | iOS + Android |
+| `push_received_bg` | App em background/fechado recebe notificação | Android (iOS apenas data-only) |
+
+### Onde Visualizar
+
+Os eventos aparecem em **Firebase Console > Analytics > Events**, não na tela de "Mensagens" do FCM.
+
+### Parâmetros dos Eventos
+
+**`push_received` (foreground):**
+- `message_id` — ID único da mensagem FCM
+- `topic` — Tópico FCM de origem
+- `title` — Título da notificação (max 100 chars)
+
+**`push_received_bg` (background):**
+- `message_id` — ID único da mensagem FCM
+
+### BigQuery Export
+
+O expo-utils habilita automaticamente `experimentalSetDeliveryMetricsExportedToBigQueryEnabled` para exportar métricas detalhadas de entrega para o BigQuery (requer configuração no Firebase Console).
+
+### Limitações Conhecidas
+
+- **iOS**: "Recebidas" e "Impressões" no Firebase Console são métricas exclusivas do Android — a Apple não permite esse tipo de tracking
+- **iOS background**: `setBackgroundMessageHandler` no iOS funciona apenas para data-only messages (sem `notification` payload)
+- **Firebase Console > Mensagens**: As métricas nativas "Recebidas"/"Impressões" dependem de Google Analytics estar vinculado ao projeto Firebase + `google-services.json` correto nos apps Android
+
+---
 
 ## 🎯 Sistema de Anúncios Inteligente
 

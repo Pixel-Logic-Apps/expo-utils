@@ -1,5 +1,45 @@
 # Chat History - expo-utils
 
+## 2026-02-09 - Melhorar Métricas de Entrega FCM
+
+### Problema
+Firebase Console mostrava **186k envios** mas **0 Recebidas** e **0 Impressões**.
+
+### Causa
+- "Recebidas" e "Impressões" são métricas exclusivas do Android — iOS (APNs) nunca reporta
+- Em frameworks cross-platform (React Native), os wrappers nem sempre propagam acknowledgments nativos
+- As 312 "Visualizações" confirmam que notificações ESTÃO sendo entregues
+
+### Solução Implementada
+Alterações no `utils/Utils.ts` para criar tracking próprio via Firebase Analytics custom events:
+
+1. **`push_received`** (foreground) — logEvent no `onMessage` handler com message_id, topic e title
+2. **`push_received_bg`** (background) — setBackgroundMessageHandler com logEvent
+3. **BigQuery export** — `experimentalSetDeliveryMetricsExportedToBigQueryEnabled(true)` para métricas detalhadas no Android
+
+### Arquivos Modificados
+- `utils/Utils.ts`:
+  - Import adicionado: `logEvent` de `@react-native-firebase/analytics`
+  - Import adicionado: `setBackgroundMessageHandler`, `experimentalSetDeliveryMetricsExportedToBigQueryEnabled` de `@react-native-firebase/messaging`
+  - `setupPushNotifications()`: BigQuery export habilitado, logEvent no onMessage, setBackgroundMessageHandler registrado
+
+### Nenhuma mudança necessária nos apps
+- Tudo automático dentro do `prepare()` — apps existentes ganham tracking ao atualizar expo-utils
+
+### Limitações
+- iOS: apenas custom events em foreground + "Visualizações" (opens)
+- Android: métricas nativas + custom events + BigQuery export
+- `setBackgroundMessageHandler` no iOS funciona apenas para data-only messages
+
+### Verificação Pendente
+1. Verificar no Firebase Console se Google Analytics está vinculado ao projeto
+2. Buildar app de teste com as mudanças
+3. Verificar no Firebase Analytics > Events se `push_received` aparece
+
+### Nenhum Erro Encontrado
+
+---
+
 ## 2026-02-04
 
 ### Deploy v1.0.20

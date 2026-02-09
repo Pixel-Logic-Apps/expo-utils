@@ -46,8 +46,8 @@ import {
     fetchAndActivate,
     getValue,
 } from "@react-native-firebase/remote-config";
-import {getMessaging, requestPermission, onMessage, subscribeToTopic, getToken} from "@react-native-firebase/messaging";
-import {getAnalytics, getAppInstanceId} from "@react-native-firebase/analytics";
+import {getMessaging, requestPermission, onMessage, subscribeToTopic, getToken, setBackgroundMessageHandler, experimentalSetDeliveryMetricsExportedToBigQueryEnabled} from "@react-native-firebase/messaging";
+import {getAnalytics, getAppInstanceId, logEvent} from "@react-native-firebase/analytics";
 import {getApp} from "@react-native-firebase/app";
 import TiktokAdsEvents, {TikTokStandardEvents, TikTokWaitForConfig} from "expo-tiktok-ads-events";
 import {TrendingsTracker} from "./TrendingsTracker";
@@ -188,13 +188,41 @@ const Utils = {
             const app = getApp();
             if (app) {
                 const messaging = getMessaging(app);
+                const analytics = getAnalytics(app);
+
+                // Enable BigQuery export for delivery metrics (Android)
+                try {
+                    await experimentalSetDeliveryMetricsExportedToBigQueryEnabled(messaging, true);
+                } catch (e) { expoUtilsWarn("setDeliveryMetricsExportToBigQuery:", e); }
+
+                // Foreground message handler with analytics tracking
                 onMessage(messaging, async (remoteMessage) => {
+                    try {
+                        await logEvent(analytics, "push_received", {
+                            message_id: remoteMessage.messageId ?? "",
+                            topic: (remoteMessage as any).topic ?? "",
+                            title: remoteMessage.notification?.title?.substring(0, 100) ?? "",
+                        });
+                    } catch (e) { expoUtilsWarn("logEvent push_received:", e); }
                     if (remoteMessage.notification) {
                         const languageCode = safeGetLocales()[0]?.languageCode ?? "en";
                         const messages = getLocalizedMessages(languageCode);
                         Alert.alert(messages.newMessage, remoteMessage.notification.body);
                     }
                 });
+
+                // Background message handler with analytics tracking
+                try {
+                    setBackgroundMessageHandler(messaging, async (remoteMessage) => {
+                        try {
+                            await logEvent(analytics, "push_received_bg", {
+                                message_id: remoteMessage.messageId ?? "",
+                            });
+                        } catch {}
+                        return Promise.resolve();
+                    });
+                } catch (e) { expoUtilsWarn("setBackgroundMessageHandler:", e); }
+
                 const topicName = appConfig?.expo?.slug || "default-topic";
                 subscribeToTopic(messaging, topicName)
                     .then(() => expoUtilsWarn("Subscribed to topic:", topicName))
