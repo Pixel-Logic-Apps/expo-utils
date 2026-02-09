@@ -30,6 +30,17 @@ export function getCurrentRoute(): string {
     return currentRoute;
 }
 
+// Internal strings to filter out expo-utils frames from stack traces
+const INTERNAL_FRAMES = [
+    "AdPlacementTracker",
+    "LoadAdsManager",
+    "appopen-ads",
+    "banner-ad",
+    "BannerAdComponent",
+    "generatePlacementId",
+    "getCallerKey",
+];
+
 /**
  * Extract a caller key from the stack trace.
  * This identifies the unique call site in the user's code.
@@ -40,27 +51,32 @@ export function getCallerKey(): string {
         const stack = err.stack || "";
         const lines = stack.split("\n");
 
+        expoUtilsLog("[expo-utils] Stack trace:", stack);
+
         // Walk the stack to find the first frame NOT from expo-utils internals
         for (let i = 1; i < lines.length; i++) {
             const line = lines[i];
-            // Skip frames from this file and other expo-utils internals
-            if (
-                line.includes("AdPlacementTracker") ||
-                line.includes("LoadAdsManager") ||
-                line.includes("appopen-ads") ||
-                line.includes("banner-ad") ||
-                line.includes("BannerAdComponent")
-            ) {
+            // Skip frames from expo-utils internals
+            if (INTERNAL_FRAMES.some((f) => line.includes(f))) {
                 continue;
             }
-            // Extract file:line:col - works for both Metro (dev) and Hermes (prod)
-            // Metro format: "at functionName (file:line:col)" or "at file:line:col"
-            // Hermes format: "at functionName (address)" or similar
-            const match = line.match(/(?:at\s+.*?\s+\(|at\s+)(.*?:\d+:\d+)/);
-            if (match) {
-                return match[1];
+
+            // Try multiple regex patterns for different JS engines
+
+            // Pattern 1: V8/Metro "at funcName (file:line:col)" or "at file:line:col"
+            const v8Match = line.match(/at\s+(?:.*?\s+\()?(.*:\d+:\d+)/);
+            if (v8Match) {
+                return v8Match[1];
             }
-            // Hermes prod fallback: use the raw line trimmed
+
+            // Pattern 2: Hermes "at funcName (address)" - use full line as key
+            // Pattern 3: JSC "funcName@file:line:col"
+            const jscMatch = line.match(/(.+)@(.*:\d+:\d+)/);
+            if (jscMatch) {
+                return jscMatch[2];
+            }
+
+            // Fallback: use the full trimmed line as a unique key
             const trimmed = line.trim();
             if (trimmed && trimmed !== "Error") {
                 return trimmed;
