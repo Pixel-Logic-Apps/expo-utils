@@ -315,6 +315,7 @@ const Utils = {
                 try { await Utils.initFBSDK(appConfig); }                            catch (e) { expoUtilsWarn("initFBSDK:", e); }
                 try { await Utils.initTikTokSDK(remoteConfigs); }                    catch (e) { expoUtilsWarn("initTikTokSDK:", e); }
                 try { await Utils.setupClarity(remoteConfigs); }                     catch (e) { expoUtilsWarn("setupClarity:", e); }
+                try { await Utils.setupPushNotifications(appConfig); }               catch (e) { expoUtilsWarn("setupPushNotifications:", e); }
                 try { await Utils.initLinkInBioTracking(remoteConfigs, appConfig); } catch (e) { expoUtilsWarn("initLinkInBioTracking:", e); }
                 try { await Utils.setupAttribution(remoteConfigs); }                 catch (e) { expoUtilsWarn("setupAttribution:", e); }
                 try { await Utils.updateMessagingTopic(appConfig, remoteConfigs); }  catch (e) { expoUtilsWarn("updateMessagingTopic:", e); }
