@@ -130,7 +130,7 @@ export const reportConfigIntegrity = async (remoteConfigs: any, appConfig?: any)
         const admobConfig = getPluginConfig(appConfig, "react-native-google-mobile-ads");
         const facebookConfig = getPluginConfig(appConfig, "react-native-fbsdk-next");
 
-        const eventParams = {
+        const rawParams: Record<string, any> = {
             cfg_hash: checksum,
             remote_hash: toEventValue(payload.hash),
             ad_count: getAdCount(payload.adunits),
@@ -159,6 +159,10 @@ export const reportConfigIntegrity = async (remoteConfigs: any, appConfig?: any)
             admob_ios_app_id: toEventValue(admobConfig?.iosAppId),
             facebook_app_id: toEventValue(facebookConfig?.appID),
         };
+
+        const eventParams = Object.fromEntries(
+            Object.entries(rawParams).filter(([, v]) => v !== null && v !== undefined)
+        );
 
         await logEvent(analytics, "cfg_integrity", eventParams);
     } catch (e) {
