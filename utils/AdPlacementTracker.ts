@@ -3,14 +3,26 @@ import {expoUtilsLog} from "./Utils";
 // Current route tracked by RouteTracker component
 let currentRoute = "unknown";
 
-// Registry: callerKey -> { adType -> index }
+// Registry: callerKey -> { registryKey -> hash }
 const callerRegistry: Map<string, Map<string, number>> = new Map();
 
-// Counter per route+adType for assigning indices
-const indexCounters: Map<string, number> = new Map();
+// Track used hashes per route+adType to handle collisions
+const usedHashes: Map<string, Set<number>> = new Map();
 
 // Blocklist loaded from Remote Config
 let blocklist: string[] = [];
+
+/**
+ * Generate a short deterministic hash from a string.
+ * Same input always produces same output, regardless of call order.
+ */
+function stableHash(str: string): number {
+    let hash = 5381;
+    for (let i = 0; i < str.length; i++) {
+        hash = ((hash << 5) + hash + str.charCodeAt(i)) | 0;
+    }
+    return Math.abs(hash % 900) + 100; // 100-999
+}
 
 /**
  * Called by RouteTracker to update the current route.
@@ -126,7 +138,7 @@ export function generatePlacementId(adType: string, tag?: string): string {
     const route = currentRoute;
     const callerKey = tag || getCallerKey();
 
-    // Check if this caller already has an assigned index for this adType on this route
+    // Check if this caller already has an assigned hash for this adType on this route
     if (!callerRegistry.has(callerKey)) {
         callerRegistry.set(callerKey, new Map());
     }
@@ -134,11 +146,18 @@ export function generatePlacementId(adType: string, tag?: string): string {
     const registryKey = `${route}_${adType}`;
 
     if (!callerMap.has(registryKey)) {
-        // Assign next index for this route+adType combination
-        const counterKey = `${route}_${adType}`;
-        const currentIndex = (indexCounters.get(counterKey) || 0) + 1;
-        indexCounters.set(counterKey, currentIndex);
-        callerMap.set(registryKey, currentIndex);
+        // Generate deterministic hash from caller key
+        if (!usedHashes.has(registryKey)) {
+            usedHashes.set(registryKey, new Set());
+        }
+        const used = usedHashes.get(registryKey)!;
+        let hash = stableHash(callerKey);
+        // Handle collisions by incrementing
+        while (used.has(hash)) {
+            hash++;
+        }
+        used.add(hash);
+        callerMap.set(registryKey, hash);
     }
 
     const index = callerMap.get(registryKey)!;
