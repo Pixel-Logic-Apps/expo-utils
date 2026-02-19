@@ -183,7 +183,7 @@ import {HotUpdater} from "@hot-updater/react-native";
 import type {RemoteConfigUtilsType} from "expo-utils/utils/types";
 
 declare global {
-    var RemoteConfigUtils: RemoteConfigUtilsType;
+    var remoteConfigUtils: RemoteConfigUtilsType;
     var remoteConfigScreens: any;
     var isAdsEnabled: boolean;
     var adUnits: any;
@@ -227,7 +227,7 @@ function RootLayout() {
             <AskForReviewOverlay
                 visible={showReviewOverlay}
                 onClose={() => setShowReviewOverlay(false)}
-                delay={global.RemoteConfigUtils?.review_type_delay || 0}
+                delay={global.remoteConfigUtils?.review_type_delay || 0}
             />
         </>
     );
@@ -1036,7 +1036,7 @@ Os `adUnits` são carregados automaticamente em `global.adUnits` pela função `
 
 ### Configurações Remotas Firebase (RemoteConfigUtilsType)
 
-Estrutura da key `utils` no Remote Config, acessível via `global.RemoteConfigUtils`:
+Estrutura da key `utils` no Remote Config, acessível via `global.remoteConfigUtils`:
 
 ```typescript
 interface RemoteConfigUtilsType {
@@ -1090,7 +1090,7 @@ const revenueCatKeys: RevenueCatKeys = {
 import type {RemoteConfigUtilsType} from "expo-utils/utils/types";
 
 declare global {
-    var RemoteConfigUtils: RemoteConfigUtilsType;  // Tipado — configs do expo-utils (key "utils")
+    var remoteConfigUtils: RemoteConfigUtilsType;  // Tipado — configs do expo-utils (key "utils")
     var remoteConfigScreens: any;                  // Livre — configs de telas do app (key "screens")
     var isAdsEnabled: boolean;
     var adUnits: any;

@@ -10,7 +10,7 @@ import {HotUpdater} from "@hot-updater/react-native";
 import type {RemoteConfigUtilsType} from "expo-utils/utils/types";
 
 declare global {
-    var RemoteConfigUtils: RemoteConfigUtilsType;
+    var remoteConfigUtils: RemoteConfigUtilsType;
     var remoteConfigScreens: any;
     var isAdsEnabled: boolean;
     var adUnits: any;
