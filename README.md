@@ -493,7 +493,7 @@ https://itunes.apple.com/lookup?bundleId=SEU_BUNDLE_ID
 
 ## 🎁 Conteúdo Promocional
 
-O expo-utils inclui um sistema completo de conteúdo promocional para promover outros apps ou conteúdos. Suporta 4 tipos de exibição, todos configuráveis via Firebase Remote Config.
+O expo-utils inclui um sistema completo de conteúdo promocional para promover outros apps ou conteúdos. Suporta 5 tipos de exibição, todos configuráveis via Firebase Remote Config.
 
 ### Tipos de Exibição
 
@@ -501,6 +501,7 @@ O expo-utils inclui um sistema completo de conteúdo promocional para promover o
 |------|-----------|-----------|
 | `bottom-sheet` | `PromotionalContent` | Modal 65% da tela, slide-up, drag-to-dismiss |
 | `card-banner-bottom` | `PromotionalContent` | Card compacto no bottom, swipe + X para fechar |
+| `notification` | `PromotionalContent` | Card estilo notificação iOS, slide top/bottom, swipe-to-dismiss |
 | `fullscreen` | `PromotionalContent` | Interstitial tela inteira com timer countdown |
 | `banner` | `PromotionalBanner` | View inline (não é modal), dev coloca onde quiser |
 
@@ -524,7 +525,11 @@ Adicione o objeto `promotional` no seu Firebase Remote Config:
         "bannerImg": "https://exemplo.com/banner.png",
         "bannerHeight": 200,
         "showDontShowAgain": true,
-        "timerSeconds": 5
+        "timerSeconds": 5,
+        "shadow": { "color": "#000", "offsetY": 6, "opacity": 0.2, "radius": 16, "elevation": 12 },
+        "notificationTitle": "New from My App 🚀",
+        "notificationBody": "Check out our latest feature!",
+        "position": "bottom"
     }
 }
 ```
@@ -536,7 +541,7 @@ Adicione o objeto `promotional` no seu Firebase Remote Config:
 | Campo | Tipo | Descrição |
 |-------|------|-----------|
 | `enabled` | boolean | Habilita/desabilita o conteúdo promocional |
-| `type` | string | Tipo de exibição: `bottom-sheet`, `card-banner-bottom`, `banner`, `fullscreen` |
+| `type` | string | Tipo de exibição: `bottom-sheet`, `card-banner-bottom`, `notification`, `banner`, `fullscreen` |
 | `icon` | string | URL do ícone do app |
 | `name` | string | Nome/título do app ou conteúdo |
 | `description` | string | Descrição promocional |
@@ -549,6 +554,11 @@ Adicione o objeto `promotional` no seu Firebase Remote Config:
 | `bannerHeight` | number | Altura do banner em pixels (default: 200) |
 | `showDontShowAgain` | boolean | Mostrar botão "Não mostrar novamente" |
 | `timerSeconds` | number | Segundos antes do botão X aparecer no fullscreen (default: 5) |
+| `shadow` | object | Configuração de sombra: `{ color, offsetX, offsetY, opacity, radius, elevation }` |
+| `notificationTitle` | string | Título do header (tipo notification). Fallback: `name` |
+| `notificationBody` | string | Subtítulo do header (tipo notification). Fallback: `description` |
+| `position` | string | Posição: `"top"` ou `"bottom"` (tipo notification, default: bottom) |
+| `notificationCompact` | boolean | Se `true` (default), notification inicia compacto (só header) e expande ao clicar |
 
 ### Uso no Código
 
@@ -592,10 +602,27 @@ function MinhaScreen() {
 
             {/* Com estilo customizado */}
             <PromotionalBanner style={{ marginHorizontal: 16, marginTop: 8 }} />
+
+            {/* Modo large: card com imagem de fundo */}
+            <PromotionalBanner size="large" height={250} />
+
+            {/* Sem botão fechar */}
+            <PromotionalBanner showClose={false} />
         </View>
     );
 }
 ```
+
+**Props do PromotionalBanner:**
+
+| Prop | Tipo | Default | Descrição |
+|------|------|---------|-----------|
+| `size` | `"small" \| "large"` | `"small"` | Small = row compacta, Large = card com imagem |
+| `showClose` | `boolean` | `true` | Mostrar/ocultar botão de fechar |
+| `height` | `number` | `200` | Altura do banner no modo large |
+| `colors` | `Partial<ModalColors>` | — | Cores customizadas |
+| `style` | `ViewStyle` | — | Estilo adicional do container |
+| `t` | `(key: string) => string` | — | Função de tradução |
 
 ### Customização de Cores
 
@@ -658,6 +685,17 @@ function MyScreen() {
 - Overlay leve (0.2), swipe down + botão X para fechar
 - Layout horizontal: texto à esquerda, ícone à direita
 - Gradient ou imagem como background do card
+- Com `bannerImg`: overlay de gradiente para legibilidade, ícone em container branco elevado
+
+**notification**:
+- Card estilo notificação do iOS com duas seções
+- Header branco: ícone pequeno + `notificationTitle` + `notificationBody` + "now"
+- Body: imagem de fundo (terrazzo padrão ou `bannerImg`) + gradiente overlay + título + CTA + ícone grande
+- `notificationCompact: true` (default) — inicia compacto (só header), expande ao clicar com spring animation
+- `notificationCompact: false` — abre já expandido com header + body
+- `position: "top"` — slide de cima para baixo, swipe up para fechar
+- `position: "bottom"` — slide de baixo para cima, swipe down para fechar
+- Safe area respeitada em ambas posições
 
 **fullscreen**:
 - Interstitial tela inteira com fade-in
@@ -667,13 +705,14 @@ function MyScreen() {
 
 **banner** (PromotionalBanner):
 - View inline, não usa Modal
-- Layout compacto horizontal: ícone + texto + botão CTA
-- Botão X para dismiss (salva no AsyncStorage se `showDontShowAgain`)
+- `size="small"`: layout compacto horizontal: ícone + texto + botão CTA
+- `size="large"`: card com imagem de fundo, título, descrição, CTA e ícone elevado
+- Botão X para dismiss (configurável via `showClose`, salva no AsyncStorage se `showDontShowAgain`)
 - Pressable inteiro abre `storeUrl`
 
 ### Características
 
-- ✅ **4 tipos de exibição** - bottom-sheet, card, fullscreen e banner inline
+- ✅ **5 tipos de exibição** - bottom-sheet, card, notification, fullscreen e banner inline
 - ✅ **Swipe para fechar** - Arraste para baixo para dispensar (bottom-sheet e card)
 - ✅ **Timer countdown** - Botão X aparece após timer no fullscreen
 - ✅ **Animações suaves** - Spring animations nativas

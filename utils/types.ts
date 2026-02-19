@@ -35,7 +35,7 @@ export interface AppStrings {
     [key: string]: any;
 }
 
-export type PromotionalType = "bottom-sheet" | "card-banner-bottom" | "banner" | "fullscreen";
+export type PromotionalType = "bottom-sheet" | "card-banner-bottom" | "banner" | "fullscreen" | "notification";
 
 export type PromotionalShadow = {
     color?: string;
@@ -62,6 +62,10 @@ export type PromotionalConfig = {
     showDontShowAgain?: boolean;
     timerSeconds?: number;
     shadow?: PromotionalShadow;
+    notificationTitle?: string;
+    notificationBody?: string;
+    position?: "top" | "bottom";
+    notificationCompact?: boolean;
 };
 
 export interface RemoteConfigSettings {

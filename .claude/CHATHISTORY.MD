@@ -1,24 +1,75 @@
 # Chat History - expo-utils
 
+## 2026-02-19 (cont.) - Notification Card + Banner Enhancements
+
+### O que foi feito
+
+#### 1. Fix: Banner inline não aparecia
+- **Problema**: Clicar "Banner (inline)" chamava `mockPromoType("banner")` mas não re-renderizava o `PromotionalBanner`
+- **Causa**: `global.remoteConfigs` não trigger React re-render
+- **Solução**: Adicionado `bannerKey` state + `key={bannerKey}` para forçar re-mount
+
+#### 2. Redesign: Card Banner Bottom (modo imagem)
+- LinearGradient overlay (`transparent → rgba(255,255,255,0.85)`) sobre imagem para legibilidade
+- CTA button com `backgroundColor: primaryColor` abaixo do título
+- Ícone em container branco elevado (72x72, borderRadius 18, shadow)
+- Cores configuráveis via `c.titleText` e `c.descriptionText`
+
+#### 3. PromotionalBanner: novos props
+- `size?: "small" | "large"` — small = row compacta, large = card com imagem
+- `showClose?: boolean` (default true) — ocultar botão fechar
+- `height?: number` — altura customizada para large mode
+
+#### 4. NOVO tipo: "notification" (iOS notification card)
+- **Header** (bg branco): ícone pequeno + notificationTitle + notificationBody + "now"
+- **Separator**: hairline
+- **Body**: imagem de fundo (default: terrazzo bundled) + LinearGradient overlay + título + descrição + CTA + ícone grande em container branco elevado
+- **Posição**: `position: "top" | "bottom"` — slide de cima ou de baixo
+- **Modo compacto**: `notificationCompact: true` (default) — inicia mostrando só o header, toque para expandir com spring animation
+- **Swipe-to-dismiss**: PanResponder direção-aware (swipe up para top, down para bottom)
+- **Asset**: `assets/notification-bg-terrazzo.jpg` (36KB JPEG, comprimido de 5.7MB PNG)
+
+### Arquivos modificados
+- `utils/modal-promotional-content.tsx` — novo `NotificationCardContent`, banner props
+- `utils/types.ts` — `"notification"` no union, `notificationTitle`, `notificationBody`, `position` fields
+- `assets/notification-bg-terrazzo.jpg` — novo asset (terrazzo pattern)
+
+### Testado no simulador
+- Notification (bottom): OK — slide de baixo, texto legível com gradient overlay
+- Notification (top): OK — slide de cima, safe area respeitada
+- Dismiss via overlay tap: OK
+- Banner inline (small/large): OK
+- Card Banner Bottom: OK
+
+---
+
 ## 2026-02-19 - Refatoração do Sistema Promotional Content
 
 ### O que foi feito
 Refatoração completa do sistema de conteúdo promocional para suportar múltiplos tipos de exibição.
 
 ### Arquivos modificados
-1. **utils/types.ts** — Adicionados tipos `PromotionalType` e `PromotionalConfig`
-2. **utils/modal-promotional-content.tsx** — Refatoração completa:
+1. **utils/types.ts** — Adicionados tipos `PromotionalType`, `PromotionalConfig` e `PromotionalShadow`
+2. **utils/modal-promotional-content.tsx** — Refatoração completa (~1000 linhas):
    - Renomeado default export de `ModalPromotionalContent` → `PromotionalContent`
    - Renomeado hook `usePromotionalModal` → `usePromotional`
    - Aliases deprecated mantidos para backward compatibility
    - Remote config: lê `promotional` com fallback para `appmodal`
+   - `getConfig()` — lê config do remote com fallback
+   - `buildShadowStyle()` — converte PromotionalShadow para ViewStyle
    - Novo tipo `bottom-sheet`: código existente extraído para `BottomSheetContent`
-   - Novo tipo `card-banner-bottom`: card compacto no bottom com swipe-to-dismiss
+   - Novo tipo `card-banner-bottom`: DOIS modos:
+     - Sem `bannerImg`: gradient + title/description + CTA button + icon
+     - Com `bannerImg`: imagem de fundo, layout tipo notificação (header + icon, sem botões, card inteiro clicável)
    - Novo tipo `fullscreen`: interstitial com timer countdown e botão X após timer
    - Novo componente `PromotionalBanner`: View inline (não modal) para tipo `banner`
    - Hook `usePromotional` ignora type `banner` (é inline, não modal)
 3. **templates/RootLayout.tsx** — Atualizado imports e uso para novos nomes
-4. **index.ts** + **index.d.ts** — Exportam `PromotionalType` e `PromotionalConfig`
+4. **index.ts** + **index.d.ts** — Exportam `PromotionalType`, `PromotionalConfig` e `PromotionalShadow`
+5. **utils/Utils.ts** — Refatorado `prepare()` para aceitar `AppStrings` com `rckey`/`adUnits`
+6. **utils/appopen-ads.tsx** — Lê adUnits do global
+7. **utils/config-integrity.ts** — Removido rckey/adunits do integrity reporting
+8. **templates/Strings.ts** — Novo template para chaves por plataforma
 
 ### Backward compatibility
 - `ModalPromotionalContent` exportado como alias deprecated
@@ -30,9 +81,49 @@ Refatoração completa do sistema de conteúdo promocional para suportar múltip
 | type | Componente | Descrição |
 |------|-----------|-----------|
 | `bottom-sheet` | PromotionalContent | Modal 65% tela, slide-up, drag-to-dismiss (existente) |
-| `card-banner-bottom` | PromotionalContent | Card compacto no bottom, swipe+X para fechar |
+| `card-banner-bottom` | PromotionalContent | Card compacto no bottom, swipe+X para fechar. Com `bannerImg`: layout notificação |
 | `fullscreen` | PromotionalContent | Interstitial com timer, botão X após timerSeconds |
 | `banner` | PromotionalBanner | View inline, não é modal |
+
+### Tipo PromotionalShadow
+```typescript
+export type PromotionalShadow = {
+    color?: string;
+    offsetX?: number;
+    offsetY?: number;
+    opacity?: number;
+    radius?: number;
+    elevation?: number;
+};
+```
+
+### Teste no expo-utils-test
+- App de teste com mock do remote config em `_layout.tsx`
+- `mockPromoType()` permite trocar tipo dinamicamente
+- Testado `bottom-sheet` — funciona OK
+- **PENDENTE**: testar `card-banner-bottom` (com e sem bannerImg), `fullscreen`, `banner`
+
+### Problema identificado com usePromotional hook
+- O hook tem checks async (AsyncStorage) e `delayMs` timeout
+- No teste, usar `useState` direto funciona; o hook pode ter race condition
+- Bypassed com useState direto no teste
+
+### Strings hardcoded em português
+- Linha 280: "Não mostrar novamente" — hardcoded em PT
+- Pode precisar ser traduzido via i18n ou prop `t`
+
+### STATUS ATUAL (para retomar)
+1. **FEITO**: Todas as mudanças de código commitadas e pushed para GitHub
+2. **FEITO**: expo-utils reinstalado no expo-utils-test via `npm install github:Pixel-Logic-Apps/expo-utils`
+3. **FEITO**: Mock atualizado com `bannerImg` e `shadow` no `_layout.tsx`
+4. **FEITO**: `npx expo run:ios` executado — build succeeded, app abriu no simulador
+5. **PENDENTE**: Testar visualmente cada tipo no simulador:
+   - Clicar "Card Banner Bottom" para ver layout com imagem de fundo
+   - Clicar "Fullscreen" para ver interstitial com timer
+   - Verificar "Banner (inline)" na parte inferior da tela
+   - Testar "Bottom Sheet" novamente
+6. **PENDENTE**: Atualizar README com documentação do shadow
+7. **PENDENTE**: Verificar se strings em PT precisam de i18n
 
 ---
 

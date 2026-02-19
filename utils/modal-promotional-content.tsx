@@ -372,7 +372,7 @@ function CardBannerBottomContent({visible, onClose, colors: colorsProp, t, confi
                     shadowStyle,
                     {
                         marginBottom: insets.bottom + 8,
-                        height: hasBannerImg ? (config.bannerHeight ?? 200) : undefined,
+                        height: hasBannerImg ? (config.bannerHeight ?? 220) : undefined,
                         transform: [{translateY: Animated.add(slideAnim, panY)}],
                     },
                 ]}>
@@ -383,28 +383,36 @@ function CardBannerBottomContent({visible, onClose, colors: colorsProp, t, confi
                             style={[StyleSheet.absoluteFillObject, {borderRadius: 16}]}
                             resizeMode="cover"
                         />
+                        <LinearGradient
+                            colors={["transparent", "rgba(255,255,255,0.85)"]}
+                            start={{x: 0, y: 0.3}}
+                            end={{x: 0, y: 1}}
+                            style={[StyleSheet.absoluteFillObject, {borderRadius: 16}]}
+                        />
                         <Pressable style={styles.cardCloseBtn} onPress={handleClose} hitSlop={8}>
                             <Text style={styles.cardCloseBtnText}>✕</Text>
                         </Pressable>
                         <Pressable style={styles.cardImgInner} onPress={handleBaixar}>
                             <View style={styles.cardImgBody}>
                                 <View style={styles.cardImgTextArea}>
-                                    <Text style={styles.cardImgTitle} numberOfLines={3}>
+                                    <Text style={[styles.cardImgTitle, {color: c.titleText}]} numberOfLines={3}>
                                         {processText(config.name, t)}
                                     </Text>
-                                    {config.description ? (
-                                        <Text style={styles.cardImgDescription} numberOfLines={2}>
-                                            {processText(config.description, t)}
-                                        </Text>
+                                    {config.buttonText ? (
+                                        <View style={[styles.cardImgCta, {backgroundColor: config.primaryColor}]}>
+                                            <Text style={styles.cardImgCtaText} numberOfLines={1}>
+                                                {processText(config.buttonText, t)}
+                                            </Text>
+                                        </View>
                                     ) : null}
                                 </View>
                                 <View style={styles.cardImgIconArea}>
-                                    <Image source={{uri: config.icon}} style={styles.cardImgIcon} resizeMode="cover" />
-                                    {config.buttonText ? (
-                                        <Text style={styles.cardImgIconLabel} numberOfLines={1}>
-                                            {processText(config.buttonText, t)}
-                                        </Text>
-                                    ) : null}
+                                    <View style={styles.cardImgIconContainer}>
+                                        <Image source={{uri: config.icon}} style={styles.cardImgIcon} resizeMode="cover" />
+                                    </View>
+                                    <Text style={[styles.cardImgIconLabel, {color: c.descriptionText}]} numberOfLines={1}>
+                                        {processText(config.name, t)}
+                                    </Text>
                                 </View>
                             </View>
                         </Pressable>
@@ -508,39 +516,51 @@ function FullscreenContent({visible, onClose, colors: colorsProp, t, config}: Pr
 
     const gradientColors = config.gradientColors || ["#22C55E", "#16A34A"];
 
+    // Full-image mode: bannerImg covers entire screen, tap to open store
+    if (config.bannerImg) {
+        return (
+            <Modal visible={visible} animationType="fade" onRequestClose={canClose ? onClose : undefined}>
+                <Pressable style={{flex: 1}} onPress={handleBaixar}>
+                    <Image source={{uri: config.bannerImg}} style={StyleSheet.absoluteFillObject} resizeMode="cover" />
+                </Pressable>
+                <View style={[styles.fullscreenTimerArea, {top: insets.top + 12}]}>
+                    {!canClose ? (
+                        <View style={styles.fullscreenTimerBadge}>
+                            <Text style={styles.fullscreenTimerText}>{countdown}</Text>
+                        </View>
+                    ) : (
+                        <Animated.View style={{opacity: closeOpacity}}>
+                            <Pressable style={styles.fullscreenCloseBtn} onPress={onClose} hitSlop={8}>
+                                <Text style={styles.fullscreenCloseBtnText}>✕</Text>
+                            </Pressable>
+                        </Animated.View>
+                    )}
+                </View>
+            </Modal>
+        );
+    }
+
     return (
         <Modal visible={visible} animationType="fade" onRequestClose={canClose ? onClose : undefined}>
             <View style={[styles.fullscreenContainer, {paddingTop: insets.top, paddingBottom: insets.bottom}]}>
-                {/* Top area with gradient/banner */}
-                {config.bannerImg ? (
-                    <View style={styles.fullscreenTop}>
-                        <Image source={{uri: config.bannerImg}} style={StyleSheet.absoluteFillObject} resizeMode="cover" />
-                        <LinearGradient
-                            colors={["transparent", c.modalBackground]}
-                            start={{x: 0, y: 0.6}}
-                            end={{x: 0, y: 1}}
-                            style={StyleSheet.absoluteFillObject}
-                        />
-                    </View>
-                ) : (
-                    <LinearGradient
-                        colors={gradientColors}
-                        start={{x: 0, y: 0}}
-                        end={{x: 1, y: 1}}
-                        style={styles.fullscreenTop}>
-                        <View style={styles.fullscreenIconContainer}>
-                            <View style={[styles.iconContainer, {backgroundColor: c.iconContainerBackground, shadowColor: c.iconContainerShadow}]}>
-                                <Image source={{uri: config.icon}} style={styles.iconImage} resizeMode="cover" />
-                            </View>
+                {/* Top area with gradient */}
+                <LinearGradient
+                    colors={gradientColors}
+                    start={{x: 0, y: 0}}
+                    end={{x: 1, y: 1}}
+                    style={styles.fullscreenTop}>
+                    <View style={styles.fullscreenIconContainer}>
+                        <View style={[styles.iconContainer, {backgroundColor: c.iconContainerBackground, shadowColor: c.iconContainerShadow}]}>
+                            <Image source={{uri: config.icon}} style={styles.iconImage} resizeMode="cover" />
                         </View>
-                        <LinearGradient
-                            colors={["transparent", c.modalBackground]}
-                            start={{x: 0, y: 0.6}}
-                            end={{x: 0, y: 1}}
-                            style={StyleSheet.absoluteFillObject}
-                        />
-                    </LinearGradient>
-                )}
+                    </View>
+                    <LinearGradient
+                        colors={["transparent", c.modalBackground]}
+                        start={{x: 0, y: 0.6}}
+                        end={{x: 0, y: 1}}
+                        style={StyleSheet.absoluteFillObject}
+                    />
+                </LinearGradient>
 
                 {/* Timer / Close button */}
                 <View style={[styles.fullscreenTimerArea, {top: insets.top + 12}]}>
@@ -591,15 +611,184 @@ function FullscreenContent({visible, onClose, colors: colorsProp, t, config}: Pr
     );
 }
 
+// ─── Notification Card (iOS-style notification) ─────────────────────────────
+
+const DEFAULT_NOTIFICATION_BG = require("../assets/notification-bg-terrazzo.jpg");
+
+function NotificationCardContent({visible, onClose, colors: colorsProp, t, config}: Props & {config: PromotionalConfig}) {
+    const insets = useSafeAreaInsets();
+    const c = {...defaultColors, ...colorsProp};
+    const isTop = config.position === "top";
+    const isCompact = config.notificationCompact !== false;
+    const slideDistance = 400;
+    const bodyHeight = config.bannerHeight ?? 200;
+
+    const slideAnim = useRef(new Animated.Value(isTop ? -slideDistance : slideDistance)).current;
+    const panY = useRef(new Animated.Value(0)).current;
+    const expandAnim = useRef(new Animated.Value(isCompact ? 0 : 1)).current;
+    const [expanded, setExpanded] = useState(!isCompact);
+
+    const panResponder = useRef(
+        PanResponder.create({
+            onStartShouldSetPanResponder: () => false,
+            onMoveShouldSetPanResponder: (_, g) => (isTop ? g.dy < -10 : g.dy > 10),
+            onPanResponderMove: (_, g) => {
+                if (isTop ? g.dy < 0 : g.dy > 0) panY.setValue(g.dy);
+            },
+            onPanResponderRelease: (_, g) => {
+                const threshold = isTop ? g.dy < -60 || g.vy < -0.5 : g.dy > 60 || g.vy > 0.5;
+                if (threshold) {
+                    Animated.timing(panY, {
+                        toValue: isTop ? -slideDistance : slideDistance,
+                        duration: 200,
+                        useNativeDriver: false,
+                    }).start(() => {
+                        panY.setValue(0);
+                        onClose();
+                    });
+                } else {
+                    Animated.spring(panY, {toValue: 0, useNativeDriver: false}).start();
+                }
+            },
+        }),
+    ).current;
+
+    useEffect(() => {
+        if (visible) {
+            expandAnim.setValue(isCompact ? 0 : 1);
+            setExpanded(!isCompact);
+            Animated.spring(slideAnim, {
+                toValue: 0,
+                useNativeDriver: false,
+                tension: 65,
+                friction: 11,
+            }).start();
+        } else {
+            slideAnim.setValue(isTop ? -slideDistance : slideDistance);
+        }
+    }, [visible]);
+
+    const handleExpand = () => {
+        if (expanded) return;
+        setExpanded(true);
+        Animated.spring(expandAnim, {
+            toValue: 1,
+            useNativeDriver: false,
+            tension: 50,
+            friction: 10,
+        }).start();
+    };
+
+    const handleClose = () => {
+        Animated.timing(slideAnim, {
+            toValue: isTop ? -slideDistance : slideDistance,
+            duration: 200,
+            useNativeDriver: false,
+        }).start(() => onClose());
+    };
+
+    const handleBaixar = async () => {
+        if (config.storeUrl) await Linking.openURL(config.storeUrl);
+        handleClose();
+    };
+
+    const handleNaoMostrar = async () => {
+        await AsyncStorage.setItem(STORAGE_KEY_NAO_MOSTRAR, "true");
+        handleClose();
+    };
+
+    const shadowStyle = buildShadowStyle(config.shadow ?? {color: "#000", offsetY: 8, opacity: 0.2, radius: 16, elevation: 12});
+    const bgSource = config.bannerImg ? {uri: config.bannerImg} : DEFAULT_NOTIFICATION_BG;
+
+    const animatedBodyHeight = expandAnim.interpolate({inputRange: [0, 1], outputRange: [0, bodyHeight]});
+    const animatedSeparatorOpacity = expandAnim;
+
+    return (
+        <Modal visible={visible} transparent animationType="none" onRequestClose={handleClose}>
+            <Pressable style={styles.cardOverlay} onPress={handleClose} />
+            <Animated.View
+                {...panResponder.panHandlers}
+                style={[
+                    styles.notifContainer,
+                    shadowStyle,
+                    isTop
+                        ? {top: 0, marginTop: insets.top + 8}
+                        : {bottom: 0, marginBottom: insets.bottom + 8},
+                    {transform: [{translateY: Animated.add(slideAnim, panY)}]},
+                ]}>
+                {/* ── Header (notification bar) ── */}
+                <Pressable style={styles.notifHeader} onPress={!expanded ? handleExpand : undefined}>
+                    <Image source={{uri: config.icon}} style={styles.notifHeaderIcon} resizeMode="cover" />
+                    <View style={styles.notifHeaderTextArea}>
+                        <Text style={[styles.notifHeaderTitle, {color: c.titleText}]} numberOfLines={1}>
+                            {processText(config.notificationTitle || config.name, t)}
+                        </Text>
+                        <Text style={[styles.notifHeaderSubtitle, {color: c.descriptionText}]} numberOfLines={2}>
+                            {processText(config.notificationBody || config.description, t)}
+                        </Text>
+                    </View>
+                    <Text style={styles.notifHeaderTime}>now</Text>
+                </Pressable>
+
+                {/* ── Separator ── */}
+                <Animated.View style={[styles.notifSeparator, {opacity: animatedSeparatorOpacity}]} />
+
+                {/* ── Body (image background + content) ── */}
+                <Animated.View style={[styles.notifBody, {height: animatedBodyHeight}]}>
+                    <Image source={bgSource} style={[StyleSheet.absoluteFillObject]} resizeMode="cover" />
+                    <LinearGradient
+                        colors={["transparent", "rgba(255,255,255,0.85)"]}
+                        start={{x: 0, y: 0.15}}
+                        end={{x: 0, y: 1}}
+                        style={[StyleSheet.absoluteFillObject]}
+                    />
+                    <View style={styles.notifBodyInner}>
+                        <View style={styles.notifBodyTextArea}>
+                            <Text style={[styles.notifBodyTitle, {color: c.titleText}]} numberOfLines={3}>
+                                {processText(config.name, t)}
+                            </Text>
+                            {config.description ? (
+                                <Text style={[styles.notifBodyDescription, {color: c.descriptionText}]} numberOfLines={2}>
+                                    {processText(config.description, t)}
+                                </Text>
+                            ) : null}
+                            {config.buttonText ? (
+                                <Pressable
+                                    style={({pressed}) => [styles.notifBodyCta, {backgroundColor: config.primaryColor}, pressed && {opacity: 0.8}]}
+                                    onPress={handleBaixar}>
+                                    <Text style={styles.notifBodyCtaText} numberOfLines={1}>
+                                        {processText(config.buttonText, t)}
+                                    </Text>
+                                </Pressable>
+                            ) : null}
+                        </View>
+                        <Pressable style={styles.notifBodyIconArea} onPress={handleBaixar}>
+                            <View style={styles.notifBodyIconContainer}>
+                                <Image source={{uri: config.icon}} style={styles.notifBodyIcon} resizeMode="cover" />
+                            </View>
+                            <Text style={[styles.notifBodyIconLabel, {color: c.descriptionText}]} numberOfLines={1}>
+                                {processText(config.name, t)}
+                            </Text>
+                        </Pressable>
+                    </View>
+                </Animated.View>
+            </Animated.View>
+        </Modal>
+    );
+}
+
 // ─── PromotionalBanner (inline View, not a Modal) ──────────────────────────
 
 type BannerProps = {
     colors?: Partial<ModalColors>;
     t?: (key: string) => string;
     style?: ViewStyle;
+    size?: "small" | "large";
+    showClose?: boolean;
+    height?: number;
 };
 
-export function PromotionalBanner({colors: colorsProp, t, style}: BannerProps) {
+export function PromotionalBanner({colors: colorsProp, t, style, size = "small", showClose = true, height}: BannerProps) {
     const c = {...defaultColors, ...colorsProp};
     const [dismissed, setDismissed] = useState(false);
     const [hidden, setHidden] = useState(false);
@@ -625,6 +814,66 @@ export function PromotionalBanner({colors: colorsProp, t, style}: BannerProps) {
         setDismissed(true);
     };
 
+    if (size === "large") {
+        const hasBannerImg = !!config.bannerImg;
+        const shadowStyle = buildShadowStyle(config.shadow ?? {color: "#000", offsetY: 4, opacity: 0.15, radius: 8, elevation: 6});
+
+        return (
+            <View style={[styles.bannerLargeWrapper, shadowStyle, {height: height ?? config.bannerHeight ?? 200}, style]}>
+                {hasBannerImg ? (
+                    <Image source={{uri: config.bannerImg}} style={[StyleSheet.absoluteFillObject, {borderRadius: 16}]} resizeMode="cover" />
+                ) : (
+                    <LinearGradient
+                        colors={config.gradientColors || ["#22C55E", "#16A34A"]}
+                        start={{x: 0, y: 0}}
+                        end={{x: 1, y: 1}}
+                        style={[StyleSheet.absoluteFillObject, {borderRadius: 16}]}
+                    />
+                )}
+                <LinearGradient
+                    colors={["transparent", "rgba(255,255,255,0.9)"]}
+                    start={{x: 0, y: 0.25}}
+                    end={{x: 0, y: 1}}
+                    style={[StyleSheet.absoluteFillObject, {borderRadius: 16}]}
+                />
+                {showClose && (
+                    <Pressable style={styles.bannerLargeCloseBtn} onPress={handleDismiss} hitSlop={8}>
+                        <Text style={styles.cardCloseBtnText}>✕</Text>
+                    </Pressable>
+                )}
+                <Pressable style={styles.bannerLargeInner} onPress={handlePress}>
+                    <View style={styles.bannerLargeBody}>
+                        <View style={styles.bannerLargeTextArea}>
+                            <Text style={[styles.bannerLargeTitle, {color: c.titleText}]} numberOfLines={3}>
+                                {processText(config.name, t)}
+                            </Text>
+                            {config.description ? (
+                                <Text style={[styles.bannerLargeDescription, {color: c.descriptionText}]} numberOfLines={2}>
+                                    {processText(config.description, t)}
+                                </Text>
+                            ) : null}
+                            {config.buttonText ? (
+                                <View style={[styles.bannerLargeCta, {backgroundColor: config.primaryColor}]}>
+                                    <Text style={styles.bannerLargeCtaText} numberOfLines={1}>
+                                        {processText(config.buttonText, t)}
+                                    </Text>
+                                </View>
+                            ) : null}
+                        </View>
+                        <View style={styles.bannerLargeIconArea}>
+                            <View style={styles.bannerLargeIconContainer}>
+                                <Image source={{uri: config.icon}} style={styles.bannerLargeIcon} resizeMode="cover" />
+                            </View>
+                            <Text style={[styles.bannerLargeIconLabel, {color: c.descriptionText}]} numberOfLines={1}>
+                                {processText(config.name, t)}
+                            </Text>
+                        </View>
+                    </View>
+                </Pressable>
+            </View>
+        );
+    }
+
     return (
         <Pressable style={[styles.bannerWrapper, {borderColor: config.primaryColor + "30"}, style]} onPress={handlePress}>
             <Image source={{uri: config.icon}} style={styles.bannerIcon} resizeMode="cover" />
@@ -647,9 +896,11 @@ export function PromotionalBanner({colors: colorsProp, t, style}: BannerProps) {
                     {processText(config.buttonText, t)}
                 </Text>
             </Pressable>
-            <Pressable style={styles.bannerCloseBtn} onPress={handleDismiss} hitSlop={8}>
-                <Text style={styles.bannerCloseBtnText}>✕</Text>
-            </Pressable>
+            {showClose && (
+                <Pressable style={styles.bannerCloseBtn} onPress={handleDismiss} hitSlop={8}>
+                    <Text style={styles.bannerCloseBtnText}>✕</Text>
+                </Pressable>
+            )}
         </Pressable>
     );
 }
@@ -665,6 +916,8 @@ export default function PromotionalContent({visible, onClose, colors, t}: Props)
     switch (type) {
         case "card-banner-bottom":
             return <CardBannerBottomContent visible={visible} onClose={onClose} colors={colors} t={t} config={config} />;
+        case "notification":
+            return <NotificationCardContent visible={visible} onClose={onClose} colors={colors} t={t} config={config} />;
         case "fullscreen":
             return <FullscreenContent visible={visible} onClose={onClose} colors={colors} t={t} config={config} />;
         case "bottom-sheet":
@@ -921,7 +1174,7 @@ const styles = StyleSheet.create({
         borderRadius: 14,
     },
 
-    // Card banner bottom — image-based (notification-like) layout
+    // Card banner bottom — image-based layout
     cardImgInner: {
         flex: 1,
         padding: 20,
@@ -936,35 +1189,51 @@ const styles = StyleSheet.create({
         marginRight: 16,
     },
     cardImgTitle: {
-        fontSize: 20,
+        fontSize: 22,
         fontWeight: "800",
         color: "#1F2937",
-        lineHeight: 26,
-        marginBottom: 6,
+        lineHeight: 28,
+        marginBottom: 10,
     },
-    cardImgDescription: {
-        fontSize: 13,
-        color: "#6B7280",
-        lineHeight: 18,
+    cardImgCta: {
+        alignSelf: "flex-start",
+        paddingVertical: 5,
+        paddingHorizontal: 12,
+        borderRadius: 6,
+    },
+    cardImgCtaText: {
+        fontSize: 11,
+        fontWeight: "600",
+        color: "#FFFFFF",
     },
     cardImgIconArea: {
         alignItems: "center",
     },
-    cardImgIcon: {
-        width: 64,
-        height: 64,
-        borderRadius: 16,
+    cardImgIconContainer: {
+        width: 72,
+        height: 72,
+        borderRadius: 18,
+        backgroundColor: "#FFFFFF",
+        alignItems: "center",
+        justifyContent: "center",
         shadowColor: "#000",
-        shadowOffset: {width: 0, height: 2},
-        shadowOpacity: 0.1,
-        shadowRadius: 4,
+        shadowOffset: {width: 0, height: 4},
+        shadowOpacity: 0.15,
+        shadowRadius: 12,
+        elevation: 8,
+    },
+    cardImgIcon: {
+        width: 56,
+        height: 56,
+        borderRadius: 14,
     },
     cardImgIconLabel: {
         fontSize: 11,
         color: "#6B7280",
         fontWeight: "500",
-        marginTop: 4,
+        marginTop: 6,
         textAlign: "center",
+        maxWidth: 100,
     },
 
     // Fullscreen styles
@@ -1082,5 +1351,198 @@ const styles = StyleSheet.create({
         fontSize: 10,
         color: "#6B7280",
         fontWeight: "700",
+    },
+
+    // Inline banner large styles
+    bannerLargeWrapper: {
+        borderRadius: 16,
+        overflow: "hidden",
+    },
+    bannerLargeCloseBtn: {
+        position: "absolute",
+        top: 10,
+        right: 10,
+        width: 26,
+        height: 26,
+        borderRadius: 13,
+        backgroundColor: "rgba(0,0,0,0.3)",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 1,
+    },
+    bannerLargeInner: {
+        flex: 1,
+        padding: 20,
+        justifyContent: "flex-end",
+    },
+    bannerLargeBody: {
+        flexDirection: "row",
+        alignItems: "flex-end",
+    },
+    bannerLargeTextArea: {
+        flex: 1,
+        marginRight: 16,
+    },
+    bannerLargeTitle: {
+        fontSize: 22,
+        fontWeight: "800",
+        lineHeight: 28,
+        marginBottom: 4,
+    },
+    bannerLargeDescription: {
+        fontSize: 13,
+        lineHeight: 18,
+        marginBottom: 10,
+    },
+    bannerLargeCta: {
+        alignSelf: "flex-start",
+        paddingVertical: 6,
+        paddingHorizontal: 14,
+        borderRadius: 8,
+    },
+    bannerLargeCtaText: {
+        fontSize: 12,
+        fontWeight: "600",
+        color: "#FFFFFF",
+    },
+    bannerLargeIconArea: {
+        alignItems: "center",
+    },
+    bannerLargeIconContainer: {
+        width: 72,
+        height: 72,
+        borderRadius: 18,
+        backgroundColor: "#FFFFFF",
+        alignItems: "center",
+        justifyContent: "center",
+        shadowColor: "#000",
+        shadowOffset: {width: 0, height: 4},
+        shadowOpacity: 0.15,
+        shadowRadius: 12,
+        elevation: 8,
+    },
+    bannerLargeIcon: {
+        width: 56,
+        height: 56,
+        borderRadius: 14,
+    },
+    bannerLargeIconLabel: {
+        fontSize: 11,
+        fontWeight: "500",
+        marginTop: 6,
+        textAlign: "center",
+        maxWidth: 100,
+    },
+
+    // Notification card styles
+    notifContainer: {
+        position: "absolute",
+        left: 12,
+        right: 12,
+        backgroundColor: "#FFFFFF",
+        borderRadius: 28,
+        overflow: "hidden",
+    },
+    notifHeader: {
+        flexDirection: "row",
+        alignItems: "flex-start",
+        padding: 14,
+        paddingBottom: 12,
+    },
+    notifHeaderIcon: {
+        width: 26,
+        height: 26,
+        borderRadius: 7,
+        marginRight: 10,
+        marginTop: 1,
+    },
+    notifHeaderTextArea: {
+        flex: 1,
+        marginRight: 8,
+    },
+    notifHeaderTitle: {
+        fontSize: 14,
+        fontWeight: "600",
+        lineHeight: 18,
+    },
+    notifHeaderSubtitle: {
+        fontSize: 13,
+        fontWeight: "400",
+        lineHeight: 17,
+        marginTop: 2,
+    },
+    notifHeaderTime: {
+        fontSize: 12,
+        fontWeight: "400",
+        color: "#A0A0A0",
+        marginTop: 2,
+    },
+    notifSeparator: {
+        height: StyleSheet.hairlineWidth,
+        backgroundColor: "rgba(0,0,0,0.08)",
+    },
+    notifBody: {
+        overflow: "hidden",
+    },
+    notifBodyInner: {
+        flex: 1,
+        flexDirection: "row",
+        alignItems: "flex-end",
+        padding: 20,
+    },
+    notifBodyTextArea: {
+        flex: 1,
+        marginRight: 16,
+    },
+    notifBodyTitle: {
+        fontSize: 22,
+        fontWeight: "800",
+        lineHeight: 27,
+        marginBottom: 4,
+    },
+    notifBodyDescription: {
+        fontSize: 13,
+        lineHeight: 17,
+        marginBottom: 10,
+    },
+    notifBodyCta: {
+        alignSelf: "flex-start",
+        paddingVertical: 7,
+        paddingHorizontal: 16,
+        borderRadius: 8,
+        marginTop: 6,
+    },
+    notifBodyCtaText: {
+        fontSize: 12,
+        fontWeight: "600",
+        color: "#FFFFFF",
+    },
+    notifBodyIconArea: {
+        alignItems: "center",
+    },
+    notifBodyIconContainer: {
+        width: 80,
+        height: 80,
+        borderRadius: 20,
+        backgroundColor: "#FFFFFF",
+        alignItems: "center",
+        justifyContent: "center",
+        shadowColor: "#000",
+        shadowOffset: {width: 0, height: 6},
+        shadowOpacity: 0.15,
+        shadowRadius: 12,
+        elevation: 10,
+    },
+    notifBodyIcon: {
+        width: 64,
+        height: 64,
+        borderRadius: 16,
+    },
+    notifBodyIconLabel: {
+        fontSize: 12,
+        fontWeight: "500",
+        marginTop: 6,
+        textAlign: "center",
+        maxWidth: 100,
     },
 });
