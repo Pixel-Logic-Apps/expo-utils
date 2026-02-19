@@ -35,7 +35,7 @@ npx expo-utils-install --new
 
 Após criar seu projeto no Firebase Console, vá em **Remote Config** e adicione duas keys:
 
-**Key `utils`** — configurações do expo-utils (tipado como `RemoteConfigSettings`):
+**Key `utils`** — configurações do expo-utils (tipado como `RemoteConfigUtils`):
 
 ```json
 {
@@ -178,12 +178,12 @@ import {setupAppOpenListener} from "expo-utils/utils/appopen-ads";
 import AskForReviewOverlay, {AskForReviewEvents} from "expo-utils/utils/ask-for-review";
 import PromotionalContent, {usePromotional} from "expo-utils/utils/modal-promotional-content";
 import appConfig from "../../app.json";
-import AppStrings from "../constants/Strings";
+import appStrings from "../constants/Strings";
 import {HotUpdater} from "@hot-updater/react-native";
-import type {RemoteConfigSettings} from "expo-utils/utils/types";
+import type {RemoteConfigUtils} from "expo-utils/utils/types";
 
 declare global {
-    var RemoteConfigUtils: RemoteConfigSettings;
+    var RemoteConfigUtils: RemoteConfigUtils;
     var remoteConfigScreens: any;
     var isAdsEnabled: boolean;
     var adUnits: any;
@@ -199,7 +199,7 @@ function RootLayout() {
 
     useEffect(() => {
         global.isAdsEnabled = !__DEV__;
-        Utils.prepare(setAppIsReady, appConfig, AppStrings).then(() => {
+        Utils.prepare(setAppIsReady, appConfig, appStrings).then(() => {
             setupAppOpenListener();
             showPromoModal();
         });
@@ -247,7 +247,7 @@ A função principal que inicializa tudo automaticamente:
 Utils.prepare(
     setAppIsReady,        // Callback quando app estiver pronto
     appConfig,            // Configuração do app (app.json)
-    strings,              // AppStrings com rckey e adUnits (opcional)
+    appStrings,           // AppStrings com rckey e adUnits (opcional)
     requestPermissions    // Solicitar permissões ATT/Push no início (default: true)
 );
 ```
@@ -258,7 +258,7 @@ Utils.prepare(
 |-----------|------|---------|-----------|
 | `setAppIsReady` | `(ready: boolean) => void` | - | Callback chamado quando inicialização termina |
 | `appConfig` | `any` | `undefined` | Configuração do app.json |
-| `strings` | `AppStrings` | `undefined` | Objeto com `rckey` (chave RevenueCat) e `adUnits` (unit IDs do AdMob) |
+| `appStrings` | `AppStrings` | `undefined` | Objeto com `rckey` (chave RevenueCat) e `adUnits` (unit IDs do AdMob) |
 | `requestPermissions` | `boolean` | `true` | Se deve solicitar permissões ATT e Push no início |
 
 **Exemplo sem solicitar permissões no início:**
@@ -1002,7 +1002,7 @@ Os Unit IDs de anúncios e a chave RevenueCat são definidos **localmente** no p
 ```typescript
 import type {AppStrings} from "expo-utils";
 
-const AppStrings: AppStrings = {
+const appStrings: AppStrings = {
     rckey: "appl_SuaChaveRevenueCatAqui", // ou "goog_xxx" para Android
     adUnits: {
         appOpen: "ca-app-pub-xxx/xxx",
@@ -1012,7 +1012,7 @@ const AppStrings: AppStrings = {
     },
 };
 
-export default AppStrings;
+export default appStrings;
 ```
 
 **Interfaces:**
@@ -1034,12 +1034,12 @@ export interface AppStrings {
 
 Os `adUnits` são carregados automaticamente em `global.adUnits` pela função `prepare()`. O `rckey` é usado para configurar o RevenueCat e atribuições.
 
-### Configurações Remotas Firebase (RemoteConfigSettings)
+### Configurações Remotas Firebase (RemoteConfigUtils)
 
 Estrutura da key `utils` no Remote Config, acessível via `global.RemoteConfigUtils`:
 
 ```typescript
-interface RemoteConfigSettings {
+interface RemoteConfigUtils {
     is_ads_enabled: boolean;        // Master toggle de anúncios
     min_version: number;            // Versão mínima obrigatória
     ios_app_id: string;             // Fallback App ID iOS
@@ -1063,7 +1063,7 @@ import type {
     AppConfig,
     AppStrings,
     AdUnits,
-    RemoteConfigSettings,
+    RemoteConfigUtils,
     FacebookConfig,
     RevenueCatKeys,
     PromotionalType,
@@ -1087,10 +1087,10 @@ const revenueCatKeys: RevenueCatKeys = {
 
 ```typescript
 // No _layout.tsx de cada app
-import type {RemoteConfigSettings} from "expo-utils/utils/types";
+import type {RemoteConfigUtils} from "expo-utils/utils/types";
 
 declare global {
-    var RemoteConfigUtils: RemoteConfigSettings;  // Tipado — configs do expo-utils (key "utils")
+    var RemoteConfigUtils: RemoteConfigUtils;  // Tipado — configs do expo-utils (key "utils")
     var remoteConfigScreens: any;                  // Livre — configs de telas do app (key "screens")
     var isAdsEnabled: boolean;
     var adUnits: any;
@@ -1196,7 +1196,7 @@ import {getRemoteConfig, fetchAndActivate} from "@react-native-firebase/remote-c
 ```typescript
 // _layout.tsx
 import Utils from 'expo-utils/utils/Utils';
-import AppStrings from '../constants/Strings';
+import appStrings from '../constants/Strings';
 import appConfig from '../../app.json';
 
 export default function RootLayout() {
@@ -1204,7 +1204,7 @@ export default function RootLayout() {
 
     useEffect(() => {
         global.isAdsEnabled = !__DEV__;
-        Utils.prepare(setAppIsReady, appConfig, AppStrings);
+        Utils.prepare(setAppIsReady, appConfig, appStrings);
     }, []);
 
     return appIsReady ? <Stack /> : null;
@@ -1234,7 +1234,7 @@ function MinhaScreen() {
 // src/constants/Strings.ts
 import type {AppStrings} from "expo-utils";
 
-const AppStrings: AppStrings = {
+const appStrings: AppStrings = {
     rckey: "appl_SuaChaveRevenueCatAqui",
     adUnits: {
         appOpen: "ca-app-pub-xxx/xxx",
@@ -1243,14 +1243,14 @@ const AppStrings: AppStrings = {
         rewarded: "ca-app-pub-xxx/xxx",
     },
 };
-export default AppStrings;
+export default appStrings;
 
 // _layout.tsx
-import AppStrings from "../constants/Strings";
+import appStrings from "../constants/Strings";
 
 useEffect(() => {
     global.isAdsEnabled = !__DEV__;
-    Utils.prepare(setAppIsReady, appConfig, AppStrings);
+    Utils.prepare(setAppIsReady, appConfig, appStrings);
 }, []);
 
 // Verificação de premium

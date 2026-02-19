@@ -5,12 +5,12 @@ import {setupAppOpenListener} from "expo-utils/utils/appopen-ads";
 import AskForReviewOverlay, {AskForReviewEvents} from "expo-utils/utils/ask-for-review";
 import PromotionalContent, {usePromotional} from "expo-utils/utils/modal-promotional-content";
 import appConfig from "../../app.json";
-import AppStrings from "../constants/Strings";
+import appStrings from "../constants/Strings";
 import {HotUpdater} from "@hot-updater/react-native";
-import type {RemoteConfigSettings} from "expo-utils/utils/types";
+import type {RemoteConfigUtils} from "expo-utils/utils/types";
 
 declare global {
-    var RemoteConfigUtils: RemoteConfigSettings;
+    var RemoteConfigUtils: RemoteConfigUtils;
     var remoteConfigScreens: any;
     var isAdsEnabled: boolean;
     var adUnits: any;
@@ -26,7 +26,7 @@ function RootLayout() {
 
     useEffect(() => {
         global.isAdsEnabled = !__DEV__;
-        Utils.prepare(setAppIsReady, appConfig, AppStrings).then(() => {
+        Utils.prepare(setAppIsReady, appConfig, appStrings).then(() => {
             setupAppOpenListener();
             showPromoModal();
         });

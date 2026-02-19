@@ -14,7 +14,7 @@ export function expoUtilsLog(...args: any[]) {
     }
 }
 
-import {AppConfig, AppStrings, RemoteConfigSettings} from "./types";
+import {AppConfig, AppStrings, RemoteConfigUtils} from "./types";
 import {getLocalizedMessages} from "./i18n";
 const safeGetLocales = (): Array<{languageCode?: string; regionCode?: string}> => {
     try {
@@ -116,7 +116,7 @@ const Utils = {
         }
     },
 
-    getRemoteConfigUtils: async (): Promise<RemoteConfigSettings> => {
+    getRemoteConfigUtils: async (): Promise<RemoteConfigUtils> => {
         const app = getApp();
         if (!app) {
             expoUtilsWarn("Firebase not configured, using default settings");
@@ -178,7 +178,7 @@ const Utils = {
         }
     },
 
-    setupClarity: async (remoteConfigs: RemoteConfigSettings) => {
+    setupClarity: async (remoteConfigs: RemoteConfigUtils) => {
         const clarityProjectId = remoteConfigs?.clarity_id;
         if (!clarityProjectId) {
             expoUtilsWarn("Clarity project ID not provided, skipping initialization.");
@@ -254,7 +254,7 @@ const Utils = {
         }
     },
 
-    checkForRequiredUpdateDialog: async (remoteConfigSettings: RemoteConfigSettings) => {
+    checkForRequiredUpdateDialog: async (remoteConfigSettings: RemoteConfigUtils) => {
         try {
             if (!Application.nativeApplicationVersion) return;
             const version = parseFloat(Application.nativeApplicationVersion);
@@ -307,10 +307,10 @@ const Utils = {
         }
     },
 
-    prepare: async (setAppIsReady: (ready: boolean) => void, appConfig?: any, strings?: AppStrings, requestPermissions: boolean = true) => {
+    prepare: async (setAppIsReady: (ready: boolean) => void, appConfig?: any, appStrings?: AppStrings, requestPermissions: boolean = true) => {
         LogBox.ignoreAllLogs(true);
-        const rckey = strings?.rckey;
-        const adUnits = strings?.adUnits;
+        const rckey = appStrings?.rckey;
+        const adUnits = appStrings?.adUnits;
         try {
             //Caso não queira charmar os trackings no início.
             if (requestPermissions) {
@@ -352,7 +352,7 @@ const Utils = {
         }
     },
 
-    initLinkInBioTracking: async (remoteConfig: RemoteConfigSettings, appConfig: AppConfig) => {
+    initLinkInBioTracking: async (remoteConfig: RemoteConfigUtils, appConfig: AppConfig) => {
         const {ios, android} = appConfig?.expo ?? {};
         const appId = Platform.OS === "ios" ? ios?.bundleIdentifier : android?.package;
         const apiUrl = remoteConfig?.trends_tracking_url ?? "https://trendings.app/api";
@@ -365,7 +365,7 @@ const Utils = {
         })();
     },
 
-    initTikTokSDK: async (remoteConfigs: RemoteConfigSettings, rckey?: string) => {
+    initTikTokSDK: async (remoteConfigs: RemoteConfigUtils, rckey?: string) => {
         if (!remoteConfigs?.tiktokads) return;
         const tkads = remoteConfigs?.tiktokads;
         if (!tkads.token || !tkads.appid || !tkads.tkappid) return;
@@ -501,7 +501,7 @@ const Utils = {
         await Purchases.setAttributes({TikTokGetAnonymousID: await TiktokAdsEvents.getAnonymousID()});
     },
 
-    setupGlobalConfigs: async (appConfig?: any, remoteConfigs?: RemoteConfigSettings, adUnits?: object) => {
+    setupGlobalConfigs: async (appConfig?: any, remoteConfigs?: RemoteConfigUtils, adUnits?: object) => {
         if (getExpoUtilsDisableWarnings(appConfig)) {
             (global as any).disableExpoUtilsWarnings = true;
         }
