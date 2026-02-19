@@ -597,11 +597,11 @@ O objeto `promotional` fica dentro da key `utils` do Firebase Remote Config:
         "primaryColor": "#22C55E",
         "storeUrl": "https://apps.apple.com/app/id123456789",
         "delayMs": 5000,
-        "bannerImg": "https://exemplo.com/banner.png",
-        "bannerVideo": "https://exemplo.com/promo.mp4",
+        "imageUrl": "https://exemplo.com/banner.png",
+        "videoUrl": "https://exemplo.com/promo.mp4",
         "bannerHeight": 200,
         "showDontShowAgain": true,
-        "timerSeconds": 5,
+        "closeBtnDelayMs": 5000,
         "shadow": { "color": "#000", "offsetY": 6, "opacity": 0.2, "radius": 16, "elevation": 12 },
         "notificationTitle": "New from My App 🚀",
         "notificationBody": "Check out our latest feature!",
@@ -628,11 +628,11 @@ O objeto `promotional` fica dentro da key `utils` do Firebase Remote Config:
 | `primaryColor` | string | Cor do botão principal |
 | `storeUrl` | string | URL da loja para download |
 | `delayMs` | number | Delay em ms antes de mostrar (default: 5000) |
-| `bannerImg` | string | URL de imagem banner (substitui o gradiente) |
-| `bannerVideo` | string | URL de vídeo para fullscreen (requer `expo-av`). Prioridade sobre `bannerImg` |
+| `imageUrl` | string | URL de imagem banner (substitui o gradiente) |
+| `videoUrl` | string | URL de vídeo para fullscreen (requer `expo-av`). Prioridade sobre `imageUrl` |
 | `bannerHeight` | number | Altura do banner em pixels (default: 200) |
 | `showDontShowAgain` | boolean | Mostrar botão "Não mostrar novamente" |
-| `timerSeconds` | number | Segundos antes do botão X aparecer no fullscreen (default: 5) |
+| `closeBtnDelayMs` | number | Milissegundos antes do botão X aparecer no fullscreen (default: 5000) |
 | `shadow` | object | Configuração de sombra: `{ color, offsetX, offsetY, opacity, radius, elevation }` |
 | `notificationTitle` | string | Título do header (tipo notification). Fallback: `name` |
 | `notificationBody` | string | Subtítulo do header (tipo notification). Fallback: `description` |
@@ -760,12 +760,12 @@ function MyScreen() {
 - Overlay leve (0.2), swipe down + botão X para fechar
 - Layout horizontal: texto à esquerda, ícone à direita
 - Gradient ou imagem como background do card
-- Com `bannerImg`: overlay de gradiente para legibilidade, ícone em container branco elevado
+- Com `imageUrl`: overlay de gradiente para legibilidade, ícone em container branco elevado
 
 **notification**:
 - Card estilo notificação do iOS com duas seções
 - Header branco: ícone pequeno + `notificationTitle` + `notificationBody` + "now"
-- Body: imagem de fundo (terrazzo padrão ou `bannerImg`) + gradiente overlay + título + CTA + ícone grande
+- Body: imagem de fundo (terrazzo padrão ou `imageUrl`) + gradiente overlay + título + CTA + ícone grande
 - `notificationCompact: true` (default) — inicia compacto (só header), expande ao clicar com spring animation
 - `notificationCompact: false` — abre já expandido com header + body
 - `position: "top"` — slide de cima para baixo, swipe up para fechar
@@ -775,10 +775,10 @@ function MyScreen() {
 **fullscreen**:
 - Interstitial tela inteira com fade-in
 - Timer countdown visível no canto superior direito
-- Botão X aparece somente após `timerSeconds` com fade-in
-- Sem `bannerImg`/`bannerVideo`: gradient + ícone + texto + botões
-- Com `bannerImg`: imagem full-screen, tap abre storeUrl, sem botões
-- Com `bannerVideo`: vídeo full-screen auto-play loop (requer `expo-av`), tap abre storeUrl. Se `expo-av` não instalado, fallback para `bannerImg`
+- Botão X aparece somente após `closeBtnDelayMs` com fade-in
+- Sem `imageUrl`/`videoUrl`: gradient + ícone + texto + botões
+- Com `imageUrl`: imagem full-screen, tap abre storeUrl, sem botões
+- Com `videoUrl`: vídeo full-screen auto-play loop (requer `expo-av`), tap abre storeUrl. Se `expo-av` não instalado, fallback para `imageUrl`
 
 **banner** (PromotionalBanner):
 - View inline, não usa Modal
@@ -799,7 +799,7 @@ function MyScreen() {
 - ✅ **Cores customizáveis** - Todas as cores podem ser sobrescritas
 - ✅ **Backward compatible** - `appmodal` e nomes antigos continuam funcionando
 - ✅ **Auto-traduções** - 31 idiomas para textos de UI (botão CTA, "não mostrar", "agora", etc.). Textos do remote config têm prioridade; se não definidos, usa tradução automática baseada no locale do device
-- ✅ **Fullscreen Video** - Suporte a vídeo fullscreen via `bannerVideo` (requer `expo-av`)
+- ✅ **Fullscreen Video** - Suporte a vídeo fullscreen via `videoUrl` (requer `expo-av`)
 
 ---
 

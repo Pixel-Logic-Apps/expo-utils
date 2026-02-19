@@ -57,11 +57,11 @@ export type PromotionalConfig = {
     primaryColor: string;
     storeUrl: string;
     delayMs?: number;
-    bannerImg?: string;
-    bannerVideo?: string;
+    imageUrl?: string;
+    videoUrl?: string;
     bannerHeight?: number;
     showDontShowAgain?: boolean;
-    timerSeconds?: number;
+    closeBtnDelayMs?: number;
     shadow?: PromotionalShadow;
     notificationTitle?: string;
     notificationBody?: string;

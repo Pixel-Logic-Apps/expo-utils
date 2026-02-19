@@ -272,9 +272,9 @@ function BottomSheetContent({visible, onClose, colors: colorsProp, t, config}: P
                             transform: [{translateY: Animated.add(slideAnim, panY)}],
                         },
                     ]}>
-                    {config.bannerImg ? (
+                    {config.imageUrl ? (
                         <View style={[styles.bannerContainer, {height: config.bannerHeight ?? 200}]}>
-                            <Image source={{uri: config.bannerImg}} style={styles.bannerImage} resizeMode="cover" />
+                            <Image source={{uri: config.imageUrl}} style={styles.bannerImage} resizeMode="cover" />
                             <View style={styles.handleContainer}>
                                 <View style={[styles.handle, {backgroundColor: c.handleColor}]} />
                             </View>
@@ -381,7 +381,7 @@ function BottomSheetContent({visible, onClose, colors: colorsProp, t, config}: P
 function CardBannerBottomContent({visible, onClose, colors: colorsProp, t, config}: Props & {config: PromotionalConfig}) {
     const insets = useSafeAreaInsets();
     const c = {...defaultColors, ...colorsProp};
-    const hasBannerImg = !!config.bannerImg;
+    const hasBannerImg = !!config.imageUrl;
 
     const slideAnim = useRef(new Animated.Value(300)).current;
     const panY = useRef(new Animated.Value(0)).current;
@@ -466,7 +466,7 @@ function CardBannerBottomContent({visible, onClose, colors: colorsProp, t, confi
                 {hasBannerImg ? (
                     <>
                         <Image
-                            source={{uri: config.bannerImg}}
+                            source={{uri: config.imageUrl}}
                             style={[StyleSheet.absoluteFillObject, {borderRadius: 16}]}
                             resizeMode="cover"
                         />
@@ -556,15 +556,16 @@ function CardBannerBottomContent({visible, onClose, colors: colorsProp, t, confi
 function FullscreenContent({visible, onClose, colors: colorsProp, t, config}: Props & {config: PromotionalConfig}) {
     const insets = useSafeAreaInsets();
     const c = {...defaultColors, ...colorsProp};
-    const timerSeconds = config.timerSeconds ?? 5;
+    const delayMs = config.closeBtnDelayMs ?? 5000;
+    const delaySec = Math.ceil(delayMs / 1000);
 
-    const [countdown, setCountdown] = useState(timerSeconds);
+    const [countdown, setCountdown] = useState(delaySec);
     const [canClose, setCanClose] = useState(false);
     const closeOpacity = useRef(new Animated.Value(0)).current;
 
     useEffect(() => {
         if (!visible) {
-            setCountdown(timerSeconds);
+            setCountdown(delaySec);
             setCanClose(false);
             closeOpacity.setValue(0);
             return;
@@ -602,9 +603,9 @@ function FullscreenContent({visible, onClose, colors: colorsProp, t, config}: Pr
     const gradientColors = config.gradientColors || ["#22C55E", "#16A34A"];
 
     // Full-media mode: video or image covers entire screen, tap to open store
-    if (config.bannerVideo || config.bannerImg) {
+    if (config.videoUrl || config.imageUrl) {
         let VideoComponent: any = null;
-        if (config.bannerVideo) {
+        if (config.videoUrl) {
             try {
                 VideoComponent = require("expo-av").Video;
             } catch {}
@@ -613,17 +614,17 @@ function FullscreenContent({visible, onClose, colors: colorsProp, t, config}: Pr
         return (
             <Modal visible={visible} animationType="fade" onRequestClose={canClose ? onClose : undefined}>
                 <Pressable style={{flex: 1}} onPress={handleBaixar}>
-                    {VideoComponent && config.bannerVideo ? (
+                    {VideoComponent && config.videoUrl ? (
                         <VideoComponent
-                            source={{uri: config.bannerVideo}}
+                            source={{uri: config.videoUrl}}
                             style={StyleSheet.absoluteFillObject}
                             resizeMode="cover"
                             shouldPlay={visible}
                             isLooping
                             isMuted={false}
                         />
-                    ) : config.bannerImg ? (
-                        <Image source={{uri: config.bannerImg}} style={StyleSheet.absoluteFillObject} resizeMode="cover" />
+                    ) : config.imageUrl ? (
+                        <Image source={{uri: config.imageUrl}} style={StyleSheet.absoluteFillObject} resizeMode="cover" />
                     ) : null}
                 </Pressable>
                 <View style={[styles.fullscreenTimerArea, {top: insets.top + 12}]}>
@@ -801,7 +802,7 @@ function NotificationCardContent({visible, onClose, colors: colorsProp, t, confi
     };
 
     const shadowStyle = buildShadowStyle(config.shadow ?? {color: "#000", offsetY: 8, opacity: 0.2, radius: 16, elevation: 12});
-    const bgSource = config.bannerImg ? {uri: config.bannerImg} : DEFAULT_NOTIFICATION_BG;
+    const bgSource = config.imageUrl ? {uri: config.imageUrl} : DEFAULT_NOTIFICATION_BG;
 
     const animatedBodyHeight = expandAnim.interpolate({inputRange: [0, 1], outputRange: [0, bodyHeight]});
     const animatedSeparatorOpacity = expandAnim;
@@ -916,13 +917,13 @@ export function PromotionalBanner({colors: colorsProp, t, style, size = "small",
     };
 
     if (size === "large") {
-        const hasBannerImg = !!config.bannerImg;
+        const hasBannerImg = !!config.imageUrl;
         const shadowStyle = buildShadowStyle(config.shadow ?? {color: "#000", offsetY: 4, opacity: 0.15, radius: 8, elevation: 6});
 
         return (
             <View style={[styles.bannerLargeWrapper, shadowStyle, {height: height ?? config.bannerHeight ?? 200}, style]}>
                 {hasBannerImg ? (
-                    <Image source={{uri: config.bannerImg}} style={[StyleSheet.absoluteFillObject, {borderRadius: 16}]} resizeMode="cover" />
+                    <Image source={{uri: config.imageUrl}} style={[StyleSheet.absoluteFillObject, {borderRadius: 16}]} resizeMode="cover" />
                 ) : (
                     <LinearGradient
                         colors={config.gradientColors || ["#22C55E", "#16A34A"]}
