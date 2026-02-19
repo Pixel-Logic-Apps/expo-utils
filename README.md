@@ -424,15 +424,14 @@ O `tag` é usado pelo sistema de Ad Placement Tracking para gerar IDs únicos de
 
 ### Tópicos Baseados no Status do Usuário
 
-O expo-utils gerencia automaticamente a inscrição em tópicos FCM baseado no status de assinatura do usuário:
+O expo-utils gerencia automaticamente a inscrição em tópicos FCM:
 
 ```typescript
-// Formato do tópico: {slug}-purchase-{status}
-// Exemplos:
-// meu-app-purchase-free
-// meu-app-purchase-active
-// meu-app-purchase-trial
-// meu-app-purchase-expired
+// Tópicos inscritos automaticamente por usuário:
+// meu-app                        ← todos os usuários
+// meu-app-br                     ← por país (regionCode)
+// meu-app-lang-pt                ← por idioma (languageCode)
+// meu-app-purchase-free          ← por status de assinatura
 ```
 
 ### Status Disponíveis
@@ -464,24 +463,43 @@ console.log(status); // "active", "free", "trial", etc.
 
 ### Segmentação de Push Notifications
 
-Use os tópicos para enviar notificações segmentadas:
+Use **topic conditions** para combinar idioma + status e enviar push localizado:
 
 ```javascript
 // Firebase Admin SDK (servidor)
-admin.messaging().sendToTopic('meu-app-purchase-free', {
-    notification: {
-        title: 'Oferta Especial!',
-        body: 'Assine agora com 50% de desconto!'
-    }
+
+// Free users que falam português (BR, PT, AO...)
+admin.messaging().send({
+    condition: "'meu-app-purchase-free' in topics && 'meu-app-lang-pt' in topics",
+    notification: { title: 'Oferta Especial!', body: 'Assine com 50% de desconto!' }
 });
 
-admin.messaging().sendToTopic('meu-app-purchase-billing_issue', {
-    notification: {
-        title: 'Problema com pagamento',
-        body: 'Atualize seus dados de pagamento para continuar.'
-    }
+// Free users que falam inglês (US, GB, AU...)
+admin.messaging().send({
+    condition: "'meu-app-purchase-free' in topics && 'meu-app-lang-en' in topics",
+    notification: { title: 'Special Offer!', body: 'Subscribe with 50% off!' }
+});
+
+// Free users que falam espanhol (ES, MX, AR...)
+admin.messaging().send({
+    condition: "'meu-app-purchase-free' in topics && 'meu-app-lang-es' in topics",
+    notification: { title: '¡Oferta Especial!', body: '¡Suscríbete con 50% de descuento!' }
+});
+
+// Billing issue — todos os idiomas
+admin.messaging().send({
+    topic: 'meu-app-purchase-billing_issue',
+    notification: { title: 'Payment issue', body: 'Update your payment info.' }
+});
+
+// Todos os brasileiros (qualquer status)
+admin.messaging().send({
+    topic: 'meu-app-br',
+    notification: { title: 'Novidade!', body: 'Confira a nova atualização.' }
 });
 ```
+
+> O FCM permite até **5 condições** combinadas com `&&` e `||`. Com tópicos por idioma, 12 idiomas = 12 envios (em vez de dezenas por país).
 
 ## ⭐ Sistema de Avaliações
 

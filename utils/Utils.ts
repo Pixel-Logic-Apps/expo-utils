@@ -233,12 +233,20 @@ const Utils = {
                 subscribeToTopic(messaging, topicName)
                     .then(() => expoUtilsWarn("Subscribed to topic:", topicName))
                     .catch(() => expoUtilsWarn("Failed to subscribe to topic:", topicName));
-                const regionCode = safeGetLocales()[0]?.regionCode;
+                const localeInfo = safeGetLocales()[0];
+                const regionCode = localeInfo?.regionCode;
                 if (regionCode) {
                     const countryTopic = `${topicName}-${regionCode.toLowerCase()}`;
                     subscribeToTopic(messaging, countryTopic)
                         .then(() => expoUtilsWarn("Subscribed to country topic:", countryTopic))
                         .catch(() => expoUtilsWarn("Failed to subscribe to country topic:", countryTopic));
+                }
+                const languageCode = localeInfo?.languageCode;
+                if (languageCode) {
+                    const langTopic = `${topicName}-lang-${languageCode.toLowerCase()}`;
+                    subscribeToTopic(messaging, langTopic)
+                        .then(() => expoUtilsWarn("Subscribed to language topic:", langTopic))
+                        .catch(() => expoUtilsWarn("Failed to subscribe to language topic:", langTopic));
                 }
             }
         } catch (error) {
