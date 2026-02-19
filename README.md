@@ -124,7 +124,7 @@ Após criar seu projeto no Firebase Console, vá em **Remote Config** e adicione
 | `min_version` | number | Versão mínima obrigatória (ex: 100 = 1.0.0) |
 | `ios_app_id` | string | App ID do iOS (fallback se busca automática falhar) |
 | `review_type` | string | Modo de review: `"store-review"`, `"popup"` ou `"dialog"` |
-| `review_type_delay` | number | Segundos antes de habilitar botão "Agora não" no popup de review |
+| `review_type_delay` | number | Milissegundos antes de habilitar botão "Agora não" no popup de review (ex: 3000 = 3s) |
 | `repeat_ads_count` | number | Quantidade de ações antes de mostrar anúncio |
 | `ad_blocklist` | string[] | Lista de placement IDs bloqueados |
 | `promotional` | object | Configuração de conteúdo promocional (veja seção dedicada) |
@@ -1044,7 +1044,7 @@ interface RemoteConfigUtilsType {
     min_version: number;            // Versão mínima obrigatória
     ios_app_id: string;             // Fallback App ID iOS
     review_type?: string;           // "store-review" | "popup" | "dialog"
-    review_type_delay?: number;     // Delay do botão "Agora não" no review
+    review_type_delay?: number;     // Delay em ms do botão "Agora não" no review
     repeat_ads_count?: number;      // Ações antes de mostrar anúncio
     ad_blocklist?: string[];        // Placement IDs bloqueados
     promotional?: PromotionalConfig; // Config de conteúdo promocional

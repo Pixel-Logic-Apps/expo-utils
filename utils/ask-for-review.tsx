@@ -113,7 +113,7 @@ interface AskForReviewOverlayProps {
     visible: boolean;
     onClose: () => void;
     image?: any; // Optional image source - uses default if not provided
-    delay?: number; // Delay in seconds to disable "not now" button
+    delay?: number; // Delay in milliseconds to disable "not now" button
     colors?: ColorProps;
     texts?: AskForReviewTexts; // Now optional, will use translations if not provided
     title?: string;
@@ -396,10 +396,11 @@ const AskForReviewOverlay: React.FC<AskForReviewOverlayProps> = ({
                 }),
             ]).start();
 
-            // Start the delay timer if review_type_delay is set
+            // Start the delay timer if review_type_delay is set (delay is in ms)
             if (delay > 0) {
+                const delaySec = Math.ceil(delay / 1000);
                 setIsNotNowDisabled(true);
-                setRemainingTime(delay);
+                setRemainingTime(delaySec);
             }
         } else {
             // Reset states when not visible
