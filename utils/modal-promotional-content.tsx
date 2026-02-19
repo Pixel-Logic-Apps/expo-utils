@@ -159,9 +159,9 @@ function buildShadowStyle(shadow?: PromotionalShadow): ViewStyle {
 }
 
 function getConfig(): PromotionalConfig | undefined {
-    const promotional = (global as any).RemoteConfigUtils?.promotional;
+    const promotional = (global as any).remoteConfigUtils?.promotional;
     if (promotional) return promotional as PromotionalConfig;
-    const appmodal = (global as any).RemoteConfigUtils?.appmodal;
+    const appmodal = (global as any).remoteConfigUtils?.appmodal;
     if (appmodal) return appmodal as PromotionalConfig;
     return undefined;
 }

@@ -1,5 +1,84 @@
 # Chat History - expo-utils
 
+## 2026-02-19 (cont.4) - Renomeações, FCM Language Topics, Deploy npm 1.0.22
+
+### O que foi feito
+
+#### 1. Fix README - Erros restantes
+- Removido "4." orphaned numbering (linha 34)
+- Corrigido "chave do Remote Config" → "chave do AppStrings local" (linha 252)
+- Removido props `useFooterStyle` inexistentes do BannerAdComponent (só aceita `unitId` e `tag`)
+- Adicionado `utils` key missing em seções de integrações opcionais
+- Removidas falsas claims sobre "cache inteligente" e "fallback para remote config" em openReviewURL
+
+#### 2. Removido `is_paywall_disabled` e `delay_close_paywall_button`
+- Removidos de `utils/types.ts`, `utils/config-integrity.ts` e `README.md`
+- Não faziam parte do escopo do expo-utils
+
+#### 3. Rename `Strings` → `AppStrings` → `appStrings`
+- Template e README: `import appStrings from "../constants/Strings"`
+- `prepare()` param: `strings` → `appStrings`
+
+#### 4. FCM Language Topic Subscription
+- Implementado `{slug}-lang-{languageCode}` topic em `setupPushNotifications`
+- Usa `expo-localization` (getLocales) para detectar idioma
+- Permite push notifications segmentadas por idioma via FCM topic conditions
+
+#### 5. Rename campos promotional
+- `timerSeconds` → `closeBtnDelayMs` (agora em milissegundos, default 5000)
+- `bannerImg` → `imageUrl`
+- `bannerVideo` → `videoUrl`
+- Atualizado em types.ts, modal-promotional-content.tsx e README
+
+#### 6. Rename type `RemoteConfigSettings` → `RemoteConfigUtilsType`
+- Sufixo `Type` para evitar conflito com global var `remoteConfigUtils`
+- Cuidado com `replace_all` que acidentalmente renomeou funções — corrigido manualmente
+
+#### 7. Rename global var `RemoteConfigUtils` → `remoteConfigUtils` (camelCase)
+- Atualizado em: Utils.ts, ask-for-review.tsx, modal-promotional-content.tsx, LoadAdsManager.ts, PremiumUtils.ts
+- Template e README já estavam com lowercase
+- Declare global: `var remoteConfigUtils: RemoteConfigUtilsType`
+
+#### 8. Deploy npm v1.0.22
+- Publicado `expo-utils@1.0.22` no npm
+- Inclui todas as mudanças acima
+
+#### 9. Pesquisa `repeat_ads_count`
+- Usado em 20+ projetos na pasta projetos
+- Padrão: `setTimeout(() => showInterstitial(), repeatAdsCount * 1000)` para ads recorrentes
+
+### Commits desta sessão
+| Hash | Mensagem |
+|------|----------|
+| `e8812b9` | refactor: restructure Remote Config, rename globals, fix README |
+| `49f73cd` | chore: add path alias @/* to tsconfig |
+| `b22277c` | feat: add language-based FCM topic subscription |
+| `23b27a4` | refactor: rename promotional fields |
+| `a62dbdc` | docs: add paywall example to screens |
+| `5ce6b21` | chore: bump version to 1.0.22 (npm published) |
+| `94ea936` | refactor: rename type RemoteConfigSettings→RemoteConfigUtils |
+| `c07a34f` | refactor: rename type to RemoteConfigUtilsType, variable appStrings |
+| `6a6c680` | refactor: rename global variable RemoteConfigUtils to remoteConfigUtils |
+| `67cc3a3` | chore: add bun.lock to .gitignore |
+
+### Erros encontrados
+- `replace_all` com `RemoteConfigUtilsType` renomeou acidentalmente `getRemoteConfigUtils` → `getRemoteConfigUtilsType` e `(global as any).RemoteConfigUtils` → `(global as any).RemoteConfigUtilsType`. Fix manual necessário.
+- Commit `6a6c680` não atualizou code files (só README+template). Corrigido nesta sessão continuada.
+
+### Arquivos modificados
+- `utils/types.ts` — type rename, removed paywall fields, promotional field renames
+- `utils/Utils.ts` — param rename, global var lowercase, language topic
+- `utils/modal-promotional-content.tsx` — field renames, global var lowercase
+- `utils/ask-for-review.tsx` — global var lowercase
+- `utils/LoadAdsManager.ts` — global var lowercase
+- `utils/PremiumUtils.ts` — global var lowercase
+- `utils/config-integrity.ts` — removed paywall fields, type rename
+- `templates/RootLayout.tsx` — all renames
+- `index.ts`, `index.d.ts` — type export rename
+- `README.md` — extensive updates
+
+---
+
 ## 2026-02-19 (cont.3) - Refatoração Remote Config + Globals + README + Bug Fix
 
 ### O que foi feito

@@ -54,7 +54,7 @@ function RootLayout() {
             <AskForReviewOverlay
                 visible={showReviewOverlay}
                 onClose={() => setShowReviewOverlay(false)}
-                delay={global.RemoteConfigUtils?.review_type_delay || 0}
+                delay={global.remoteConfigUtils?.review_type_delay || 0}
             />
         </>
     );

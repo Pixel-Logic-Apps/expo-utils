@@ -514,7 +514,7 @@ const Utils = {
         if (remoteConfigs?.is_ads_enabled === false) {
             (global as any).isAdsEnabled = false;
         }
-        (global as any).RemoteConfigUtils = remoteConfigs;
+        (global as any).remoteConfigUtils = remoteConfigs;
         try { (global as any).remoteConfigScreens = await Utils.getRemoteConfigScreens(); } catch {}
         if (remoteConfigs?.ad_blocklist) {
             setBlocklist(remoteConfigs.ad_blocklist);
