@@ -71,7 +71,7 @@ export type PromotionalConfig = {
     nthImpression?: string;
 };
 
-export interface RemoteConfigUtils {
+export interface RemoteConfigUtilsType {
     is_ads_enabled: boolean;
     min_version: number;
     ios_app_id: string;

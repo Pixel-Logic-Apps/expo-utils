@@ -35,7 +35,7 @@ npx expo-utils-install --new
 
 Após criar seu projeto no Firebase Console, vá em **Remote Config** e adicione duas keys:
 
-**Key `utils`** — configurações do expo-utils (tipado como `RemoteConfigUtils`):
+**Key `utils`** — configurações do expo-utils (tipado como `RemoteConfigUtilsType`):
 
 ```json
 {
@@ -180,10 +180,10 @@ import PromotionalContent, {usePromotional} from "expo-utils/utils/modal-promoti
 import appConfig from "../../app.json";
 import appStrings from "../constants/Strings";
 import {HotUpdater} from "@hot-updater/react-native";
-import type {RemoteConfigUtils} from "expo-utils/utils/types";
+import type {RemoteConfigUtilsType} from "expo-utils/utils/types";
 
 declare global {
-    var RemoteConfigUtils: RemoteConfigUtils;
+    var RemoteConfigUtils: RemoteConfigUtilsType;
     var remoteConfigScreens: any;
     var isAdsEnabled: boolean;
     var adUnits: any;
@@ -1034,12 +1034,12 @@ export interface AppStrings {
 
 Os `adUnits` são carregados automaticamente em `global.adUnits` pela função `prepare()`. O `rckey` é usado para configurar o RevenueCat e atribuições.
 
-### Configurações Remotas Firebase (RemoteConfigUtils)
+### Configurações Remotas Firebase (RemoteConfigUtilsType)
 
 Estrutura da key `utils` no Remote Config, acessível via `global.RemoteConfigUtils`:
 
 ```typescript
-interface RemoteConfigUtils {
+interface RemoteConfigUtilsType {
     is_ads_enabled: boolean;        // Master toggle de anúncios
     min_version: number;            // Versão mínima obrigatória
     ios_app_id: string;             // Fallback App ID iOS
@@ -1063,7 +1063,7 @@ import type {
     AppConfig,
     AppStrings,
     AdUnits,
-    RemoteConfigUtils,
+    RemoteConfigUtilsType,
     FacebookConfig,
     RevenueCatKeys,
     PromotionalType,
@@ -1087,10 +1087,10 @@ const revenueCatKeys: RevenueCatKeys = {
 
 ```typescript
 // No _layout.tsx de cada app
-import type {RemoteConfigUtils} from "expo-utils/utils/types";
+import type {RemoteConfigUtilsType} from "expo-utils/utils/types";
 
 declare global {
-    var RemoteConfigUtils: RemoteConfigUtils;  // Tipado — configs do expo-utils (key "utils")
+    var RemoteConfigUtils: RemoteConfigUtilsType;  // Tipado — configs do expo-utils (key "utils")
     var remoteConfigScreens: any;                  // Livre — configs de telas do app (key "screens")
     var isAdsEnabled: boolean;
     var adUnits: any;

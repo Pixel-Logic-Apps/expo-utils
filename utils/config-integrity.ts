@@ -1,9 +1,9 @@
 import {getApp} from "@react-native-firebase/app";
 import {getAnalytics, logEvent} from "@react-native-firebase/analytics";
-import type {RemoteConfigUtils} from "./types";
+import type {RemoteConfigUtilsType} from "./types";
 import {md5} from "./md5";
 
-type IntegrityPayload = Partial<RemoteConfigUtils> & {
+type IntegrityPayload = Partial<RemoteConfigUtilsType> & {
     hash?: string;
 };
 

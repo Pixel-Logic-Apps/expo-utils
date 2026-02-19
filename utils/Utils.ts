@@ -14,7 +14,7 @@ export function expoUtilsLog(...args: any[]) {
     }
 }
 
-import {AppConfig, AppStrings, RemoteConfigUtils} from "./types";
+import {AppConfig, AppStrings, RemoteConfigUtilsType} from "./types";
 import {getLocalizedMessages} from "./i18n";
 const safeGetLocales = (): Array<{languageCode?: string; regionCode?: string}> => {
     try {
@@ -116,7 +116,7 @@ const Utils = {
         }
     },
 
-    getRemoteConfigUtils: async (): Promise<RemoteConfigUtils> => {
+    getRemoteConfigUtils: async (): Promise<RemoteConfigUtilsType> => {
         const app = getApp();
         if (!app) {
             expoUtilsWarn("Firebase not configured, using default settings");
@@ -178,7 +178,7 @@ const Utils = {
         }
     },
 
-    setupClarity: async (remoteConfigs: RemoteConfigUtils) => {
+    setupClarity: async (remoteConfigs: RemoteConfigUtilsType) => {
         const clarityProjectId = remoteConfigs?.clarity_id;
         if (!clarityProjectId) {
             expoUtilsWarn("Clarity project ID not provided, skipping initialization.");
@@ -254,7 +254,7 @@ const Utils = {
         }
     },
 
-    checkForRequiredUpdateDialog: async (remoteConfigSettings: RemoteConfigUtils) => {
+    checkForRequiredUpdateDialog: async (remoteConfigSettings: RemoteConfigUtilsType) => {
         try {
             if (!Application.nativeApplicationVersion) return;
             const version = parseFloat(Application.nativeApplicationVersion);
@@ -352,7 +352,7 @@ const Utils = {
         }
     },
 
-    initLinkInBioTracking: async (remoteConfig: RemoteConfigUtils, appConfig: AppConfig) => {
+    initLinkInBioTracking: async (remoteConfig: RemoteConfigUtilsType, appConfig: AppConfig) => {
         const {ios, android} = appConfig?.expo ?? {};
         const appId = Platform.OS === "ios" ? ios?.bundleIdentifier : android?.package;
         const apiUrl = remoteConfig?.trends_tracking_url ?? "https://trendings.app/api";
@@ -365,7 +365,7 @@ const Utils = {
         })();
     },
 
-    initTikTokSDK: async (remoteConfigs: RemoteConfigUtils, rckey?: string) => {
+    initTikTokSDK: async (remoteConfigs: RemoteConfigUtilsType, rckey?: string) => {
         if (!remoteConfigs?.tiktokads) return;
         const tkads = remoteConfigs?.tiktokads;
         if (!tkads.token || !tkads.appid || !tkads.tkappid) return;
@@ -501,7 +501,7 @@ const Utils = {
         await Purchases.setAttributes({TikTokGetAnonymousID: await TiktokAdsEvents.getAnonymousID()});
     },
 
-    setupGlobalConfigs: async (appConfig?: any, remoteConfigs?: RemoteConfigUtils, adUnits?: object) => {
+    setupGlobalConfigs: async (appConfig?: any, remoteConfigs?: RemoteConfigUtilsType, adUnits?: object) => {
         if (getExpoUtilsDisableWarnings(appConfig)) {
             (global as any).disableExpoUtilsWarnings = true;
         }

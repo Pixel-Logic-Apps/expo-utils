@@ -7,10 +7,10 @@ import PromotionalContent, {usePromotional} from "expo-utils/utils/modal-promoti
 import appConfig from "../../app.json";
 import appStrings from "../constants/Strings";
 import {HotUpdater} from "@hot-updater/react-native";
-import type {RemoteConfigUtils} from "expo-utils/utils/types";
+import type {RemoteConfigUtilsType} from "expo-utils/utils/types";
 
 declare global {
-    var RemoteConfigUtils: RemoteConfigUtils;
+    var RemoteConfigUtils: RemoteConfigUtilsType;
     var remoteConfigScreens: any;
     var isAdsEnabled: boolean;
     var adUnits: any;

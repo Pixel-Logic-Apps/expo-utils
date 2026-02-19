@@ -98,7 +98,7 @@ Defines core interfaces:
 - `AppConfig`: Expo app.json structure
 - `AppStrings`: Local app strings with `rckey` (RevenueCat key) and `adUnits` (AdMob unit IDs)
 - `AdUnits`: AdMob unit IDs (appOpen, banner, interstitial, rewarded)
-- `RemoteConfigUtils`: Firebase remote config schema (all fields flat: ads, version, review, promotional, tiktokads, clarity, etc.)
+- `RemoteConfigUtilsType`: Firebase remote config schema (all fields flat: ads, version, review, promotional, tiktokads, clarity, etc.)
 - `FacebookConfig`: Facebook SDK configuration
 - `RevenueCatKeys`: Platform-specific RevenueCat API keys
 - `PromotionalConfig`: Promotional content configuration
