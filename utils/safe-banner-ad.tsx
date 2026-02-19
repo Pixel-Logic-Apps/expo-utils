@@ -29,7 +29,7 @@ export default function BannerAdComponent({unitId}: {unitId?: string}) {
                 return;
             }
 
-            const remote = await Utils.getRemoteConfigSettings();
+            const remote = await Utils.getRemoteConfigUtils();
             expoUtilsLog("remote.is_ads_enabled", remote.is_ads_enabled);
 
             if (global.isAdsEnabled !== false) {

@@ -73,15 +73,14 @@ export type PromotionalConfig = {
 
 export interface RemoteConfigSettings {
     is_ads_enabled: boolean;
-    hotupdater_url: string;
-    trends_tracking_url: string;
-    tiktokads: {token: string; appid: string; tkappid: string; isdebug: boolean};
-    clarity_id: string;
     min_version: number;
-    review_mode: number;
-    repeat_ads_count: number;
-    delay_close_paywall_button: number;
     ios_app_id: string;
-    is_paywall_disabled: boolean;
+    review_type?: string;
+    review_type_delay?: number;
+    repeat_ads_count?: number;
     ad_blocklist?: string[];
+    promotional?: PromotionalConfig;
+    tiktokads?: {token: string; appid: string; tkappid: string; isdebug: boolean};
+    clarity_id?: string;
+    trends_tracking_url?: string;
 }

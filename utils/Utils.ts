@@ -116,25 +116,32 @@ const Utils = {
         }
     },
 
-    getRemoteConfigSettings: async (): Promise<RemoteConfigSettings> => {
+    getRemoteConfigUtils: async (): Promise<RemoteConfigSettings> => {
         const app = getApp();
         if (!app) {
             expoUtilsWarn("Firebase not configured, using default settings");
-            return {
-                is_ads_enabled: false,
-                min_version: 1.0,
-            } as any;
+            return {is_ads_enabled: false, min_version: 1.0} as any;
         }
         const remoteConfig = getRemoteConfig(app);
         await setConfigSettings(remoteConfig, {minimumFetchIntervalMillis: 0});
         await setDefaults(remoteConfig, {
-            settings: JSON.stringify({is_ads_enabled: false}),
+            utils: JSON.stringify({is_ads_enabled: false}),
+            screens: JSON.stringify({}),
         });
         try {
             await fetchAndActivate(remoteConfig);
-            return JSON.parse(getValue(remoteConfig, "settings").asString());
-        } catch (e) {
-            return JSON.parse(getValue(remoteConfig, "settings").asString());
+        } catch {}
+        return JSON.parse(getValue(remoteConfig, "utils").asString());
+    },
+
+    getRemoteConfigScreens: async (): Promise<any> => {
+        try {
+            const app = getApp();
+            if (!app) return {};
+            const remoteConfig = getRemoteConfig(app);
+            return JSON.parse(getValue(remoteConfig, "screens").asString());
+        } catch {
+            return {};
         }
     },
 
@@ -304,7 +311,7 @@ const Utils = {
             }
 
             //Setup do remoteconfig (Precisa de internet).
-            const remoteConfigs = await Utils.getRemoteConfigSettings();
+            const remoteConfigs = await Utils.getRemoteConfigUtils();
             try { await Utils.maybeApplyUpdate(); }                                    catch (e) { expoUtilsWarn("maybeApplyUpdate:", e); }
             try { await Utils.checkForRequiredUpdateDialog(remoteConfigs); }           catch (e) { expoUtilsWarn("checkForRequiredUpdateDialog:", e); }
             try { await Utils.setupRevenueCat(rckey); }                                catch (e) { expoUtilsWarn("setupRevenueCat:", e); }
@@ -338,7 +345,6 @@ const Utils = {
     },
 
     initLinkInBioTracking: async (remoteConfig: RemoteConfigSettings, appConfig: AppConfig) => {
-        if(!remoteConfig?.trends_tracking_url) return;
         const {ios, android} = appConfig?.expo ?? {};
         const appId = Platform.OS === "ios" ? ios?.bundleIdentifier : android?.package;
         const apiUrl = remoteConfig?.trends_tracking_url ?? "https://trendings.app/api";
@@ -487,7 +493,7 @@ const Utils = {
         await Purchases.setAttributes({TikTokGetAnonymousID: await TiktokAdsEvents.getAnonymousID()});
     },
 
-    setupGlobalConfigs: async (appConfig?: any, remoteConfigs?: any, adUnits?: object) => {
+    setupGlobalConfigs: async (appConfig?: any, remoteConfigs?: RemoteConfigSettings, adUnits?: object) => {
         if (getExpoUtilsDisableWarnings(appConfig)) {
             (global as any).disableExpoUtilsWarnings = true;
         }
@@ -497,11 +503,12 @@ const Utils = {
         if (adUnits) {
             (global as any).adUnits = adUnits;
         }
-        if (remoteConfigs.is_ads_enabled === false) {
+        if (remoteConfigs?.is_ads_enabled === false) {
             (global as any).isAdsEnabled = false;
         }
-        (global as any).remoteConfigs = remoteConfigs;
-        if (remoteConfigs.ad_blocklist) {
+        (global as any).RemoteConfigUtils = remoteConfigs;
+        try { (global as any).remoteConfigScreens = await Utils.getRemoteConfigScreens(); } catch {}
+        if (remoteConfigs?.ad_blocklist) {
             setBlocklist(remoteConfigs.ad_blocklist);
         }
     },

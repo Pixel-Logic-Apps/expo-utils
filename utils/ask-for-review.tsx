@@ -63,7 +63,7 @@ export async function askForReview(texts?: AskForReviewTexts, image?: any) {
             AskForReviewEvents.setImage(image);
         }
 
-        const reviewType = global.remoteConfigs?.review_type || "store-review";
+        const reviewType = global.RemoteConfigUtils?.review_type || "store-review";
         console.log("reviewType", reviewType);
         if (reviewType === "store-review") {
             await StoreReview.requestReview();

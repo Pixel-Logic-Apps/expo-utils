@@ -32,7 +32,7 @@ export class PremiumUtils {
 
             // Se o trial opted out estiver habilitado, retorna true se o usuário
             // tem uma assinatura ativa mesmo que cancelado logo em seguida.
-            if (global?.remoteConfigs?.is_opted_out_trial_enabled === true) {
+            if (global?.RemoteConfigUtils?.is_opted_out_trial_enabled === true) {
                 return customerInfo.activeSubscriptions.length > 0;
             }
 

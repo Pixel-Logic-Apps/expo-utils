@@ -32,7 +32,7 @@ export default function BannerAdComponent({unitId, tag}: {unitId?: string; tag?:
                 setIsAdsEnabled(false);
                 return;
             }
-            const remoteConfigSettings = await Utils.getRemoteConfigSettings();
+            const remoteConfigSettings = await Utils.getRemoteConfigUtils();
             expoUtilsLog("isAdsEnabled", global.isAdsEnabled);
             if (global.isAdsEnabled !== false) {
                 setIsAdsEnabled(remoteConfigSettings.is_ads_enabled);

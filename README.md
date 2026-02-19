@@ -31,21 +31,31 @@ npm install github:Pixel-Logic-Apps/expo-utils
 npx expo-utils-install --new
 ```
 
-### 4. Configurar Firebase Remote Config
+### Configurar Firebase Remote Config
 
-Após criar seu projeto no Firebase Console, vá em **Remote Config** e adicione o seguinte JSON como template:
+Após criar seu projeto no Firebase Console, vá em **Remote Config** e adicione duas keys:
+
+**Key `utils`** — configurações do expo-utils (tipado como `RemoteConfigSettings`):
 
 ```json
 {
   "is_ads_enabled": true,
-  "rckey": "appl_SuaChaveRevenueCatAqui",
-  "trends_tracking_url": "",
+  "min_version": 0,
+  "ios_app_id": "",
   "review_type": "popup",
-  "adunits": {
-    "appOpen": "ca-app-pub-xxx/xxx",
-    "banner": "ca-app-pub-xxx/xxx",
-    "interstitial": "ca-app-pub-xxx/xxx",
-    "rewarded": "ca-app-pub-xxx/xxx"
+  "review_type_delay": 0,
+  "repeat_ads_count": 3,
+  "ad_blocklist": [],
+  "promotional": {
+    "enabled": false,
+    "type": "bottom-sheet",
+    "icon": "",
+    "name": "",
+    "description": "",
+    "buttonText": "",
+    "gradientColors": ["#22C55E", "#16A34A"],
+    "primaryColor": "#22C55E",
+    "storeUrl": ""
   },
   "tiktokads": {
     "token": "",
@@ -54,30 +64,44 @@ Após criar seu projeto no Firebase Console, vá em **Remote Config** e adicione
     "isdebug": false
   },
   "clarity_id": "",
-  "min_version": 0,
-  "repeat_ads_count": 3,
-  "delay_close_paywall_button": 5,
-  "ios_app_id": "",
-  "is_paywall_disabled": false
+  "trends_tracking_url": "",
 }
 ```
+
+> **Nota:** `rckey` (chave RevenueCat) e `adUnits` (unit IDs do AdMob) **NÃO** ficam no Remote Config. Eles são definidos localmente via `AppStrings` (veja seção [AppStrings e AdUnits](#-appstrings-e-adunits)).
+
+**Key `screens`** — configurações de telas do app (tipo `any`, estrutura livre):
+
+```json
+{
+  "home": {
+    "banner_url": "https://...",
+    "show_carousel": true
+  },
+  "onboarding": {
+    "enabled": true,
+    "steps": 3
+  }
+}
+```
+
+> A key `screens` é opcional. Sua estrutura é livre e acessada via `global.remoteConfigScreens`.
 
 **Descrição dos campos:**
 
 | Campo | Tipo | Descrição |
 |-------|------|-----------|
 | `is_ads_enabled` | boolean | Habilita/desabilita anúncios globalmente |
-| `rckey` | string | Chave do RevenueCat (começa com `appl_` ou `goog_`) |
-| `trends_tracking_url` | string | URL do Trendings Tracker para rastreamento |
-| `adunits` | object | Unit IDs do AdMob por plataforma |
-| `tiktokads` | object | Configurações do TikTok Ads SDK |
-| `clarity_id` | string | Project ID do Microsoft Clarity |
 | `min_version` | number | Versão mínima obrigatória (ex: 100 = 1.0.0) |
-| `review_type` | number | Modo de review (store-review, dialog e popup) |
-| `repeat_ads_count` | number | Quantidade de ações antes de mostrar anúncio |
-| `delay_close_paywall_button` | number | Segundos antes de mostrar botão de fechar paywall |
 | `ios_app_id` | string | App ID do iOS (fallback se busca automática falhar) |
-| `is_paywall_disabled` | boolean | Desabilita paywall globalmente |
+| `review_type` | string | Modo de review: `"store-review"`, `"popup"` ou `"dialog"` |
+| `review_type_delay` | number | Segundos antes de habilitar botão "Agora não" no popup de review |
+| `repeat_ads_count` | number | Quantidade de ações antes de mostrar anúncio |
+| `ad_blocklist` | string[] | Lista de placement IDs bloqueados |
+| `promotional` | object | Configuração de conteúdo promocional (veja seção dedicada) |
+| `tiktokads` | object | Configurações do TikTok Ads SDK (`token`, `appid`, `tkappid`, `isdebug`) |
+| `clarity_id` | string | Project ID do Microsoft Clarity |
+| `trends_tracking_url` | string | URL do Trendings Tracker (fallback: `https://trendings.app/api`) |
 
 ### Projeto Existente
 
@@ -118,36 +142,72 @@ npx expo-utils-install --new
 O `expo-utils` fornece um template completo para `_layout.tsx`:
 
 ```typescript
-import { Stack } from "expo-router";
+import {SplashScreen, Stack, usePathname} from "expo-router";
+import {useEffect, useState} from "react";
 import Utils from "expo-utils/utils/Utils";
-import React, { useEffect, useState } from "react";
+import {setupAppOpenListener} from "expo-utils/utils/appopen-ads";
+import AskForReviewOverlay, {AskForReviewEvents} from "expo-utils/utils/ask-for-review";
+import PromotionalContent, {usePromotional} from "expo-utils/utils/modal-promotional-content";
 import appConfig from "../../app.json";
-import adUnits from "@/constants/Strings";
+import AppStrings from "../constants/Strings";
+import {HotUpdater} from "@hot-updater/react-native";
+import type {RemoteConfigSettings} from "expo-utils/utils/types";
 
 declare global {
-    var remoteConfigs: any;
+    var RemoteConfigUtils: RemoteConfigSettings;
+    var remoteConfigScreens: any;
     var isAdsEnabled: boolean;
     var adUnits: any;
 }
 
-export default function RootLayout() {
+SplashScreen.preventAutoHideAsync().catch(() => {});
+
+function RootLayout() {
     const [appIsReady, setAppIsReady] = useState(false);
+    const [showReviewOverlay, setShowReviewOverlay] = useState(false);
+    const pathname = usePathname();
+    const {visible: showPromo, show: showPromoModal, hide: hidePromoModal} = usePromotional(pathname);
 
     useEffect(() => {
         global.isAdsEnabled = !__DEV__;
-        Utils.prepare(setAppIsReady, appConfig, adUnits).then();
+        Utils.prepare(setAppIsReady, appConfig, AppStrings).then(() => {
+            setupAppOpenListener();
+            showPromoModal();
+        });
+
+        const unsubscribe = AskForReviewEvents.onShowPopup(() => {
+            setShowReviewOverlay(true);
+        });
+        return unsubscribe;
     }, []);
 
     if (!appIsReady) {
-        return null; // ou splash screen
+        return null;
+    } else {
+        setTimeout(() => {
+            SplashScreen.hideAsync().catch(() => {});
+        }, 1000);
     }
 
     return (
-        <Stack>
-            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        </Stack>
+        <>
+            <Stack>
+                <Stack.Screen name="index" options={{headerShown: false}} />
+            </Stack>
+            <PromotionalContent visible={showPromo} onClose={hidePromoModal} />
+            <AskForReviewOverlay
+                visible={showReviewOverlay}
+                onClose={() => setShowReviewOverlay(false)}
+                delay={global.RemoteConfigUtils?.review_type_delay || 0}
+            />
+        </>
     );
 }
+
+export default HotUpdater.wrap({
+    baseURL: "https://YOUR-WORKER.workers.dev/api/check-update",
+    updateMode: "manual",
+})(RootLayout);
 ```
 
 ### 2. Função Utils.prepare()
@@ -157,7 +217,8 @@ A função principal que inicializa tudo automaticamente:
 ```typescript
 Utils.prepare(
     setAppIsReady,        // Callback quando app estiver pronto
-    appConfig,            // Configuração do app (opcional)
+    appConfig,            // Configuração do app (app.json)
+    strings,              // AppStrings com rckey e adUnits (opcional)
     requestPermissions    // Solicitar permissões ATT/Push no início (default: true)
 );
 ```
@@ -168,12 +229,13 @@ Utils.prepare(
 |-----------|------|---------|-----------|
 | `setAppIsReady` | `(ready: boolean) => void` | - | Callback chamado quando inicialização termina |
 | `appConfig` | `any` | `undefined` | Configuração do app.json |
+| `strings` | `AppStrings` | `undefined` | Objeto com `rckey` (chave RevenueCat) e `adUnits` (unit IDs do AdMob) |
 | `requestPermissions` | `boolean` | `true` | Se deve solicitar permissões ATT e Push no início |
 
 **Exemplo sem solicitar permissões no início:**
 ```typescript
 // Útil quando você quer controlar quando mostrar os diálogos
-Utils.prepare(setAppIsReady, appConfig, false);
+Utils.prepare(setAppIsReady, appConfig, AppStrings, false);
 ```
 
 **O que a função prepare() faz automaticamente:**
@@ -183,7 +245,7 @@ Utils.prepare(setAppIsReady, appConfig, false);
 ✅ Carrega configurações remotas do Firebase
 ✅ Verifica e aplica atualizações OTA (HotUpdater)
 ✅ Valida versão mínima obrigatória
-✅ Configura RevenueCat com chave do Remote Config
+✅ Configura RevenueCat com chave do AppStrings local
 ✅ Inicializa Facebook SDK
 ✅ Inicializa TikTok Ads SDK
 ✅ Configura Microsoft Clarity analytics
@@ -248,12 +310,12 @@ if (userEarnedReward) {
     // Dar recompensa ao usuário
 }
 
-// Banner fixo na tela (com estilo footer automático)
+// Banner fixo na tela
 <BannerAdComponent />
 <BannerAdComponent unitId="ca-app-pub-xxx/xxx" />
 
-// Banner sem estilo footer
-<BannerAdComponent useFooterStyle={false} />
+// Banner com tag para placement tracking
+<BannerAdComponent tag="home-bottom" />
 ```
 
 ### Verificações Automáticas
@@ -275,7 +337,7 @@ await AsyncStorage.removeItem("@isPremium");
 
 **Unit IDs Inteligentes**:
 
-- Usa unit IDs do Firebase Remote Config (`global.adUnits`)
+- Usa unit IDs do `AppStrings` local (`global.adUnits`)
 - Permite override via parâmetro
 - Configuração por plataforma (iOS/Android)
 
@@ -347,20 +409,16 @@ import { ExpoUtilsStyles } from 'expo-utils';
 | `shadow`        | Sombra padrão para iOS/Android                        |
 | `card`          | Card com fundo branco, bordas arredondadas e sombra   |
 
-### BannerAdComponent com Estilos
-
-O componente de banner agora aceita o parâmetro `useFooterStyle`:
+### BannerAdComponent
 
 ```typescript
-// Com estilo footer (padrão)
+// Props: unitId? (string) e tag? (string)
 <BannerAdComponent />
-
-// Sem estilo footer (você controla o posicionamento)
-<BannerAdComponent useFooterStyle={false} />
-
-// Com unit ID customizado e estilo footer
-<BannerAdComponent unitId="ca-app-pub-xxx/xxx" useFooterStyle={true} />
+<BannerAdComponent unitId="ca-app-pub-xxx/xxx" />
+<BannerAdComponent tag="settings-bottom" />
 ```
+
+O `tag` é usado pelo sistema de Ad Placement Tracking para gerar IDs únicos de placement (e poder bloquear via `ad_blocklist`).
 
 ## 📬 Gerenciamento de Tópicos FCM
 
@@ -395,8 +453,8 @@ O expo-utils gerencia automaticamente a inscrição em tópicos FCM baseado no s
 ```typescript
 import Utils from "expo-utils/utils/Utils";
 
-// Atualizar tópico manualmente
-await Utils.updateMessagingTopic(appConfig, remoteConfigs);
+// Atualizar tópico manualmente (rckey = chave RevenueCat)
+await Utils.updateMessagingTopic(appConfig, rckey);
 
 // Obter status do usuário
 const customerInfo = await Purchases.getCustomerInfo();
@@ -484,8 +542,7 @@ https://itunes.apple.com/lookup?bundleId=SEU_BUNDLE_ID
 
 - **Zero configuração** necessária
 - **Busca automática** via iTunes API oficial
-- **Cache inteligente** para melhor performance
-- **Fallback seguro** para remote config se necessário
+- Na verificação de update obrigatório (`checkForRequiredUpdateDialog`), faz fallback para `ios_app_id` do Remote Config se a busca automática falhar
 
 ### Retorno
 
@@ -493,7 +550,7 @@ https://itunes.apple.com/lookup?bundleId=SEU_BUNDLE_ID
 
 ## 🎁 Conteúdo Promocional
 
-O expo-utils inclui um sistema completo de conteúdo promocional para promover outros apps ou conteúdos. Suporta 5 tipos de exibição, todos configuráveis via Firebase Remote Config.
+O expo-utils inclui um sistema completo de conteúdo promocional para promover outros apps ou conteúdos. Suporta 5 tipos de exibição, todos configuráveis via key `utils` do Firebase Remote Config.
 
 ### Tipos de Exibição
 
@@ -505,9 +562,9 @@ O expo-utils inclui um sistema completo de conteúdo promocional para promover o
 | `fullscreen` | `PromotionalContent` | Interstitial tela inteira com timer countdown |
 | `banner` | `PromotionalBanner` | View inline (não é modal), dev coloca onde quiser |
 
-### Configuração no Remote Config
+### Configuração no Remote Config (key `utils`)
 
-Adicione o objeto `promotional` no seu Firebase Remote Config:
+O objeto `promotional` fica dentro da key `utils` do Firebase Remote Config:
 
 ```json
 {
@@ -732,7 +789,7 @@ function MyScreen() {
 
 ### TikTok Ads SDK
 
-Configuração via Firebase Remote Config:
+Configuração na key `utils` do Firebase Remote Config:
 
 ```json
 {
@@ -751,19 +808,20 @@ Configuração via Firebase Remote Config:
 
 ### HotUpdater (Updates OTA)
 
-Configuração via Firebase Remote Config:
+A URL do HotUpdater é configurada diretamente no `_layout.tsx` via `HotUpdater.wrap()`:
 
-```json
-{
-    "hotupdater_url": "https://seu-servidor.com/updates"
-}
+```typescript
+export default HotUpdater.wrap({
+    baseURL: "https://YOUR-WORKER.workers.dev/api/check-update",
+    updateMode: "manual",
+})(RootLayout);
 ```
 
-O expo-utils verifica automaticamente por updates e aplica se necessário.
+O expo-utils verifica automaticamente por updates no `prepare()` e aplica se necessário.
 
 ### Trendings Tracker
 
-Configuração via Firebase Remote Config:
+Configuração na key `utils` do Firebase Remote Config:
 
 ```json
 {
@@ -771,11 +829,11 @@ Configuração via Firebase Remote Config:
 }
 ```
 
-Rastreia instalações automaticamente na primeira abertura do app.
+Rastreia instalações automaticamente na primeira abertura do app. Se `trends_tracking_url` não estiver definido, usa o fallback `https://trendings.app/api`.
 
 ### Microsoft Clarity
 
-Configuração via Firebase Remote Config:
+Configuração na key `utils` do Firebase Remote Config:
 
 ```json
 {
@@ -890,34 +948,62 @@ const appConfig = {
 };
 ```
 
-### Unit IDs de Anúncios
+### AppStrings e AdUnits
 
-Os Unit IDs de anúncios são configurados via Firebase Remote Config:
+Os Unit IDs de anúncios e a chave RevenueCat são definidos **localmente** no projeto (não no Remote Config). Crie o arquivo `src/constants/Strings.ts`:
 
-```json
-{
-    "app_open_id": "ca-app-pub-xxx/xxx",
-    "banner_id": "ca-app-pub-xxx/xxx",
-    "interstitial_id": "ca-app-pub-xxx/xxx",
-    "rewarded_id": "ca-app-pub-xxx/xxx"
+```typescript
+import type {AppStrings} from "expo-utils";
+
+const AppStrings: AppStrings = {
+    rckey: "appl_SuaChaveRevenueCatAqui", // ou "goog_xxx" para Android
+    adUnits: {
+        appOpen: "ca-app-pub-xxx/xxx",
+        banner: "ca-app-pub-xxx/xxx",
+        interstitial: "ca-app-pub-xxx/xxx",
+        rewarded: "ca-app-pub-xxx/xxx",
+    },
+};
+
+export default AppStrings;
+```
+
+**Interfaces:**
+
+```typescript
+export interface AdUnits {
+    appOpen?: string;
+    banner?: string;
+    interstitial?: string;
+    rewarded?: string;
+}
+
+export interface AppStrings {
+    rckey?: string;       // Chave RevenueCat (appl_ ou goog_)
+    adUnits?: AdUnits;    // Unit IDs do AdMob
+    [key: string]: any;   // Campos extras opcionais
 }
 ```
 
-Esses valores são carregados automaticamente em `global.adUnits` pela função `prepare()`.
+Os `adUnits` são carregados automaticamente em `global.adUnits` pela função `prepare()`. O `rckey` é usado para configurar o RevenueCat e atribuições.
 
-### Configurações Remotas Firebase
+### Configurações Remotas Firebase (RemoteConfigSettings)
 
-As seguintes configurações remotas são suportadas automaticamente:
+Estrutura da key `utils` no Remote Config, acessível via `global.RemoteConfigUtils`:
 
-```json
-{
-    "is_ads_enabled": true,
-    "min_version": 100,
-    "review_mode": 0,
-    "repeat_ads_count": 3,
-    "delay_close_paywall_button": 5,
-    "ios_app_id": "1234567890",
-    "is_paywall_disabled": false
+```typescript
+interface RemoteConfigSettings {
+    is_ads_enabled: boolean;        // Master toggle de anúncios
+    min_version: number;            // Versão mínima obrigatória
+    ios_app_id: string;             // Fallback App ID iOS
+    review_type?: string;           // "store-review" | "popup" | "dialog"
+    review_type_delay?: number;     // Delay do botão "Agora não" no review
+    repeat_ads_count?: number;      // Ações antes de mostrar anúncio
+    ad_blocklist?: string[];        // Placement IDs bloqueados
+    promotional?: PromotionalConfig; // Config de conteúdo promocional
+    tiktokads?: { token: string; appid: string; tkappid: string; isdebug: boolean };
+    clarity_id?: string;
+    trends_tracking_url?: string;
 }
 ```
 
@@ -928,12 +1014,13 @@ As seguintes configurações remotas são suportadas automaticamente:
 ```typescript
 import type {
     AppConfig,
+    AppStrings,
+    AdUnits,
     RemoteConfigSettings,
     FacebookConfig,
     RevenueCatKeys,
     PromotionalType,
     PromotionalConfig,
-    Translations
 } from 'expo-utils';
 
 const myConfig: AppConfig = {
@@ -953,8 +1040,11 @@ const revenueCatKeys: RevenueCatKeys = {
 
 ```typescript
 // No _layout.tsx de cada app
+import type {RemoteConfigSettings} from "expo-utils/utils/types";
+
 declare global {
-    var remoteConfigs: any;
+    var RemoteConfigUtils: RemoteConfigSettings;  // Tipado — configs do expo-utils (key "utils")
+    var remoteConfigScreens: any;                  // Livre — configs de telas do app (key "screens")
     var isAdsEnabled: boolean;
     var adUnits: any;
 }
@@ -1059,14 +1149,15 @@ import {getRemoteConfig, fetchAndActivate} from "@react-native-firebase/remote-c
 ```typescript
 // _layout.tsx
 import Utils from 'expo-utils/utils/Utils';
-import adUnits from '@/constants/Strings';
+import AppStrings from '../constants/Strings';
+import appConfig from '../../app.json';
 
 export default function RootLayout() {
     const [appIsReady, setAppIsReady] = useState(false);
 
     useEffect(() => {
         global.isAdsEnabled = !__DEV__;
-        Utils.prepare(setAppIsReady, appConfig, adUnits);
+        Utils.prepare(setAppIsReady, appConfig, AppStrings);
     }, []);
 
     return appIsReady ? <Stack /> : null;
@@ -1093,18 +1184,26 @@ function MinhaScreen() {
 ### Projeto com Monetização Completa
 
 ```typescript
-// _layout.tsx com RevenueCat
+// src/constants/Strings.ts
+import type {AppStrings} from "expo-utils";
+
+const AppStrings: AppStrings = {
+    rckey: "appl_SuaChaveRevenueCatAqui",
+    adUnits: {
+        appOpen: "ca-app-pub-xxx/xxx",
+        banner: "ca-app-pub-xxx/xxx",
+        interstitial: "ca-app-pub-xxx/xxx",
+        rewarded: "ca-app-pub-xxx/xxx",
+    },
+};
+export default AppStrings;
+
+// _layout.tsx
+import AppStrings from "../constants/Strings";
+
 useEffect(() => {
-    Utils.prepare(
-        setAppIsReady,
-        appConfig,
-        adUnits,
-        {
-            androidApiKey: "goog_xxx",
-            iosApiKey: "appl_xxx",
-        },
-        "clarity_project_id",
-    );
+    global.isAdsEnabled = !__DEV__;
+    Utils.prepare(setAppIsReady, appConfig, AppStrings);
 }, []);
 
 // Verificação de premium

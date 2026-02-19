@@ -45,7 +45,7 @@ const LoadAdsManager: LoadAdsManagerType = {
             }
             const app = getFirebaseApp();
             const analytics = app ? getAnalytics(app) : null;
-            if (global.isAdsEnabled === false || global?.remoteConfigs?.is_ads_enabled === false) {
+            if (global.isAdsEnabled === false || global?.RemoteConfigUtils?.is_ads_enabled === false) {
                 resolve(true);
                 return;
             }
@@ -96,7 +96,7 @@ const LoadAdsManager: LoadAdsManagerType = {
             }
             const app = getFirebaseApp();
             const analytics = app ? getAnalytics(app) : null;
-            if (global.isAdsEnabled === false || global?.remoteConfigs?.is_ads_enabled === false) {
+            if (global.isAdsEnabled === false || global?.RemoteConfigUtils?.is_ads_enabled === false) {
                 resolve(true);
                 return;
             }

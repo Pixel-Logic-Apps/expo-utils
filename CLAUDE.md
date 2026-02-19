@@ -96,9 +96,12 @@ Provides translations in 12 languages (pt, en, es, fr, de, it, ja, ko, zh, ru, a
 Defines core interfaces:
 
 - `AppConfig`: Expo app.json structure
-- `RemoteConfigSettings`: Firebase remote config schema
+- `AppStrings`: Local app strings with `rckey` (RevenueCat key) and `adUnits` (AdMob unit IDs)
+- `AdUnits`: AdMob unit IDs (appOpen, banner, interstitial, rewarded)
+- `RemoteConfigSettings`: Firebase remote config schema (all fields flat: ads, version, review, promotional, tiktokads, clarity, etc.)
 - `FacebookConfig`: Facebook SDK configuration
 - `RevenueCatKeys`: Platform-specific RevenueCat API keys
+- `PromotionalConfig`: Promotional content configuration
 
 ### Peer Dependencies Strategy
 

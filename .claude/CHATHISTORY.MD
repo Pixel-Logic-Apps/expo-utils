@@ -1,5 +1,65 @@
 # Chat History - expo-utils
 
+## 2026-02-19 (cont.3) - Refatoração Remote Config + Globals + README + Bug Fix
+
+### O que foi feito
+
+#### 1. Fix bug `trends_tracking_url` fallback
+- **Bug:** `if(!remoteConfig?.trends_tracking_url) return;` retornava antes do `??` fallback
+- **Fix:** Removida a linha. O `??` já cuida do fallback para `"https://trendings.app/api"`
+
+#### 2. Refatoração `RemoteConfigSettings`
+- **Removido:** `review_mode` (nunca usado), `hotupdater_url` (URL agora fixa no `HotUpdater.wrap()`)
+- **Adicionados:** `review_type: string`, `review_type_delay: number`, `promotional: PromotionalConfig`
+- Todos os campos FLAT (sem `ServiceConfigs`/`services` nesting)
+
+#### 3. Reestruturação do Firebase Remote Config
+- **Antes:** Uma key `settings` com tudo
+- **Agora:** Duas keys no Remote Config:
+  - `utils` → configs do expo-utils, tipado como `RemoteConfigSettings`
+  - `screens` → configs de telas do app, tipo `any`, estrutura livre
+- `getRemoteConfigUtils()` busca key `utils`, retorna `RemoteConfigSettings`
+- Nova função `getRemoteConfigScreens()` busca key `screens`, retorna `any`
+
+#### 4. Renomeação dos globals
+- `global.remoteConfigs` → **removido**
+- `global.RemoteConfigUtils` → configs do expo-utils (tipado `RemoteConfigSettings`)
+- `global.remoteConfigScreens` → configs de telas (tipo `any`)
+- `declare global` no template usa `import type {RemoteConfigSettings}` no topo
+
+#### 5. Atualização de todos os acessos
+- `utils/ask-for-review.tsx` → `global.RemoteConfigUtils?.review_type`
+- `utils/modal-promotional-content.tsx` → `global.RemoteConfigUtils?.promotional`
+- `utils/LoadAdsManager.ts` → `global.RemoteConfigUtils?.is_ads_enabled`
+- `utils/PremiumUtils.ts` → `global.RemoteConfigUtils?.is_opted_out_trial_enabled`
+- `templates/RootLayout.tsx` → `global.RemoteConfigUtils?.review_type_delay`
+
+#### 6. Rewrite do README
+- Template Remote Config com duas keys (`utils` e `screens`)
+- Template `_layout.tsx` com `declare global` tipado
+- Seção "Declarações Globais" atualizada
+- Seção "Configurações Remotas" atualizada
+- Corrigida assinatura do `prepare()` (4 params com `AppStrings`)
+- `rckey`/`adUnits` documentados como locais (não Remote Config)
+- `updateMessagingTopic` params corrigidos
+- Exemplos corrigidos
+- HotUpdater: URL fixa no `HotUpdater.wrap()`, não mais em Remote Config
+
+### Arquivos modificados
+- `utils/types.ts` — `RemoteConfigSettings` flat (sem ServiceConfigs)
+- `utils/Utils.ts` — bug fix, novas funções RC, globals renomeados
+- `utils/config-integrity.ts` — `review_mode` → `review_type`, `hotupdater_url` removido
+- `utils/ask-for-review.tsx` — `global.RemoteConfigUtils`
+- `utils/modal-promotional-content.tsx` — `global.RemoteConfigUtils`
+- `utils/LoadAdsManager.ts` — `global.RemoteConfigUtils`
+- `utils/PremiumUtils.ts` — `global.RemoteConfigUtils`
+- `templates/RootLayout.tsx` — declare global tipado, import type
+- `index.ts` — export limpo (sem ServiceConfigs)
+- `README.md` — rewrite completo
+- `CLAUDE.md` — atualizado
+
+---
+
 ## 2026-02-19 (cont.2) - nthImpression + targetScreen + compact + fullscreen image-only
 
 ### O que foi feito
