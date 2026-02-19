@@ -14,7 +14,7 @@ export function expoUtilsLog(...args: any[]) {
     }
 }
 
-import {AppConfig, RemoteConfigSettings} from "./types";
+import {AppConfig, AppStrings, RemoteConfigSettings} from "./types";
 import {getLocalizedMessages} from "./i18n";
 const safeGetLocales = (): Array<{languageCode?: string; regionCode?: string}> => {
     try {
@@ -138,14 +138,13 @@ const Utils = {
         }
     },
 
-    setupRevenueCat: async (remoteConfigSettings: RemoteConfigSettings) => {
+    setupRevenueCat: async (rckey?: string) => {
         try {
-            if (!remoteConfigSettings || !remoteConfigSettings?.rckey) {
-                expoUtilsWarn("RevenueCat keys not provided, skipping configuration");
+            if (!rckey) {
+                expoUtilsWarn("RevenueCat key not provided, skipping configuration");
                 return;
             }
-            const apiKey: string = remoteConfigSettings.rckey;
-            Purchases.configure({apiKey});
+            Purchases.configure({apiKey: rckey});
             Purchases.setLogLevel(LOG_LEVEL.ERROR);
             Purchases.setLogHandler(() => {}); //Erro de js quando n usa.
         } catch (error) {
@@ -293,8 +292,10 @@ const Utils = {
         }
     },
 
-    prepare: async (setAppIsReady: (ready: boolean) => void, appConfig?: any, requestPermissions: boolean = true) => {
+    prepare: async (setAppIsReady: (ready: boolean) => void, appConfig?: any, strings?: AppStrings, requestPermissions: boolean = true) => {
         LogBox.ignoreAllLogs(true);
+        const rckey = strings?.rckey;
+        const adUnits = strings?.adUnits;
         try {
             //Caso não queira charmar os trackings no início.
             if (requestPermissions) {
@@ -304,28 +305,28 @@ const Utils = {
 
             //Setup do remoteconfig (Precisa de internet).
             const remoteConfigs = await Utils.getRemoteConfigSettings();
-            try { await Utils.maybeApplyUpdate(); }                             catch (e) { expoUtilsWarn("maybeApplyUpdate:", e); }
-            try { await Utils.checkForRequiredUpdateDialog(remoteConfigs); }    catch (e) { expoUtilsWarn("checkForRequiredUpdateDialog:", e); }
-            try { await Utils.setupRevenueCat(remoteConfigs); }                 catch (e) { expoUtilsWarn("setupRevenueCat:", e); }
-            try { await Utils.setupGlobalConfigs(appConfig, remoteConfigs); }   catch (e) { expoUtilsWarn("setupGlobalConfigs:", e); }
-            try { await reportConfigIntegrity(remoteConfigs, appConfig); }      catch (e) { expoUtilsWarn("reportConfigIntegrity:", e); }
+            try { await Utils.maybeApplyUpdate(); }                                    catch (e) { expoUtilsWarn("maybeApplyUpdate:", e); }
+            try { await Utils.checkForRequiredUpdateDialog(remoteConfigs); }           catch (e) { expoUtilsWarn("checkForRequiredUpdateDialog:", e); }
+            try { await Utils.setupRevenueCat(rckey); }                                catch (e) { expoUtilsWarn("setupRevenueCat:", e); }
+            try { await Utils.setupGlobalConfigs(appConfig, remoteConfigs, adUnits); } catch (e) { expoUtilsWarn("setupGlobalConfigs:", e); }
+            try { await reportConfigIntegrity(remoteConfigs, appConfig); }             catch (e) { expoUtilsWarn("reportConfigIntegrity:", e); }
 
             //Precisa de carregar todas as libs pra setar os ids.
             (async () => {
                 try { await Utils.initFBSDK(appConfig); }                            catch (e) { expoUtilsWarn("initFBSDK:", e); }
-                try { await Utils.initTikTokSDK(remoteConfigs); }                    catch (e) { expoUtilsWarn("initTikTokSDK:", e); }
+                try { await Utils.initTikTokSDK(remoteConfigs, rckey); }             catch (e) { expoUtilsWarn("initTikTokSDK:", e); }
                 try { await Utils.setupClarity(remoteConfigs); }                     catch (e) { expoUtilsWarn("setupClarity:", e); }
                 try { await Utils.setupPushNotifications(appConfig); }               catch (e) { expoUtilsWarn("setupPushNotifications:", e); }
                 try { await Utils.initLinkInBioTracking(remoteConfigs, appConfig); } catch (e) { expoUtilsWarn("initLinkInBioTracking:", e); }
-                try { await Utils.setupAttribution(remoteConfigs); }                 catch (e) { expoUtilsWarn("setupAttribution:", e); }
-                try { await Utils.updateMessagingTopic(appConfig, remoteConfigs); }  catch (e) { expoUtilsWarn("updateMessagingTopic:", e); }
+                try { await Utils.setupAttribution(rckey); }                         catch (e) { expoUtilsWarn("setupAttribution:", e); }
+                try { await Utils.updateMessagingTopic(appConfig, rckey); }          catch (e) { expoUtilsWarn("updateMessagingTopic:", e); }
             })();
 
             //Listener se mudou informacao do Usuário.
             try {
-                if (remoteConfigs?.rckey) {
+                if (rckey) {
                     Purchases.addCustomerInfoUpdateListener(() => {
-                        Utils.updateMessagingTopic(appConfig, remoteConfigs);
+                        Utils.updateMessagingTopic(appConfig, rckey);
                     });
                 }
             } catch (e) { expoUtilsWarn("addCustomerInfoUpdateListener:", e); }
@@ -350,13 +351,13 @@ const Utils = {
         })();
     },
 
-    initTikTokSDK: async (remoteConfigs: RemoteConfigSettings) => {
+    initTikTokSDK: async (remoteConfigs: RemoteConfigSettings, rckey?: string) => {
         if (!remoteConfigs?.tiktokads) return;
         const tkads = remoteConfigs?.tiktokads;
         if (!tkads.token || !tkads.appid || !tkads.tkappid) return;
         await TiktokAdsEvents.initializeSdk(tkads.token, tkads.appid, tkads.tkappid, tkads.isdebug);
         if (await TikTokWaitForConfig(10 * 1000)) {
-            if (remoteConfigs?.rckey) await TiktokAdsEvents.identify(await Purchases.getAppUserID());
+            if (rckey) await TiktokAdsEvents.identify(await Purchases.getAppUserID());
             await TiktokAdsEvents.trackTTEvent(TikTokStandardEvents.launch_app);
             if ((await AsyncStorage.getItem("tk_is_first_launch")) != "true") {
                 TiktokAdsEvents.trackTTEvent(TikTokStandardEvents.install_app);
@@ -448,8 +449,8 @@ const Utils = {
         return "free";
     },
 
-    updateMessagingTopic: async (appConfig: AppConfig, remoteConfigs?: RemoteConfigSettings) => {
-        if (!remoteConfigs?.rckey) return;
+    updateMessagingTopic: async (appConfig: AppConfig, rckey?: string) => {
+        if (!rckey) return;
         try {
             const slug = appConfig?.expo?.slug || "default-topic";
             const customerInfo = await Purchases.getCustomerInfo();
@@ -476,8 +477,8 @@ const Utils = {
         }
     },
 
-    setupAttribution: async (remoteConfig: RemoteConfigSettings) => {
-        if (!remoteConfig?.rckey) return;
+    setupAttribution: async (rckey?: string) => {
+        if (!rckey) return;
         await Purchases.enableAdServicesAttributionTokenCollection();
         await Purchases.collectDeviceIdentifiers();
         await Purchases.setFBAnonymousID(await AppEventsLogger.getAnonymousID());
@@ -486,15 +487,15 @@ const Utils = {
         await Purchases.setAttributes({TikTokGetAnonymousID: await TiktokAdsEvents.getAnonymousID()});
     },
 
-    setupGlobalConfigs: async (appConfig?: any, remoteConfigs?: any) => {
+    setupGlobalConfigs: async (appConfig?: any, remoteConfigs?: any, adUnits?: object) => {
         if (getExpoUtilsDisableWarnings(appConfig)) {
             (global as any).disableExpoUtilsWarnings = true;
         }
         if (getExpoUtilsDisableLogs(appConfig)) {
             (global as any).disableExpoUtilsLogs = true;
         }
-        if (remoteConfigs.adunits) {
-            (global as any).adUnits = remoteConfigs.adunits;
+        if (adUnits) {
+            (global as any).adUnits = adUnits;
         }
         if (remoteConfigs.is_ads_enabled === false) {
             (global as any).isAdsEnabled = false;

@@ -32,7 +32,7 @@ export const setupAppOpenListener = (adUnitId?: string) => {
                 return;
             }
 
-            const unitId = adUnitId ?? (global as any).remoteConfigs?.adunits?.appOpen;
+            const unitId = adUnitId ?? (global as any).adUnits?.appOpen;
             if (!unitId) return;
 
             if (canShowAppOpenAgain && appState.current === "background" && nextAppState === "active") {

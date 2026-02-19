@@ -40,13 +40,6 @@ const stableStringify = (value: any): string => {
     return JSON.stringify(deepSort(value));
 };
 
-const getAdCount = (adunits: any): number => {
-    if (!adunits) return 0;
-    if (Array.isArray(adunits)) return adunits.length;
-    if (typeof adunits === "object") return Object.keys(adunits).length;
-    return 0;
-};
-
 const getPluginConfig = (appConfig: any, pluginName: string): any | null => {
     const plugins = appConfig?.expo?.plugins;
     if (!Array.isArray(plugins)) return null;
@@ -88,12 +81,9 @@ export const logConfigIntegrityValues = (remoteConfigs: any, appConfig?: any): v
         const values = [
             checksum, // cfg_hash
             payload.hash, // remote_hash
-            getAdCount(payload.adunits), // ad_count
             payload.is_ads_enabled,
-            payload.rckey,
             payload.hotupdater_url,
             payload.trends_tracking_url,
-            payload.adunits,
             payload.tiktokads,
             payload.clarity_id,
             payload.min_version,
@@ -133,13 +123,10 @@ export const reportConfigIntegrity = async (remoteConfigs: any, appConfig?: any)
         const rawParams: Record<string, any> = {
             cfg_hash: checksum,
             remote_hash: toEventValue(payload.hash),
-            ad_count: getAdCount(payload.adunits),
 
             is_ads_enabled: payload.is_ads_enabled ?? null,
-            rckey: toEventValue(payload.rckey, {hash: true}),
             hotupdater_url: toEventValue(payload.hotupdater_url),
             trends_tracking_url: toEventValue(payload.trends_tracking_url),
-            adunits: toEventValue(payload.adunits, {hash: true}),
             tiktokads: toEventValue(payload.tiktokads, {hash: true}),
             clarity_id: toEventValue(payload.clarity_id),
             min_version: payload.min_version ?? null,
