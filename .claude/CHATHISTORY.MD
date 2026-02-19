@@ -1,5 +1,41 @@
 # Chat History - expo-utils
 
+## 2026-02-19 - Refatoração do Sistema Promotional Content
+
+### O que foi feito
+Refatoração completa do sistema de conteúdo promocional para suportar múltiplos tipos de exibição.
+
+### Arquivos modificados
+1. **utils/types.ts** — Adicionados tipos `PromotionalType` e `PromotionalConfig`
+2. **utils/modal-promotional-content.tsx** — Refatoração completa:
+   - Renomeado default export de `ModalPromotionalContent` → `PromotionalContent`
+   - Renomeado hook `usePromotionalModal` → `usePromotional`
+   - Aliases deprecated mantidos para backward compatibility
+   - Remote config: lê `promotional` com fallback para `appmodal`
+   - Novo tipo `bottom-sheet`: código existente extraído para `BottomSheetContent`
+   - Novo tipo `card-banner-bottom`: card compacto no bottom com swipe-to-dismiss
+   - Novo tipo `fullscreen`: interstitial com timer countdown e botão X após timer
+   - Novo componente `PromotionalBanner`: View inline (não modal) para tipo `banner`
+   - Hook `usePromotional` ignora type `banner` (é inline, não modal)
+3. **templates/RootLayout.tsx** — Atualizado imports e uso para novos nomes
+4. **index.ts** + **index.d.ts** — Exportam `PromotionalType` e `PromotionalConfig`
+
+### Backward compatibility
+- `ModalPromotionalContent` exportado como alias deprecated
+- `usePromotionalModal` exportado como alias deprecated
+- `AppModalConfig` re-exportado como alias deprecated
+- `getConfig()` faz fallback de `promotional` → `appmodal` no remote config
+
+### Tipos de exibição suportados
+| type | Componente | Descrição |
+|------|-----------|-----------|
+| `bottom-sheet` | PromotionalContent | Modal 65% tela, slide-up, drag-to-dismiss (existente) |
+| `card-banner-bottom` | PromotionalContent | Card compacto no bottom, swipe+X para fechar |
+| `fullscreen` | PromotionalContent | Interstitial com timer, botão X após timerSeconds |
+| `banner` | PromotionalBanner | View inline, não é modal |
+
+---
+
 ## 2026-02-09 - Melhorar Métricas de Entrega FCM
 
 ### Problema

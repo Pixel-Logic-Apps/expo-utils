@@ -22,12 +22,42 @@ export interface AppConfig {
     };
 }
 
+export interface AdUnits {
+    appOpen?: string;
+    banner?: string;
+    interstitial?: string;
+    rewarded?: string;
+}
+
+export interface AppStrings {
+    rckey?: string;
+    adUnits?: AdUnits;
+    [key: string]: any;
+}
+
+export type PromotionalType = "bottom-sheet" | "card-banner-bottom" | "banner" | "fullscreen";
+
+export type PromotionalConfig = {
+    enabled: boolean;
+    type: PromotionalType;
+    icon: string;
+    name: string;
+    description: string;
+    buttonText: string;
+    gradientColors: [string, string];
+    primaryColor: string;
+    storeUrl: string;
+    delayMs?: number;
+    bannerImg?: string;
+    bannerHeight?: number;
+    showDontShowAgain?: boolean;
+    timerSeconds?: number;
+};
+
 export interface RemoteConfigSettings {
     is_ads_enabled: boolean;
-    rckey: string;
     hotupdater_url: string;
     trends_tracking_url: string;
-    adunits: object;
     tiktokads: {token: string; appid: string; tkappid: string; isdebug: boolean};
     clarity_id: string;
     min_version: number;

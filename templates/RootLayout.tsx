@@ -3,8 +3,9 @@ import {useEffect, useState} from "react";
 import Utils from "expo-utils/utils/Utils";
 import {setupAppOpenListener} from "expo-utils/utils/appopen-ads";
 import AskForReviewOverlay, {AskForReviewEvents} from "expo-utils/utils/ask-for-review";
-import ModalPromotionalContent, {usePromotionalModal} from "expo-utils/utils/modal-promotional-content";
+import PromotionalContent, {usePromotional} from "expo-utils/utils/modal-promotional-content";
 import appConfig from "../../app.json";
+import Strings from "../constants/Strings";
 import {HotUpdater} from "@hot-updater/react-native";
 
 declare global {
@@ -18,11 +19,11 @@ SplashScreen.preventAutoHideAsync().catch(() => {});
 function RootLayout() {
     const [appIsReady, setAppIsReady] = useState(false);
     const [showReviewOverlay, setShowReviewOverlay] = useState(false);
-    const {visible: showPromo, show: showPromoModal, hide: hidePromoModal} = usePromotionalModal();
+    const {visible: showPromo, show: showPromoModal, hide: hidePromoModal} = usePromotional();
 
     useEffect(() => {
         global.isAdsEnabled = !__DEV__;
-        Utils.prepare(setAppIsReady, appConfig).then(() => {
+        Utils.prepare(setAppIsReady, appConfig, Strings).then(() => {
             setupAppOpenListener();
             showPromoModal();
         });
@@ -46,7 +47,7 @@ function RootLayout() {
             <Stack>
                 <Stack.Screen name="index" options={{headerShown: false}} />
             </Stack>
-            <ModalPromotionalContent visible={showPromo} onClose={hidePromoModal} />
+            <PromotionalContent visible={showPromo} onClose={hidePromoModal} />
             <AskForReviewOverlay
                 visible={showReviewOverlay}
                 onClose={() => setShowReviewOverlay(false)}

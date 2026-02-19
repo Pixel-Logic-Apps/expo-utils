@@ -491,18 +491,28 @@ https://itunes.apple.com/lookup?bundleId=SEU_BUNDLE_ID
 
 - `Promise<boolean>` - `true` se abriu com sucesso, `false` se houve erro
 
-## 🎁 Modal Promocional
+## 🎁 Conteúdo Promocional
 
-O expo-utils inclui um componente de modal promocional elegante para promover outros apps ou conteúdos. Configurável via Firebase Remote Config.
+O expo-utils inclui um sistema completo de conteúdo promocional para promover outros apps ou conteúdos. Suporta 4 tipos de exibição, todos configuráveis via Firebase Remote Config.
+
+### Tipos de Exibição
+
+| Tipo | Componente | Descrição |
+|------|-----------|-----------|
+| `bottom-sheet` | `PromotionalContent` | Modal 65% da tela, slide-up, drag-to-dismiss |
+| `card-banner-bottom` | `PromotionalContent` | Card compacto no bottom, swipe + X para fechar |
+| `fullscreen` | `PromotionalContent` | Interstitial tela inteira com timer countdown |
+| `banner` | `PromotionalBanner` | View inline (não é modal), dev coloca onde quiser |
 
 ### Configuração no Remote Config
 
-Adicione o objeto `appmodal` no seu Firebase Remote Config:
+Adicione o objeto `promotional` no seu Firebase Remote Config:
 
 ```json
 {
-    "appmodal": {
+    "promotional": {
         "enabled": true,
+        "type": "bottom-sheet",
         "icon": "https://exemplo.com/icone-app.png",
         "name": "Meu Outro App",
         "description": "Descrição incrível do app que você quer promover",
@@ -513,17 +523,21 @@ Adicione o objeto `appmodal` no seu Firebase Remote Config:
         "delayMs": 5000,
         "bannerImg": "https://exemplo.com/banner.png",
         "bannerHeight": 200,
-        "showDontShowAgain": true
+        "showDontShowAgain": true,
+        "timerSeconds": 5
     }
 }
 ```
+
+> **Backward compatibility**: a chave `appmodal` continua funcionando como fallback. Se `promotional` não existir, o sistema lê `appmodal` automaticamente.
 
 ### Campos da Configuração
 
 | Campo | Tipo | Descrição |
 |-------|------|-----------|
-| `enabled` | boolean | Habilita/desabilita o modal |
-| `icon` | string | URL do ícone do app (exibido no círculo central) |
+| `enabled` | boolean | Habilita/desabilita o conteúdo promocional |
+| `type` | string | Tipo de exibição: `bottom-sheet`, `card-banner-bottom`, `banner`, `fullscreen` |
+| `icon` | string | URL do ícone do app |
 | `name` | string | Nome/título do app ou conteúdo |
 | `description` | string | Descrição promocional |
 | `buttonText` | string | Texto do botão principal |
@@ -534,24 +548,27 @@ Adicione o objeto `appmodal` no seu Firebase Remote Config:
 | `bannerImg` | string | URL de imagem banner (substitui o gradiente) |
 | `bannerHeight` | number | Altura do banner em pixels (default: 200) |
 | `showDontShowAgain` | boolean | Mostrar botão "Não mostrar novamente" |
+| `timerSeconds` | number | Segundos antes do botão X aparecer no fullscreen (default: 5) |
 
 ### Uso no Código
 
 ```typescript
-import ModalPromotionalContent, { usePromotionalModal } from 'expo-utils/utils/modal-promotional-content';
+import PromotionalContent, { usePromotional } from 'expo-utils/utils/modal-promotional-content';
 
 function MyScreen() {
-    const { visible, show, hide } = usePromotionalModal();
+    const { visible, show, hide } = usePromotional();
 
     useEffect(() => {
-        // Mostra o modal automaticamente após o delay configurado
+        // Mostra automaticamente após o delay configurado
+        // Funciona para bottom-sheet, card-banner-bottom e fullscreen
+        // Tipo "banner" é ignorado (use PromotionalBanner)
         show();
     }, []);
 
     return (
         <View>
             {/* Seu conteúdo */}
-            <ModalPromotionalContent
+            <PromotionalContent
                 visible={visible}
                 onClose={hide}
             />
@@ -560,10 +577,30 @@ function MyScreen() {
 }
 ```
 
+### Banner Inline
+
+Para o tipo `banner`, use o componente `PromotionalBanner` — é uma View inline (não modal) que o dev posiciona onde quiser:
+
+```typescript
+import { PromotionalBanner } from 'expo-utils/utils/modal-promotional-content';
+
+function MinhaScreen() {
+    return (
+        <View>
+            {/* Aparece somente se type === "banner" e enabled === true */}
+            <PromotionalBanner />
+
+            {/* Com estilo customizado */}
+            <PromotionalBanner style={{ marginHorizontal: 16, marginTop: 8 }} />
+        </View>
+    );
+}
+```
+
 ### Customização de Cores
 
 ```typescript
-<ModalPromotionalContent
+<PromotionalContent
     visible={visible}
     onClose={hide}
     colors={{
@@ -584,7 +621,7 @@ Use a prop `t` para traduzir textos dinâmicos com o pattern `%{key}`:
 
 ```json
 {
-    "appmodal": {
+    "promotional": {
         "name": "%{app_name}",
         "description": "%{app_description}",
         "buttonText": "%{download_button}"
@@ -597,10 +634,10 @@ import { useTranslation } from 'sua-lib-i18n';
 
 function MyScreen() {
     const { t } = useTranslation();
-    const { visible, hide } = usePromotionalModal();
+    const { visible, hide } = usePromotional();
 
     return (
-        <ModalPromotionalContent
+        <PromotionalContent
             visible={visible}
             onClose={hide}
             t={t}
@@ -609,15 +646,42 @@ function MyScreen() {
 }
 ```
 
+### Detalhes por Tipo
+
+**bottom-sheet** (padrão):
+- Modal com 65% da tela, slide-up com spring animation
+- Swipe down para fechar, overlay escuro
+- Gradiente com círculos decorativos ou imagem banner
+
+**card-banner-bottom**:
+- Card compacto no bottom da tela (~140px)
+- Overlay leve (0.2), swipe down + botão X para fechar
+- Layout horizontal: texto à esquerda, ícone à direita
+- Gradient ou imagem como background do card
+
+**fullscreen**:
+- Interstitial tela inteira com fade-in
+- Timer countdown visível no canto superior direito
+- Botão X aparece somente após `timerSeconds` com fade-in
+- Top 40% com gradient/banner, conteúdo centralizado abaixo
+
+**banner** (PromotionalBanner):
+- View inline, não usa Modal
+- Layout compacto horizontal: ícone + texto + botão CTA
+- Botão X para dismiss (salva no AsyncStorage se `showDontShowAgain`)
+- Pressable inteiro abre `storeUrl`
+
 ### Características
 
-- ✅ **Swipe para fechar** - Arraste para baixo para dispensar
+- ✅ **4 tipos de exibição** - bottom-sheet, card, fullscreen e banner inline
+- ✅ **Swipe para fechar** - Arraste para baixo para dispensar (bottom-sheet e card)
+- ✅ **Timer countdown** - Botão X aparece após timer no fullscreen
 - ✅ **Animações suaves** - Spring animations nativas
 - ✅ **Banner ou Gradiente** - Escolha entre imagem ou gradiente animado
-- ✅ **Círculos decorativos** - Design moderno com círculos concêntricos
 - ✅ **"Não mostrar novamente"** - Persiste preferência no AsyncStorage
 - ✅ **Safe Area** - Respeita insets do dispositivo
 - ✅ **Cores customizáveis** - Todas as cores podem ser sobrescritas
+- ✅ **Backward compatible** - `appmodal` e nomes antigos continuam funcionando
 
 ---
 
@@ -824,6 +888,8 @@ import type {
     RemoteConfigSettings,
     FacebookConfig,
     RevenueCatKeys,
+    PromotionalType,
+    PromotionalConfig,
     Translations
 } from 'expo-utils';
 
