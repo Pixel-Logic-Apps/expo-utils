@@ -13,7 +13,18 @@
 - Visit count é incrementado a cada visita ao targetScreen (independente de mostrar ou não)
 - Storage key: `@promo_visit_count`
 
-#### 2. bannerVideo (fullscreen vídeo)
+#### 2. Auto-traduções (31 idiomas)
+- Adicionado `PROMO_TRANSLATIONS` com 31 idiomas (mesmo set do ask-for-review)
+- Textos traduzidos: `download` (CTA), `dontShowAgain`, `dontShow`, `close`, `now`
+- 3 modos de resolução para cada texto:
+  1. Remote config define o texto → usa ele (pode ter `%{key}` para i18n do user)
+  2. Não definido → tradução automática baseada no locale do device
+- `resolveText(configValue, fallbackKey, t)` encapsula essa lógica
+- Todos os textos hardcoded em PT substituídos: "Não mostrar novamente", "Não mostrar", "Fechar", "now"
+- Import de `expo-localization` (getLocales) para detecção de idioma
+- Cache em `_cachedTr` para evitar chamadas repetidas
+
+#### 3. bannerVideo (fullscreen vídeo)
 - **Adicionado**: `bannerVideo?: string` ao PromotionalConfig
 - Quando definido no tipo fullscreen, renderiza vídeo full-screen com auto-play e loop
 - Usa `expo-av` via require dinâmico com try-catch (fallback para bannerImg se não instalado)

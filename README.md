@@ -723,6 +723,8 @@ function MyScreen() {
 - ✅ **Safe Area** - Respeita insets do dispositivo
 - ✅ **Cores customizáveis** - Todas as cores podem ser sobrescritas
 - ✅ **Backward compatible** - `appmodal` e nomes antigos continuam funcionando
+- ✅ **Auto-traduções** - 31 idiomas para textos de UI (botão CTA, "não mostrar", "agora", etc.). Textos do remote config têm prioridade; se não definidos, usa tradução automática baseada no locale do device
+- ✅ **Fullscreen Video** - Suporte a vídeo fullscreen via `bannerVideo` (requer `expo-av`)
 
 ---
 

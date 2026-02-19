@@ -1,5 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {LinearGradient} from "expo-linear-gradient";
+import {getLocales} from "expo-localization";
 import * as Linking from "expo-linking";
 import React, {useEffect, useRef, useState} from "react";
 import {Animated, Dimensions, Image, Modal, PanResponder, Pressable, StyleSheet, Text, View, ViewStyle} from "react-native";
@@ -9,6 +10,60 @@ export type {PromotionalShadow};
 
 const STORAGE_KEY_NAO_MOSTRAR = "@nao_mostrar_app_promocionals";
 const STORAGE_KEY_VISIT_COUNT = "@promo_visit_count";
+
+// ─── Auto-translations ──────────────────────────────────────────────────────
+
+type PromoTranslations = {
+    download: string;
+    dontShowAgain: string;
+    dontShow: string;
+    close: string;
+    now: string;
+};
+
+const PROMO_TRANSLATIONS: Record<string, PromoTranslations> = {
+    en: {download: "Download Now", dontShowAgain: "Don't show again", dontShow: "Don't show", close: "Close", now: "now"},
+    pt: {download: "Baixar Agora", dontShowAgain: "Não mostrar novamente", dontShow: "Não mostrar", close: "Fechar", now: "agora"},
+    es: {download: "Descargar Ahora", dontShowAgain: "No mostrar de nuevo", dontShow: "No mostrar", close: "Cerrar", now: "ahora"},
+    fr: {download: "Télécharger", dontShowAgain: "Ne plus afficher", dontShow: "Masquer", close: "Fermer", now: "maintenant"},
+    de: {download: "Jetzt Laden", dontShowAgain: "Nicht mehr anzeigen", dontShow: "Ausblenden", close: "Schließen", now: "jetzt"},
+    it: {download: "Scarica Ora", dontShowAgain: "Non mostrare più", dontShow: "Nascondi", close: "Chiudi", now: "ora"},
+    ja: {download: "今すぐダウンロード", dontShowAgain: "今後表示しない", dontShow: "非表示", close: "閉じる", now: "今"},
+    ko: {download: "지금 다운로드", dontShowAgain: "다시 표시 안 함", dontShow: "숨기기", close: "닫기", now: "지금"},
+    zh: {download: "立即下载", dontShowAgain: "不再显示", dontShow: "隐藏", close: "关闭", now: "刚刚"},
+    ru: {download: "Скачать Сейчас", dontShowAgain: "Больше не показывать", dontShow: "Скрыть", close: "Закрыть", now: "сейчас"},
+    ar: {download: "حمّل الآن", dontShowAgain: "عدم الإظهار مجدداً", dontShow: "إخفاء", close: "إغلاق", now: "الآن"},
+    hi: {download: "अभी डाउनलोड करें", dontShowAgain: "फिर न दिखाएं", dontShow: "छुपाएं", close: "बंद करें", now: "अभी"},
+    nl: {download: "Nu Downloaden", dontShowAgain: "Niet meer tonen", dontShow: "Verbergen", close: "Sluiten", now: "nu"},
+    pl: {download: "Pobierz Teraz", dontShowAgain: "Nie pokazuj ponownie", dontShow: "Ukryj", close: "Zamknij", now: "teraz"},
+    tr: {download: "Şimdi İndir", dontShowAgain: "Bir daha gösterme", dontShow: "Gizle", close: "Kapat", now: "şimdi"},
+    sv: {download: "Ladda Ner Nu", dontShowAgain: "Visa inte igen", dontShow: "Dölj", close: "Stäng", now: "nu"},
+    da: {download: "Download Nu", dontShowAgain: "Vis ikke igen", dontShow: "Skjul", close: "Luk", now: "nu"},
+    fi: {download: "Lataa Nyt", dontShowAgain: "Älä näytä uudelleen", dontShow: "Piilota", close: "Sulje", now: "nyt"},
+    no: {download: "Last Ned Nå", dontShowAgain: "Ikke vis igjen", dontShow: "Skjul", close: "Lukk", now: "nå"},
+    cs: {download: "Stáhnout Nyní", dontShowAgain: "Znovu nezobrazovat", dontShow: "Skrýt", close: "Zavřít", now: "nyní"},
+    el: {download: "Λήψη Τώρα", dontShowAgain: "Να μην εμφανιστεί ξανά", dontShow: "Απόκρυψη", close: "Κλείσιμο", now: "τώρα"},
+    he: {download: "הורד עכשיו", dontShowAgain: "אל תציג שוב", dontShow: "הסתר", close: "סגור", now: "עכשיו"},
+    th: {download: "ดาวน์โหลดเลย", dontShowAgain: "ไม่ต้องแสดงอีก", dontShow: "ซ่อน", close: "ปิด", now: "ตอนนี้"},
+    vi: {download: "Tải Ngay", dontShowAgain: "Không hiển thị lại", dontShow: "Ẩn", close: "Đóng", now: "bây giờ"},
+    id: {download: "Unduh Sekarang", dontShowAgain: "Jangan tampilkan lagi", dontShow: "Sembunyikan", close: "Tutup", now: "sekarang"},
+    ms: {download: "Muat Turun Sekarang", dontShowAgain: "Jangan tunjuk lagi", dontShow: "Sembunyikan", close: "Tutup", now: "sekarang"},
+    ro: {download: "Descarcă Acum", dontShowAgain: "Nu mai afișa", dontShow: "Ascunde", close: "Închide", now: "acum"},
+    uk: {download: "Завантажити Зараз", dontShowAgain: "Більше не показувати", dontShow: "Сховати", close: "Закрити", now: "зараз"},
+    hu: {download: "Letöltés Most", dontShowAgain: "Ne jelenjen meg újra", dontShow: "Elrejtés", close: "Bezárás", now: "most"},
+    sk: {download: "Stiahnuť Teraz", dontShowAgain: "Znovu nezobrazovať", dontShow: "Skryť", close: "Zavrieť", now: "teraz"},
+    bg: {download: "Изтегли Сега", dontShowAgain: "Не показвай отново", dontShow: "Скрий", close: "Затвори", now: "сега"},
+};
+
+function getPromoTranslations(): PromoTranslations {
+    try {
+        const locales = getLocales();
+        const lang = locales[0]?.languageCode || "en";
+        return PROMO_TRANSLATIONS[lang] || PROMO_TRANSLATIONS.en;
+    } catch {
+        return PROMO_TRANSLATIONS.en;
+    }
+}
 
 // ─── nth-impression parser (CSS nth-child syntax) ────────────────────────────
 
@@ -68,6 +123,18 @@ type Props = {
 const processText = (text: string, t?: (key: string) => string): string => {
     if (!t) return text;
     return text.replace(/%\{(\w+)\}/g, (_, key) => t(key) || key);
+};
+
+let _cachedTr: PromoTranslations | null = null;
+const tr = (): PromoTranslations => {
+    if (!_cachedTr) _cachedTr = getPromoTranslations();
+    return _cachedTr;
+};
+
+/** Resolve text: remote config value → processText (i18n paths) → auto-translation fallback */
+const resolveText = (configValue: string | undefined, fallbackKey: keyof PromoTranslations, t?: (key: string) => string): string => {
+    if (configValue) return processText(configValue, t);
+    return tr()[fallbackKey];
 };
 
 const {width: SCREEN_WIDTH, height: SCREEN_HEIGHT} = Dimensions.get("window");
@@ -286,7 +353,7 @@ function BottomSheetContent({visible, onClose, colors: colorsProp, t, config}: P
                             ]}
                             onPress={handleBaixar}>
                             <Text style={[styles.botaoPrincipalText, {color: c.primaryButtonText}]}>
-                                {processText(config.buttonText, t)}
+                                {resolveText(config.buttonText, "download", t)}
                             </Text>
                         </Pressable>
 
@@ -298,7 +365,7 @@ function BottomSheetContent({visible, onClose, colors: colorsProp, t, config}: P
                                 ]}
                                 onPress={handleNaoMostrar}>
                                 <Text style={[styles.botaoSecundarioText, {color: c.secondaryButtonText}]}>
-                                    Não mostrar novamente
+                                    {tr().dontShowAgain}
                                 </Text>
                             </Pressable>
                         )}
@@ -418,13 +485,11 @@ function CardBannerBottomContent({visible, onClose, colors: colorsProp, t, confi
                                     <Text style={[styles.cardImgTitle, {color: c.titleText}]} numberOfLines={3}>
                                         {processText(config.name, t)}
                                     </Text>
-                                    {config.buttonText ? (
-                                        <View style={[styles.cardImgCta, {backgroundColor: config.primaryColor}]}>
-                                            <Text style={styles.cardImgCtaText} numberOfLines={1}>
-                                                {processText(config.buttonText, t)}
-                                            </Text>
-                                        </View>
-                                    ) : null}
+                                    <View style={[styles.cardImgCta, {backgroundColor: config.primaryColor}]}>
+                                        <Text style={styles.cardImgCtaText} numberOfLines={1}>
+                                            {resolveText(config.buttonText, "download", t)}
+                                        </Text>
+                                    </View>
                                 </View>
                                 <View style={styles.cardImgIconArea}>
                                     <View style={styles.cardImgIconContainer}>
@@ -466,12 +531,12 @@ function CardBannerBottomContent({visible, onClose, colors: colorsProp, t, confi
                                             ]}
                                             onPress={handleBaixar}>
                                             <Text style={[styles.cardCtaText, {color: config.primaryColor}]}>
-                                                {processText(config.buttonText, t)}
+                                                {resolveText(config.buttonText, "download", t)}
                                             </Text>
                                         </Pressable>
                                         {config.showDontShowAgain && (
                                             <Pressable onPress={handleNaoMostrar} hitSlop={4}>
-                                                <Text style={styles.cardDontShow}>Não mostrar</Text>
+                                                <Text style={styles.cardDontShow}>{tr().dontShow}</Text>
                                             </Pressable>
                                         )}
                                     </View>
@@ -630,7 +695,7 @@ function FullscreenContent({visible, onClose, colors: colorsProp, t, config}: Pr
                         ]}
                         onPress={handleBaixar}>
                         <Text style={[styles.botaoPrincipalText, {color: c.primaryButtonText}]}>
-                            {processText(config.buttonText, t)}
+                            {resolveText(config.buttonText, "download", t)}
                         </Text>
                     </Pressable>
 
@@ -639,7 +704,7 @@ function FullscreenContent({visible, onClose, colors: colorsProp, t, config}: Pr
                             style={({pressed}) => [styles.botaoSecundario, pressed && styles.botaoSecundarioPressed]}
                             onPress={handleNaoMostrar}>
                             <Text style={[styles.botaoSecundarioText, {color: c.secondaryButtonText}]}>
-                                Fechar
+                                {tr().dontShowAgain}
                             </Text>
                         </Pressable>
                     )}
@@ -765,7 +830,7 @@ function NotificationCardContent({visible, onClose, colors: colorsProp, t, confi
                             {processText(config.notificationBody || config.description, t)}
                         </Text>
                     </View>
-                    <Text style={styles.notifHeaderTime}>now</Text>
+                    <Text style={styles.notifHeaderTime}>{tr().now}</Text>
                 </Pressable>
 
                 {/* ── Separator ── */}
@@ -790,15 +855,13 @@ function NotificationCardContent({visible, onClose, colors: colorsProp, t, confi
                                     {processText(config.description, t)}
                                 </Text>
                             ) : null}
-                            {config.buttonText ? (
-                                <Pressable
-                                    style={({pressed}) => [styles.notifBodyCta, {backgroundColor: config.primaryColor}, pressed && {opacity: 0.8}]}
-                                    onPress={handleBaixar}>
-                                    <Text style={styles.notifBodyCtaText} numberOfLines={1}>
-                                        {processText(config.buttonText, t)}
-                                    </Text>
-                                </Pressable>
-                            ) : null}
+                            <Pressable
+                                style={({pressed}) => [styles.notifBodyCta, {backgroundColor: config.primaryColor}, pressed && {opacity: 0.8}]}
+                                onPress={handleBaixar}>
+                                <Text style={styles.notifBodyCtaText} numberOfLines={1}>
+                                    {resolveText(config.buttonText, "download", t)}
+                                </Text>
+                            </Pressable>
                         </View>
                         <Pressable style={styles.notifBodyIconArea} onPress={handleBaixar}>
                             <View style={styles.notifBodyIconContainer}>
@@ -890,13 +953,11 @@ export function PromotionalBanner({colors: colorsProp, t, style, size = "small",
                                     {processText(config.description, t)}
                                 </Text>
                             ) : null}
-                            {config.buttonText ? (
-                                <View style={[styles.bannerLargeCta, {backgroundColor: config.primaryColor}]}>
-                                    <Text style={styles.bannerLargeCtaText} numberOfLines={1}>
-                                        {processText(config.buttonText, t)}
-                                    </Text>
-                                </View>
-                            ) : null}
+                            <View style={[styles.bannerLargeCta, {backgroundColor: config.primaryColor}]}>
+                                <Text style={styles.bannerLargeCtaText} numberOfLines={1}>
+                                    {resolveText(config.buttonText, "download", t)}
+                                </Text>
+                            </View>
                         </View>
                         <View style={styles.bannerLargeIconArea}>
                             <View style={styles.bannerLargeIconContainer}>
@@ -931,7 +992,7 @@ export function PromotionalBanner({colors: colorsProp, t, style, size = "small",
                 ]}
                 onPress={handlePress}>
                 <Text style={[styles.bannerCtaText, {color: c.primaryButtonText}]}>
-                    {processText(config.buttonText, t)}
+                    {resolveText(config.buttonText, "download", t)}
                 </Text>
             </Pressable>
             {showClose && (
