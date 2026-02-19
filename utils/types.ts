@@ -37,6 +37,15 @@ export interface AppStrings {
 
 export type PromotionalType = "bottom-sheet" | "card-banner-bottom" | "banner" | "fullscreen";
 
+export type PromotionalShadow = {
+    color?: string;
+    offsetX?: number;
+    offsetY?: number;
+    opacity?: number;
+    radius?: number;
+    elevation?: number;
+};
+
 export type PromotionalConfig = {
     enabled: boolean;
     type: PromotionalType;
@@ -52,6 +61,7 @@ export type PromotionalConfig = {
     bannerHeight?: number;
     showDontShowAgain?: boolean;
     timerSeconds?: number;
+    shadow?: PromotionalShadow;
 };
 
 export interface RemoteConfigSettings {

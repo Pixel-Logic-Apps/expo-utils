@@ -4,7 +4,8 @@ import * as Linking from "expo-linking";
 import React, {useEffect, useRef, useState} from "react";
 import {Animated, Dimensions, Image, Modal, PanResponder, Pressable, StyleSheet, Text, View, ViewStyle} from "react-native";
 import {useSafeAreaInsets} from "react-native-safe-area-context";
-import type {PromotionalConfig} from "./types";
+import type {PromotionalConfig, PromotionalShadow} from "./types";
+export type {PromotionalShadow};
 
 const STORAGE_KEY_NAO_MOSTRAR = "@nao_mostrar_app_promocionals";
 
@@ -58,6 +59,17 @@ const CIRCLE_SIZES = {
     three: SCREEN_WIDTH * 0.8,
     four: SCREEN_WIDTH * 1.0,
 };
+
+function buildShadowStyle(shadow?: PromotionalShadow): ViewStyle {
+    if (!shadow) return {};
+    return {
+        shadowColor: shadow.color ?? "#000",
+        shadowOffset: {width: shadow.offsetX ?? 0, height: shadow.offsetY ?? 4},
+        shadowOpacity: shadow.opacity ?? 0.25,
+        shadowRadius: shadow.radius ?? 12,
+        elevation: shadow.elevation ?? 10,
+    };
+}
 
 function getConfig(): PromotionalConfig | undefined {
     const promotional = (global as any).remoteConfigs?.promotional;
@@ -282,8 +294,9 @@ function BottomSheetContent({visible, onClose, colors: colorsProp, t, config}: P
 function CardBannerBottomContent({visible, onClose, colors: colorsProp, t, config}: Props & {config: PromotionalConfig}) {
     const insets = useSafeAreaInsets();
     const c = {...defaultColors, ...colorsProp};
+    const hasBannerImg = !!config.bannerImg;
 
-    const slideAnim = useRef(new Animated.Value(200)).current;
+    const slideAnim = useRef(new Animated.Value(300)).current;
     const panY = useRef(new Animated.Value(0)).current;
 
     const panResponder = useRef(
@@ -298,7 +311,7 @@ function CardBannerBottomContent({visible, onClose, colors: colorsProp, t, confi
             onPanResponderRelease: (_, gestureState) => {
                 if (gestureState.dy > 60 || gestureState.vy > 0.5) {
                     Animated.timing(panY, {
-                        toValue: 200,
+                        toValue: 300,
                         duration: 200,
                         useNativeDriver: true,
                     }).start(() => {
@@ -324,13 +337,13 @@ function CardBannerBottomContent({visible, onClose, colors: colorsProp, t, confi
                 friction: 11,
             }).start();
         } else {
-            slideAnim.setValue(200);
+            slideAnim.setValue(300);
         }
     }, [visible]);
 
     const handleClose = () => {
         Animated.timing(slideAnim, {
-            toValue: 200,
+            toValue: 300,
             duration: 200,
             useNativeDriver: true,
         }).start(() => onClose());
@@ -347,6 +360,7 @@ function CardBannerBottomContent({visible, onClose, colors: colorsProp, t, confi
     };
 
     const gradientColors = config.gradientColors || ["#22C55E", "#16A34A"];
+    const shadowStyle = buildShadowStyle(config.shadow ?? {color: "#000", offsetY: 4, opacity: 0.25, radius: 12, elevation: 10});
 
     return (
         <Modal visible={visible} transparent animationType="none" onRequestClose={handleClose}>
@@ -355,60 +369,90 @@ function CardBannerBottomContent({visible, onClose, colors: colorsProp, t, confi
                 {...panResponder.panHandlers}
                 style={[
                     styles.cardContainer,
+                    shadowStyle,
                     {
                         marginBottom: insets.bottom + 8,
+                        height: hasBannerImg ? (config.bannerHeight ?? 200) : undefined,
                         transform: [{translateY: Animated.add(slideAnim, panY)}],
                     },
                 ]}>
-                {config.bannerImg ? (
-                    <Image
-                        source={{uri: config.bannerImg}}
-                        style={[StyleSheet.absoluteFillObject, {borderRadius: 16}]}
-                        resizeMode="cover"
-                    />
-                ) : (
-                    <LinearGradient
-                        colors={gradientColors}
-                        start={{x: 0, y: 0}}
-                        end={{x: 1, y: 1}}
-                        style={[StyleSheet.absoluteFillObject, {borderRadius: 16}]}
-                    />
-                )}
-                <View style={styles.cardInner}>
-                    <Pressable style={styles.cardCloseBtn} onPress={handleClose} hitSlop={8}>
-                        <Text style={styles.cardCloseBtnText}>✕</Text>
-                    </Pressable>
-
-                    <View style={styles.cardBody}>
-                        <View style={styles.cardTextArea}>
-                            <Text style={styles.cardTitle} numberOfLines={1}>
-                                {processText(config.name, t)}
-                            </Text>
-                            <Text style={styles.cardDescription} numberOfLines={2}>
-                                {processText(config.description, t)}
-                            </Text>
-                            <View style={styles.cardActions}>
-                                <Pressable
-                                    style={({pressed}) => [
-                                        styles.cardCta,
-                                        {backgroundColor: c.modalBackground},
-                                        pressed && {opacity: 0.8},
-                                    ]}
-                                    onPress={handleBaixar}>
-                                    <Text style={[styles.cardCtaText, {color: config.primaryColor}]}>
-                                        {processText(config.buttonText, t)}
+                {hasBannerImg ? (
+                    <>
+                        <Image
+                            source={{uri: config.bannerImg}}
+                            style={[StyleSheet.absoluteFillObject, {borderRadius: 16}]}
+                            resizeMode="cover"
+                        />
+                        <Pressable style={styles.cardCloseBtn} onPress={handleClose} hitSlop={8}>
+                            <Text style={styles.cardCloseBtnText}>✕</Text>
+                        </Pressable>
+                        <Pressable style={styles.cardImgInner} onPress={handleBaixar}>
+                            <View style={styles.cardImgBody}>
+                                <View style={styles.cardImgTextArea}>
+                                    <Text style={styles.cardImgTitle} numberOfLines={3}>
+                                        {processText(config.name, t)}
                                     </Text>
-                                </Pressable>
-                                {config.showDontShowAgain && (
-                                    <Pressable onPress={handleNaoMostrar} hitSlop={4}>
-                                        <Text style={styles.cardDontShow}>Não mostrar</Text>
-                                    </Pressable>
-                                )}
+                                    {config.description ? (
+                                        <Text style={styles.cardImgDescription} numberOfLines={2}>
+                                            {processText(config.description, t)}
+                                        </Text>
+                                    ) : null}
+                                </View>
+                                <View style={styles.cardImgIconArea}>
+                                    <Image source={{uri: config.icon}} style={styles.cardImgIcon} resizeMode="cover" />
+                                    {config.buttonText ? (
+                                        <Text style={styles.cardImgIconLabel} numberOfLines={1}>
+                                            {processText(config.buttonText, t)}
+                                        </Text>
+                                    ) : null}
+                                </View>
+                            </View>
+                        </Pressable>
+                    </>
+                ) : (
+                    <>
+                        <LinearGradient
+                            colors={gradientColors}
+                            start={{x: 0, y: 0}}
+                            end={{x: 1, y: 1}}
+                            style={[StyleSheet.absoluteFillObject, {borderRadius: 16}]}
+                        />
+                        <View style={styles.cardInner}>
+                            <Pressable style={styles.cardCloseBtn} onPress={handleClose} hitSlop={8}>
+                                <Text style={styles.cardCloseBtnText}>✕</Text>
+                            </Pressable>
+                            <View style={styles.cardBody}>
+                                <View style={styles.cardTextArea}>
+                                    <Text style={styles.cardTitle} numberOfLines={1}>
+                                        {processText(config.name, t)}
+                                    </Text>
+                                    <Text style={styles.cardDescription} numberOfLines={2}>
+                                        {processText(config.description, t)}
+                                    </Text>
+                                    <View style={styles.cardActions}>
+                                        <Pressable
+                                            style={({pressed}) => [
+                                                styles.cardCta,
+                                                {backgroundColor: c.modalBackground},
+                                                pressed && {opacity: 0.8},
+                                            ]}
+                                            onPress={handleBaixar}>
+                                            <Text style={[styles.cardCtaText, {color: config.primaryColor}]}>
+                                                {processText(config.buttonText, t)}
+                                            </Text>
+                                        </Pressable>
+                                        {config.showDontShowAgain && (
+                                            <Pressable onPress={handleNaoMostrar} hitSlop={4}>
+                                                <Text style={styles.cardDontShow}>Não mostrar</Text>
+                                            </Pressable>
+                                        )}
+                                    </View>
+                                </View>
+                                <Image source={{uri: config.icon}} style={styles.cardIcon} resizeMode="cover" />
                             </View>
                         </View>
-                        <Image source={{uri: config.icon}} style={styles.cardIcon} resizeMode="cover" />
-                    </View>
-                </View>
+                    </>
+                )}
             </Animated.View>
         </Modal>
     );
@@ -812,11 +856,6 @@ const styles = StyleSheet.create({
         right: 16,
         borderRadius: 16,
         overflow: "hidden",
-        elevation: 10,
-        shadowColor: "#000",
-        shadowOffset: {width: 0, height: -2},
-        shadowOpacity: 0.15,
-        shadowRadius: 8,
     },
     cardInner: {
         padding: 16,
@@ -880,6 +919,52 @@ const styles = StyleSheet.create({
         width: 60,
         height: 60,
         borderRadius: 14,
+    },
+
+    // Card banner bottom — image-based (notification-like) layout
+    cardImgInner: {
+        flex: 1,
+        padding: 20,
+        justifyContent: "flex-end",
+    },
+    cardImgBody: {
+        flexDirection: "row",
+        alignItems: "flex-end",
+    },
+    cardImgTextArea: {
+        flex: 1,
+        marginRight: 16,
+    },
+    cardImgTitle: {
+        fontSize: 20,
+        fontWeight: "800",
+        color: "#1F2937",
+        lineHeight: 26,
+        marginBottom: 6,
+    },
+    cardImgDescription: {
+        fontSize: 13,
+        color: "#6B7280",
+        lineHeight: 18,
+    },
+    cardImgIconArea: {
+        alignItems: "center",
+    },
+    cardImgIcon: {
+        width: 64,
+        height: 64,
+        borderRadius: 16,
+        shadowColor: "#000",
+        shadowOffset: {width: 0, height: 2},
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+    },
+    cardImgIconLabel: {
+        fontSize: 11,
+        color: "#6B7280",
+        fontWeight: "500",
+        marginTop: 4,
+        textAlign: "center",
     },
 
     // Fullscreen styles
