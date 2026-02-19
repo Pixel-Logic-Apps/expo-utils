@@ -523,13 +523,16 @@ Adicione o objeto `promotional` no seu Firebase Remote Config:
         "storeUrl": "https://apps.apple.com/app/id123456789",
         "delayMs": 5000,
         "bannerImg": "https://exemplo.com/banner.png",
+        "bannerVideo": "https://exemplo.com/promo.mp4",
         "bannerHeight": 200,
         "showDontShowAgain": true,
         "timerSeconds": 5,
         "shadow": { "color": "#000", "offsetY": 6, "opacity": 0.2, "radius": 16, "elevation": 12 },
         "notificationTitle": "New from My App 🚀",
         "notificationBody": "Check out our latest feature!",
-        "position": "bottom"
+        "position": "bottom",
+        "targetScreens": ["/settings", "/details"],
+        "nthImpression": "1+2n"
     }
 }
 ```
@@ -551,6 +554,7 @@ Adicione o objeto `promotional` no seu Firebase Remote Config:
 | `storeUrl` | string | URL da loja para download |
 | `delayMs` | number | Delay em ms antes de mostrar (default: 5000) |
 | `bannerImg` | string | URL de imagem banner (substitui o gradiente) |
+| `bannerVideo` | string | URL de vídeo para fullscreen (requer `expo-av`). Prioridade sobre `bannerImg` |
 | `bannerHeight` | number | Altura do banner em pixels (default: 200) |
 | `showDontShowAgain` | boolean | Mostrar botão "Não mostrar novamente" |
 | `timerSeconds` | number | Segundos antes do botão X aparecer no fullscreen (default: 5) |
@@ -559,30 +563,26 @@ Adicione o objeto `promotional` no seu Firebase Remote Config:
 | `notificationBody` | string | Subtítulo do header (tipo notification). Fallback: `description` |
 | `position` | string | Posição: `"top"` ou `"bottom"` (tipo notification, default: bottom) |
 | `notificationCompact` | boolean | Se `true` (default), notification inicia compacto (só header) e expande ao clicar |
+| `targetScreens` | string[] | Rotas onde o promotional deve aparecer (ex: `["/settings", "/details"]`). Se omitido, aparece em qualquer tela |
+| `nthImpression` | string | Expressão CSS nth-child para controlar em quais visitas aparece. Ex: `"1"` (só 1x), `"2n"` (a cada 2), `"1+2n"` (visitas 1,3,5...) |
 
 ### Uso no Código
 
+Coloque `PromotionalContent` no `_layout.tsx` (root layout) e passe o pathname para `usePromotional`. O hook auto-triggera com base em `targetScreens`, `delayMs` e `nthImpression`:
+
 ```typescript
+import { usePathname } from 'expo-router';
 import PromotionalContent, { usePromotional } from 'expo-utils/utils/modal-promotional-content';
 
-function MyScreen() {
-    const { visible, show, hide } = usePromotional();
-
-    useEffect(() => {
-        // Mostra automaticamente após o delay configurado
-        // Funciona para bottom-sheet, card-banner-bottom e fullscreen
-        // Tipo "banner" é ignorado (use PromotionalBanner)
-        show();
-    }, []);
+export default function RootLayout() {
+    const pathname = usePathname();
+    const { visible, hide } = usePromotional(pathname);
 
     return (
-        <View>
-            {/* Seu conteúdo */}
-            <PromotionalContent
-                visible={visible}
-                onClose={hide}
-            />
-        </View>
+        <>
+            <Stack />
+            <PromotionalContent visible={visible} onClose={hide} />
+        </>
     );
 }
 ```
@@ -701,7 +701,9 @@ function MyScreen() {
 - Interstitial tela inteira com fade-in
 - Timer countdown visível no canto superior direito
 - Botão X aparece somente após `timerSeconds` com fade-in
-- Top 40% com gradient/banner, conteúdo centralizado abaixo
+- Sem `bannerImg`/`bannerVideo`: gradient + ícone + texto + botões
+- Com `bannerImg`: imagem full-screen, tap abre storeUrl, sem botões
+- Com `bannerVideo`: vídeo full-screen auto-play loop (requer `expo-av`), tap abre storeUrl. Se `expo-av` não instalado, fallback para `bannerImg`
 
 **banner** (PromotionalBanner):
 - View inline, não usa Modal

@@ -58,6 +58,7 @@ export type PromotionalConfig = {
     storeUrl: string;
     delayMs?: number;
     bannerImg?: string;
+    bannerVideo?: string;
     bannerHeight?: number;
     showDontShowAgain?: boolean;
     timerSeconds?: number;
@@ -66,6 +67,8 @@ export type PromotionalConfig = {
     notificationBody?: string;
     position?: "top" | "bottom";
     notificationCompact?: boolean;
+    targetScreens?: string[];
+    nthImpression?: string;
 };
 
 export interface RemoteConfigSettings {

@@ -1,4 +1,4 @@
-import {SplashScreen, Stack} from "expo-router";
+import {SplashScreen, Stack, usePathname} from "expo-router";
 import {useEffect, useState} from "react";
 import Utils from "expo-utils/utils/Utils";
 import {setupAppOpenListener} from "expo-utils/utils/appopen-ads";
@@ -19,7 +19,8 @@ SplashScreen.preventAutoHideAsync().catch(() => {});
 function RootLayout() {
     const [appIsReady, setAppIsReady] = useState(false);
     const [showReviewOverlay, setShowReviewOverlay] = useState(false);
-    const {visible: showPromo, show: showPromoModal, hide: hidePromoModal} = usePromotional();
+    const pathname = usePathname();
+    const {visible: showPromo, show: showPromoModal, hide: hidePromoModal} = usePromotional(pathname);
 
     useEffect(() => {
         global.isAdsEnabled = !__DEV__;

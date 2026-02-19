@@ -8,6 +8,26 @@ import type {PromotionalConfig, PromotionalShadow} from "./types";
 export type {PromotionalShadow};
 
 const STORAGE_KEY_NAO_MOSTRAR = "@nao_mostrar_app_promocionals";
+const STORAGE_KEY_VISIT_COUNT = "@promo_visit_count";
+
+// ─── nth-impression parser (CSS nth-child syntax) ────────────────────────────
+
+function parseNthExpression(expr: string): {a: number; b: number} {
+    const s = expr.replace(/\s/g, "").toLowerCase();
+    if (/^\d+$/.test(s)) return {a: 0, b: parseInt(s, 10)};
+    if (s === "n") return {a: 1, b: 0};
+    if (/^\d+n$/.test(s)) return {a: parseInt(s, 10), b: 0};
+    const anb = s.match(/^(\d*)n\+(\d+)$/);
+    if (anb) return {a: anb[1] ? parseInt(anb[1], 10) : 1, b: parseInt(anb[2], 10)};
+    const bna = s.match(/^(\d+)\+(\d*)n$/);
+    if (bna) return {a: bna[2] ? parseInt(bna[2], 10) : 1, b: parseInt(bna[1], 10)};
+    return {a: 1, b: 0};
+}
+
+function matchesNth(visit: number, a: number, b: number): boolean {
+    if (a === 0) return visit === b;
+    return visit >= b && (visit - b) % a === 0;
+}
 
 export type {PromotionalConfig};
 
@@ -516,12 +536,30 @@ function FullscreenContent({visible, onClose, colors: colorsProp, t, config}: Pr
 
     const gradientColors = config.gradientColors || ["#22C55E", "#16A34A"];
 
-    // Full-image mode: bannerImg covers entire screen, tap to open store
-    if (config.bannerImg) {
+    // Full-media mode: video or image covers entire screen, tap to open store
+    if (config.bannerVideo || config.bannerImg) {
+        let VideoComponent: any = null;
+        if (config.bannerVideo) {
+            try {
+                VideoComponent = require("expo-av").Video;
+            } catch {}
+        }
+
         return (
             <Modal visible={visible} animationType="fade" onRequestClose={canClose ? onClose : undefined}>
                 <Pressable style={{flex: 1}} onPress={handleBaixar}>
-                    <Image source={{uri: config.bannerImg}} style={StyleSheet.absoluteFillObject} resizeMode="cover" />
+                    {VideoComponent && config.bannerVideo ? (
+                        <VideoComponent
+                            source={{uri: config.bannerVideo}}
+                            style={StyleSheet.absoluteFillObject}
+                            resizeMode="cover"
+                            shouldPlay={visible}
+                            isLooping
+                            isMuted={false}
+                        />
+                    ) : config.bannerImg ? (
+                        <Image source={{uri: config.bannerImg}} style={StyleSheet.absoluteFillObject} resizeMode="cover" />
+                    ) : null}
                 </Pressable>
                 <View style={[styles.fullscreenTimerArea, {top: insets.top + 12}]}>
                     {!canClose ? (
@@ -601,7 +639,7 @@ function FullscreenContent({visible, onClose, colors: colorsProp, t, config}: Pr
                             style={({pressed}) => [styles.botaoSecundario, pressed && styles.botaoSecundarioPressed]}
                             onPress={handleNaoMostrar}>
                             <Text style={[styles.botaoSecundarioText, {color: c.secondaryButtonText}]}>
-                                Não mostrar novamente
+                                Fechar
                             </Text>
                         </Pressable>
                     )}
@@ -931,23 +969,59 @@ export const ModalPromotionalContent = PromotionalContent;
 
 // ─── Hooks ──────────────────────────────────────────────────────────────────
 
-export const usePromotional = () => {
+export const usePromotional = (currentScreen?: string) => {
     const [visible, setVisible] = React.useState(false);
+    const timerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const show = async () => {
         const config = getConfig();
         if (!config?.enabled) return;
-        // banner type is inline, not modal — skip
         if (config.type === "banner") return;
 
+        // targetScreens check
+        if (config.targetScreens?.length && currentScreen && !config.targetScreens.includes(currentScreen)) return;
+
+        // "Não mostrar novamente" check
         const naoMostrar = await AsyncStorage.getItem(STORAGE_KEY_NAO_MOSTRAR);
         if (naoMostrar === "true") return;
 
+        // Increment visit count (always, even if we don't show)
+        const countStr = await AsyncStorage.getItem(STORAGE_KEY_VISIT_COUNT);
+        const visit = (countStr ? parseInt(countStr, 10) : 0) + 1;
+        await AsyncStorage.setItem(STORAGE_KEY_VISIT_COUNT, String(visit));
+
+        // nthImpression check (CSS nth-child syntax: "2n", "1+2n", "3", etc.)
+        if (config.nthImpression) {
+            const {a, b} = parseNthExpression(config.nthImpression);
+            if (!matchesNth(visit, a, b)) return;
+        }
+
+        if (timerRef.current) clearTimeout(timerRef.current);
         const delay = config.delayMs ?? 5000;
-        setTimeout(() => setVisible(true), delay);
+        timerRef.current = setTimeout(() => {
+            setVisible(true);
+        }, delay);
     };
 
-    const hide = () => setVisible(false);
+    const hide = () => {
+        if (timerRef.current) clearTimeout(timerRef.current);
+        setVisible(false);
+    };
+
+    // Auto-trigger when currentScreen changes and matches targetScreens
+    React.useEffect(() => {
+        if (!currentScreen) return;
+        const config = getConfig();
+        if (!config?.enabled || config.type === "banner") return;
+        if (config.targetScreens?.length && !config.targetScreens.includes(currentScreen)) {
+            if (visible) hide();
+            return;
+        }
+        show();
+        return () => {
+            if (timerRef.current) clearTimeout(timerRef.current);
+        };
+    }, [currentScreen]);
 
     return {visible, show, hide};
 };

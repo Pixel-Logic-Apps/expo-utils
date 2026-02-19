@@ -1,5 +1,54 @@
 # Chat History - expo-utils
 
+## 2026-02-19 (cont.2) - nthImpression + targetScreen + compact + fullscreen image-only
+
+### O que foi feito
+
+#### 1. nthImpression (substitui maxImpressions)
+- **Removido**: `maxImpressions: number` do PromotionalConfig
+- **Adicionado**: `nthImpression: string` — expressão CSS nth-child para controlar em quais visitas o promotional aparece
+- Sintaxe: `"1"` (só 1x), `"2n"` (a cada 2), `"1+2n"` (visitas 1,3,5...), `"3n+2"` (visitas 2,5,8...)
+- Parser: `parseNthExpression()` extrai {a, b} da expressão
+- Matcher: `matchesNth(visit, a, b)` verifica se visit corresponde à fórmula an+b
+- Visit count é incrementado a cada visita ao targetScreen (independente de mostrar ou não)
+- Storage key: `@promo_visit_count`
+
+#### 2. bannerVideo (fullscreen vídeo)
+- **Adicionado**: `bannerVideo?: string` ao PromotionalConfig
+- Quando definido no tipo fullscreen, renderiza vídeo full-screen com auto-play e loop
+- Usa `expo-av` via require dinâmico com try-catch (fallback para bannerImg se não instalado)
+- Prioridade: bannerVideo > bannerImg > layout gradient padrão
+- Vídeo é tappable (abre storeUrl), timer + botão X como no modo imagem
+
+#### 3. targetScreens (array)
+- **Adicionado**: `targetScreens?: string[]` ao PromotionalConfig
+- Hook `usePromotional(currentScreen?)` aceita pathname do expo-router
+- useEffect auto-triggera quando `currentScreen` muda e está incluído em `targetScreens`
+- Se targetScreens não definido ou vazio, aparece em qualquer tela
+- Usa `.includes()` para verificar se a tela atual está na lista
+
+#### 3. Fullscreen image-only mode
+- Quando fullscreen tem `bannerImg`, renderiza imagem full-screen sem botões/texto
+- Só timer + botão fechar aparecem
+- Tap na imagem abre storeUrl
+
+#### 4. Notification compact mode
+- `notificationCompact: true` (default) — inicia com só header visível
+- Tap no header expande body com spring animation (Animated.Value 0→1)
+- `useNativeDriver: false` necessário para animação de height
+
+### Arquivos modificados
+- `utils/modal-promotional-content.tsx` — parseNthExpression, matchesNth, STORAGE_KEY_VISIT_COUNT, rewrite do usePromotional hook
+- `utils/types.ts` — removido `maxImpressions`, adicionado `nthImpression`, `targetScreens: string[]`, `bannerVideo`
+- `templates/RootLayout.tsx` — usa usePathname() + usePromotional(pathname)
+- `README.md` — documentação de targetScreen, nthImpression, uso com pathname
+
+### Testado no simulador
+- nthImpression "1+2n": Visita 1 ✓ (mostrou), Visita 2 ✓ (não mostrou), Visita 3 ✓ (mostrou)
+- targetScreens ["/settings", "/details"]: aparece em Settings e Details, não em Home
+
+---
+
 ## 2026-02-19 (cont.) - Notification Card + Banner Enhancements
 
 ### O que foi feito
