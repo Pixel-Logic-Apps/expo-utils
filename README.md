@@ -81,6 +81,35 @@ Após criar seu projeto no Firebase Console, vá em **Remote Config** e adicione
   "onboarding": {
     "enabled": true,
     "steps": 3
+  },
+  "paywall": {
+    "selected_product": "com.appid.eyeidentifier.weekly",
+    "close_button_delay": 15000,
+    "disclaimer_text": "",
+    "primary_button_text": "➡️ %{start_free_trial}",
+    "list_of_products": [
+      {
+        "id": "com.appid.eyeidentifier.weekly",
+        "price_string": "${priceString}",
+        "period_string": "%{string_week}",
+        "price_info": "${priceString}/Week",
+        "discount_info": "",
+        "discount_percentage": "",
+        "most_popular": false
+      },
+      {
+        "id": "com.appid.eyeidentifier.annual",
+        "price_string": "${priceString}",
+        "period_string": "%{string_year}",
+        "price_info": "",
+        "discount_info": "79% OFF",
+        "discount_percentage": "",
+        "most_popular": true
+      }
+    ],
+    "extras": {
+      "show_arrow": false
+    }
   }
 }
 ```
