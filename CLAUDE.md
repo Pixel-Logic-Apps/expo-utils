@@ -46,7 +46,6 @@ The detected PM controls both the install command (`bun add`, `yarn add`, etc.) 
     - `--eas-config`: Setup EAS Build and Updates configuration
     - `--tracking-permission`: Add iOS tracking transparency permission
     - `--fix-ios-build`: Apply iOS build fixes (expo-build-properties, static frameworks)
-    - `--eas-login-script`: Create eas_login.sh script
     - `--gitignore`: Update .gitignore with ios/, android/, etc.
     - `--hot-updater`: Setup Hot Updater (babel.config.js, .env files, dependencies)
 

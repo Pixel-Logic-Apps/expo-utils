@@ -1113,7 +1113,6 @@ declare global {
 - `index.tsx` - Tela inicial básica
 - `google-services.json` - Placeholder Firebase Android
 - `GoogleService-Info.plist` - Placeholder Firebase iOS
-- `eas_login.sh` - Script de login EAS
 
 ### Configurações Automáticas
 

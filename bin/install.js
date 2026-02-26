@@ -575,27 +575,6 @@ function handleIosBuildFixFlag() {
     console.log(chalk.green("✅ iOS build configurations applied."));
 }
 
-function handleEasLoginScriptFlag() {
-    console.log(chalk.cyan("📜 Creating EAS login script..."));
-    const templatePath = path.join(moduleDir, "templates", "eas_login.sh");
-    const destPath = path.join(projectRoot, "eas_login.sh");
-
-    if (!fs.existsSync(templatePath)) {
-        console.error(chalk.red("❌ eas_login.sh template not found in expo-utils module."));
-        return;
-    }
-
-    if (!fs.existsSync(destPath)) {
-        fs.copyFileSync(templatePath, destPath);
-        // Make the script executable
-        fs.chmodSync(destPath, "755");
-        console.log(chalk.green(`  -> Created eas_login.sh and made it executable.`));
-    } else {
-        console.log(chalk.yellow(`  -> File eas_login.sh already exists. Skipping.`));
-    }
-    console.log(chalk.green("✅ EAS login script setup complete."));
-}
-
 function handleTrackingPermissionFlag() {
     console.log(chalk.cyan("🔒 Configuring Tracking Transparency permission..."));
     const config = getAppConfig();
@@ -739,8 +718,7 @@ function handleEasConfigFlag() {
 .easignore
 .gitignore
 .DS_Store
-package-lock.json
-eas_login.sh`;
+package-lock.json`;
 
     if (!fs.existsSync(easIgnorePath)) {
         fs.writeFileSync(easIgnorePath, easIgnoreContent);
@@ -1044,7 +1022,6 @@ async function main() {
         handleConfigFlag();
         handleLanguagesFlag();
         handleSkadnetworkFlag();
-        handleEasLoginScriptFlag();
         handleTrackingPermissionFlag();
         handleGitignoreFlag(); // Nova chamada para atualizar .gitignore
         handleHotUpdaterFlag(); // Setup hot-updater
@@ -1084,7 +1061,6 @@ async function main() {
         if (args.includes("--skadnetwork")) handleSkadnetworkFlag();
         if (args.includes("--firebase-placeholders")) handleFirebasePlaceholdersFlag();
         if (args.includes("--fix-ios-build")) handleIosBuildFixFlag();
-        if (args.includes("--eas-login-script")) handleEasLoginScriptFlag();
         if (args.includes("--tracking-permission")) handleTrackingPermissionFlag();
         if (args.includes("--eas-config")) handleEasConfigFlag();
         if (args.includes("--constants")) handleConstantsFlag();
