@@ -1,5 +1,48 @@
 # Chat History - expo-utils
 
+## 2026-02-26 - Suporte a Bun no CLI + Teste E2E
+
+### Tarefa: Adicionar detecção automática de package manager (bun como default)
+
+**Pedido:** O CLI `expo-utils-install` não detectava bun como package manager. Quando rodado com bun, caía no fallback `npm install`. O `handleHotUpdaterFlag()` também tinha "npm install" hardcoded.
+
+**Ações realizadas:**
+
+#### 1. Criada função `detectPackageManager()` em `bin/install.js`
+- Prioridade: lockfile > user agent > default **bun**
+- Lockfiles: yarn.lock → pnpm-lock.yaml → package-lock.json → bun.lockb/bun.lock
+- User agent: yarn → pnpm → bun → npm
+- Default: bun
+
+#### 2. Atualizada `handleDependencyInstall()`
+- Substituída lógica inline de detecção de PM pela função helper
+- Mapeamento de comandos: `addCmd` (bun add, npm install, yarn add, pnpm add)
+- Mapeamento de runners: `execCmd` (bunx, npx -y)
+- Log do PM detectado: `📦 Package manager: bun`
+
+#### 3. Atualizada `handleHotUpdaterFlag()`
+- Substituída mensagem hardcoded "npm install" por comando dinâmico
+- `installCmd` map: bun install, npm install, yarn, pnpm install
+
+#### 4. Documentação atualizada
+- **README.md**: Instalação rápida agora usa bun como default, nota sobre outros PMs
+- **CLAUDE.md**: Nova seção "Package Manager Support", testing strategy com bun
+
+### Teste E2E
+1. Deletado `/Users/plapps/Documents/projetos/expo-utils-test`
+2. Criado novo projeto: `bunx create-expo-app@latest expo-utils-test`
+3. Instalado expo-utils local: `bun add ../expo-utils`
+4. Executado `bunx expo-utils-install --new` — todas as 33 deps instaladas via `bunx expo install`
+5. Output confirmou: `📦 Package manager: bun` e `📝 Then run: bun install`
+6. Build iOS: `npx expo run:ios` — em execução
+
+**Arquivos modificados:**
+- `bin/install.js` — detectPackageManager(), handleDependencyInstall(), handleHotUpdaterFlag()
+- `CLAUDE.md` — seção Package Manager Support, testing strategy atualizada
+- `README.md` — instalação rápida com bun, nota sobre outros PMs
+
+---
+
 ## 2026-02-19 (cont.4) - Renomeações, FCM Language Topics, Deploy npm 1.0.22
 
 ### O que foi feito
@@ -965,5 +1008,39 @@ CLI tool e biblioteca de utilitarios que automatiza 90% da configuracao inicial 
 
 ### Problemas Conhecidos
 - Nenhum problema pendente identificado
+
+---
+
+## 2026-02-19 (cont.5) - Fix AskForReview ms delay + Deploy npm 1.0.24
+
+### Tarefa: Fix delay do AskForReview de segundos para milissegundos
+
+**Pedido:** Testar fix do delay do AskForReview no expo-utils-test e depois commit + deploy
+
+**Contexto:** O `review_type_delay` é definido em milissegundos (3000 = 3s), mas o componente AskForReviewOverlay tratava o valor como segundos diretamente, causando "Agora Não (2979s)" ao invés de "Agora Não (3s)".
+
+**Ações realizadas:**
+- Copiou `ask-for-review.tsx` atualizado para `expo-utils-test/node_modules/expo-utils/utils/`
+- Testou no simulador iOS (iPhone 16e - iOS 26.2): overlay mostrou "Agora Não" corretamente (3s countdown)
+- Commit: `195c84a` - fix: convert review_type_delay from milliseconds to seconds in AskForReview overlay
+- Bump versão: 1.0.24
+- Publicou no npm: `expo-utils@1.0.24`
+- Push GitHub + tags
+
+**Arquivos modificados:**
+- `utils/ask-for-review.tsx` — Adicionou `Math.ceil(delay / 1000)` para converter ms→s
+- `README.md` — Documentou `review_type_delay` como milissegundos
+
+**Fix técnico:**
+```typescript
+// Antes (bug): 3000ms tratado como 3000 segundos
+setRemainingTime(delay);
+
+// Depois (fix): 3000ms → 3 segundos
+const delaySec = Math.ceil(delay / 1000);
+setRemainingTime(delaySec);
+```
+
+**Resultado:** Sucesso — v1.0.24 publicada no npm
 
 ---

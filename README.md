@@ -21,15 +21,23 @@
 
 ```bash
 # 1. Criar projeto Expo
-npx create-expo-app@latest MeuApp
+bunx create-expo-app@latest MeuApp
 cd MeuApp
 
 # 2. Instalar expo-utils
-npm install github:Pixel-Logic-Apps/expo-utils
+bun add github:Pixel-Logic-Apps/expo-utils
 
 # 3. Configurar tudo automaticamente
-npx expo-utils-install --new
+bunx expo-utils-install --new
 ```
+
+> **Outros package managers**: O CLI detecta automaticamente o package manager do projeto via lockfile (bun.lock, yarn.lock, pnpm-lock.yaml, package-lock.json). Se nenhum lockfile for encontrado, o default é **bun**. Exemplo com npm:
+>
+> ```bash
+> npx create-expo-app@latest MeuApp && cd MeuApp
+> npm install github:Pixel-Logic-Apps/expo-utils
+> npx expo-utils-install --new
+> ```
 
 ### Configurar Firebase Remote Config
 

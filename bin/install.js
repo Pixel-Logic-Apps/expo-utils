@@ -55,6 +55,30 @@ function hasPackage(pkgSubPath) {
     }
 }
 
+/**
+ * Detects the package manager used in the project.
+ * Priority: lockfile > user agent > default (bun).
+ * @returns {"bun"|"npm"|"yarn"|"pnpm"}
+ */
+function detectPackageManager() {
+    // 1. Check lockfiles in project root (most reliable)
+    if (fs.existsSync(path.join(projectRoot, "yarn.lock"))) return "yarn";
+    if (fs.existsSync(path.join(projectRoot, "pnpm-lock.yaml"))) return "pnpm";
+    if (fs.existsSync(path.join(projectRoot, "package-lock.json"))) return "npm";
+    if (fs.existsSync(path.join(projectRoot, "bun.lockb")) ||
+        fs.existsSync(path.join(projectRoot, "bun.lock"))) return "bun";
+
+    // 2. Fallback to user agent
+    const ua = process.env.npm_config_user_agent || "";
+    if (ua.includes("yarn")) return "yarn";
+    if (ua.includes("pnpm")) return "pnpm";
+    if (ua.includes("bun")) return "bun";
+    if (ua.includes("npm")) return "npm";
+
+    // 3. Default: bun
+    return "bun";
+}
+
 // --- Scaffolding Functions ---
 
 async function handleDependencyInstall() {
@@ -70,8 +94,10 @@ async function handleDependencyInstall() {
         return;
     }
 
-    const ua = process.env.npm_config_user_agent || "";
+    const pm = detectPackageManager();
     const hasExpo = hasPackage("expo/package.json");
+
+    console.log(chalk.blue(`📦 Package manager: ${pm}`));
 
     // Prefer expo install when Expo is present to ensure compatible versions
     const depsToInstall = missingDeps
@@ -94,13 +120,12 @@ async function handleDependencyInstall() {
 
     console.log(chalk.yellow(`📦 Installing ${missingDeps.length} missing dependenc(ies): ${missingDeps.join(", ")}`));
 
+    const addCmd = { bun: "bun add", npm: "npm install", yarn: "yarn add", pnpm: "pnpm add" };
+    const execCmd = { bun: "bunx", npm: "npx -y", yarn: "npx -y", pnpm: "npx -y" };
+
     const base = hasExpo
-        ? `npx -y expo install`
-        : ua.includes("yarn")
-          ? "yarn add"
-          : ua.includes("pnpm")
-            ? "pnpm add"
-            : "npm install";
+        ? `${execCmd[pm]} expo install`
+        : addCmd[pm];
 
     const command = `${base} ${depsToInstall}`;
 
@@ -905,7 +930,9 @@ function handleHotUpdaterFlag() {
 
     console.log(chalk.green("✅ Hot Updater setup complete."));
     console.log(chalk.cyan("   📝 Remember to fill in your Cloudflare credentials in .env and .env.hotupdater"));
-    console.log(chalk.cyan("   📝 Then run: npm install"));
+    const hotUpdaterPm = detectPackageManager();
+    const installCmd = { bun: "bun install", npm: "npm install", yarn: "yarn", pnpm: "pnpm install" };
+    console.log(chalk.cyan(`   📝 Then run: ${installCmd[hotUpdaterPm]}`));
 }
 
 async function handleAppReset() {

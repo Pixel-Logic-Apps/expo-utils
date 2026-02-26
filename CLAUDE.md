@@ -13,13 +13,23 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is a **library package** that gets installed into user projects, not a standalone application.
 
+## Package Manager Support
+
+The CLI auto-detects the package manager via `detectPackageManager()` in `bin/install.js`. Detection priority:
+
+1. **Lockfile** (most reliable): yarn.lock → pnpm-lock.yaml → package-lock.json → bun.lockb/bun.lock
+2. **User agent** (`npm_config_user_agent`): yarn → pnpm → bun → npm
+3. **Default**: **bun**
+
+The detected PM controls both the install command (`bun add`, `yarn add`, etc.) and the exec runner (`bunx`, `npx -y`, etc.) used for `expo install`.
+
 ## Development Commands
 
 ### Building/Testing
 
 - This project has **no build step** - it's distributed as plain TypeScript/JavaScript
 - TypeScript is only used for type checking in development
-- To test locally, install it in a test Expo project: `npm install /path/to/expo-utils`
+- To test locally, install it in a test Expo project: `bun add /path/to/expo-utils`
 
 ### Running the CLI
 
@@ -186,8 +196,8 @@ The CLI creates `languages/` folder with JSON files per locale that override app
 
 Since this is a library:
 
-1. Create a test Expo project: `npx create-expo-app test-project`
-2. Install expo-utils locally: `cd test-project && npm install /path/to/expo-utils`
-3. Run CLI: `npx expo-utils-install --new`
+1. Create a test Expo project: `bunx create-expo-app test-project`
+2. Install expo-utils locally: `cd test-project && bun add /path/to/expo-utils`
+3. Run CLI: `bunx expo-utils-install --new`
 4. Test the generated structure, imports, and runtime behavior
 5. Verify that ads, Firebase, and other integrations work correctly
