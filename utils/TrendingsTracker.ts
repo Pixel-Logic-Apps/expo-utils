@@ -94,7 +94,6 @@ class TrendingsTrackerClass {
    */
   init(config: TrendingsConfig): void {
     if (!config.apiUrl) {
-      console.error('[TrendingsTracker] apiUrl é obrigatório');
       return;
     }
 

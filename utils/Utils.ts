@@ -353,16 +353,17 @@ const Utils = {
     },
 
     initLinkInBioTracking: async (remoteConfig: RemoteConfigUtilsType, appConfig: AppConfig) => {
+        const apiUrl = remoteConfig?.trends_tracking_url;
+        if (!apiUrl) return;
         const {ios, android} = appConfig?.expo ?? {};
         const appId = Platform.OS === "ios" ? ios?.bundleIdentifier : android?.package;
-        const apiUrl = remoteConfig?.trends_tracking_url ?? "https://trendings.app/api";
-        (async () => {
+        try {
             TrendingsTracker.init({apiUrl, appId});
             if ((await AsyncStorage.getItem("tr_is_first_launch_tracking")) != "true") {
                 await AsyncStorage.setItem("tr_is_first_launch_tracking", "true");
                 TrendingsTracker.trackInstall();
             }
-        })();
+        } catch {}
     },
 
     initTikTokSDK: async (remoteConfigs: RemoteConfigUtilsType, rckey?: string) => {
