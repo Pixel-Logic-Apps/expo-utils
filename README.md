@@ -13,7 +13,7 @@
 ✅ **Tela de Avaliação**: Abertura automática da loja para reviews (iOS/Android)  
 ✅ **Estrutura do Projeto**: Templates pré-configurados com melhores práticas  
 ✅ **TypeScript Completo**: Tipagem completa e interfaces bem definidas  
-✅ **Compatibilidade Moderna**: Firebase v22+ com API modular
+✅ **Compatibilidade Moderna**: Expo SDK 55, Firebase v23+, React Native 0.83+
 
 ## 📦 Instalação Rápida
 
@@ -900,7 +900,7 @@ Configuração na key `utils` do Firebase Remote Config:
 
 ### Dependências Principais Incluídas
 
-**🔥 Firebase (v22+ API Modular)**
+**🔥 Firebase (v23+ API Modular)**
 
 - `@react-native-firebase/app` - Core Firebase
 - `@react-native-firebase/analytics` - Analytics e eventos
@@ -1180,9 +1180,9 @@ Se você chamar múltiplas permissões em sequência rápida, o diálogo ATT pod
 
 O Facebook SDK **DEVE** ser inicializado antes do RevenueCat para que `getAnonymousID()` funcione corretamente. O expo-utils já gerencia essa ordem automaticamente.
 
-## 🔄 Compatibilidade Firebase v22+
+## 🔄 Compatibilidade Firebase v23+
 
-Totalmente compatível com a **API modular** do React Native Firebase v22+:
+Totalmente compatível com a **API modular** do React Native Firebase v23+:
 
 ✅ Não usa métodos deprecated  
 ✅ Imports modulares otimizados  

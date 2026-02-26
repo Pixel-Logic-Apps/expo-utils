@@ -85,7 +85,8 @@ async function handleDependencyInstall() {
     console.log(chalk.cyan("🚀 Checking for missing peer dependencies..."));
     const modulePkg = require(path.join(moduleDir, "package.json"));
     const peerDependencies = modulePkg.peerDependencies || {};
-    const projectPkg = require(path.join(projectRoot, "package.json"));
+    const projectPkgPath = path.join(projectRoot, "package.json");
+    const projectPkg = JSON.parse(fs.readFileSync(projectPkgPath, "utf-8"));
     const existingDeps = {...projectPkg.dependencies, ...projectPkg.devDependencies};
     const missingDeps = Object.keys(peerDependencies).filter((dep) => !existingDeps[dep]);
 
@@ -98,39 +99,53 @@ async function handleDependencyInstall() {
     const hasExpo = hasPackage("expo/package.json");
 
     console.log(chalk.blue(`📦 Package manager: ${pm}`));
-
-    // Prefer expo install when Expo is present to ensure compatible versions
-    const depsToInstall = missingDeps
-        .map((dep) => {
-            const isExpoManaged =
-                dep === "expo" ||
-                dep === "react" ||
-                dep === "react-native" ||
-                dep.startsWith("expo-") ||
-                dep.startsWith("@expo/");
-            if (hasExpo && isExpoManaged) {
-                return dep;
-            } else {
-                // Escapar versões que contém >= para evitar interpretação do shell como redirecionamento
-                const version = peerDependencies[dep];
-                return `"${dep}@${version}"`;
-            }
-        })
-        .join(" ");
-
     console.log(chalk.yellow(`📦 Installing ${missingDeps.length} missing dependenc(ies): ${missingDeps.join(", ")}`));
 
-    const addCmd = { bun: "bun add", npm: "npm install", yarn: "yarn add", pnpm: "pnpm add" };
-    const execCmd = { bun: "bunx", npm: "npx -y", yarn: "npx -y", pnpm: "npx -y" };
+    // Step 1: Write all missing deps to package.json first.
+    // This prevents expo install / bun from skipping packages that are
+    // already in node_modules (e.g. hoisted from a local symlinked package).
+    // Without explicit entries in package.json, Expo autolinking won't
+    // detect native modules and pod install will miss them.
+    projectPkg.dependencies = projectPkg.dependencies || {};
+    for (const dep of missingDeps) {
+        projectPkg.dependencies[dep] = peerDependencies[dep];
+    }
+    fs.writeFileSync(projectPkgPath, JSON.stringify(projectPkg, null, 2));
+    console.log(chalk.green(`  -> Added ${missingDeps.length} dependencies to package.json`));
 
-    const base = hasExpo
-        ? `${execCmd[pm]} expo install`
-        : addCmd[pm];
+    // Step 2: For expo-managed deps, run expo install (names only) to
+    // resolve SDK-compatible versions and update package.json entries.
+    if (hasExpo) {
+        const expoManagedDeps = missingDeps.filter((dep) =>
+            dep === "expo" ||
+            dep === "react" ||
+            dep === "react-native" ||
+            dep.startsWith("expo-") ||
+            dep.startsWith("@expo/")
+        );
 
-    const command = `${base} ${depsToInstall}`;
+        if (expoManagedDeps.length > 0) {
+            const execCmd = { bun: "bunx", npm: "npx -y", yarn: "npx -y", pnpm: "npx -y" };
+            const expoCmd = `${execCmd[pm]} expo install ${expoManagedDeps.join(" ")}`;
+            console.log(chalk.blue(`  -> Resolving Expo-compatible versions for ${expoManagedDeps.length} package(s)...`));
+            await new Promise((resolve, reject) => {
+                exec(expoCmd, { maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
+                    if (error) {
+                        console.warn(chalk.yellow(`  -> Warning: expo install failed, using peer dep versions. ${stderr || error.message}`));
+                    }
+                    resolve();
+                });
+            });
+        }
+    }
+
+    // Step 3: Run the package manager install to fetch everything.
+    const installCmd = { bun: "bun install", npm: "npm install", yarn: "yarn", pnpm: "pnpm install" };
+    const finalCmd = installCmd[pm];
+    console.log(chalk.blue(`  -> Running ${finalCmd}...`));
 
     return new Promise((resolve, reject) => {
-        exec(command, (error, stdout, stderr) => {
+        exec(finalCmd, { maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
             if (error) {
                 console.error(
                     chalk.red("\n❌ An error occurred during installation."),
@@ -752,6 +767,17 @@ function handleConstantsFlag() {
     }
     ensureDirExists(constantsPath);
     console.log(chalk.green(`  -> Created constants directory at: ${path.relative(projectRoot, constantsPath)}`));
+
+    // Copy Strings.ts template
+    const stringsTemplatePath = path.join(moduleDir, "templates", "Strings.ts");
+    const stringsDestPath = path.join(constantsPath, "Strings.ts");
+    if (fs.existsSync(stringsTemplatePath) && !fs.existsSync(stringsDestPath)) {
+        fs.copyFileSync(stringsTemplatePath, stringsDestPath);
+        console.log(chalk.green(`  -> Created ${path.relative(projectRoot, stringsDestPath)} from template.`));
+    } else if (fs.existsSync(stringsDestPath)) {
+        console.log(chalk.yellow(`  -> Strings.ts already exists, skipping.`));
+    }
+
     console.log(chalk.green("✅ Constants setup complete."));
 }
 

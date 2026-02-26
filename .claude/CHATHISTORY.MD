@@ -1,5 +1,53 @@
 # Chat History - expo-utils
 
+## 2026-02-26 - Fix: deps não adicionadas ao package.json (build iOS falhava)
+
+### Tarefa: Corrigir handleDependencyInstall() - pacotes não escritos no package.json
+
+**Pedido:** Usuário reportou BUILD FAILED ao rodar `npx expo run:ios` no projeto de teste. Erro: `error: no such module 'FirebaseCore'` no AppDelegate.swift.
+
+**Diagnóstico:**
+- `bunx expo install` completava sem erro mas NÃO adicionava nenhum dos 33 pacotes ao `package.json`
+- Os pacotes existiam em `node_modules` (hoisted do symlink local `bun add ../expo-utils`)
+- `expo install` via bun detectava os pacotes já em `node_modules` e pulava silenciosamente
+- Sem entradas no `package.json`, Expo autolinking não detectava módulos nativos
+- `pod install` não incluía Firebase → `import FirebaseCore` falhava no Swift
+
+**Ações realizadas:**
+
+#### 1. Reescrita de `handleDependencyInstall()` em `bin/install.js`
+Abordagem em 3 steps:
+- **Step 1**: Escreve TODAS as deps direto no `package.json` antes de qualquer install (garante autolinking)
+- **Step 2**: Roda `bunx expo install` apenas para os 15 pacotes expo-managed (ajusta versões SDK-compatíveis)
+- **Step 3**: Roda `bun install` para instalar tudo
+- Adicionado `maxBuffer: 10 * 1024 * 1024` nos `exec()` para evitar overflow em outputs grandes
+
+#### 2. Teste E2E completo
+1. `rm -rf expo-utils-test && bunx create-expo-app expo-utils-test`
+2. `bun add ../expo-utils`
+3. `bunx expo-utils-install --new` — 33 deps adicionadas ao package.json ✅
+4. `npx expo run:ios` — **Build Succeeded** ✅
+5. Firebase pods compilados: RNFBApp, RNFBAuth, RNFBCrashlytics, RNFBAnalytics, RNFBFirestore, RNFBMessaging, RNFBRemoteConfig
+6. App instalado e aberto no simulador iPhone 16e
+
+**Justificativa:** O `expo install` via bun tem comportamento diferente quando pacotes já existem em node_modules (hoisted de symlinks locais). A solução garante que o package.json é SEMPRE atualizado primeiro, independente do estado de node_modules.
+
+**Arquivos modificados:**
+- `bin/install.js` — `handleDependencyInstall()` reescrita (3-step approach)
+
+**Erros (do usuário):**
+```
+/Users/plapps/Documents/projetos/expo-utils-test/ios/expoutilstest/AppDelegate.swift:2:8: error: no such module 'FirebaseCore'
+import FirebaseCore
+
+SwiftEmitModule normal x86_64 Emitting module for expoutilstest (in target 'expoutilstest' from project 'expoutilstest')
+** BUILD FAILED **
+```
+
+**Resultado:** Sucesso ✅
+
+---
+
 ## 2026-02-26 - Suporte a Bun no CLI + Teste E2E
 
 ### Tarefa: Adicionar detecção automática de package manager (bun como default)

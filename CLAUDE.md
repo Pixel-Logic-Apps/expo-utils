@@ -167,7 +167,7 @@ Templates in `/templates` can use placeholders:
 ### Firebase Integration
 
 - Firebase is **optional** - all Firebase code has null checks
-- The package uses Firebase v22+ modular API (getRemoteConfig, getAnalytics, etc.)
+- The package uses Firebase v23+ modular API (getRemoteConfig, getAnalytics, etc.)
 - Placeholder files work for development but must be replaced with real configs for production
 
 ### Premium User Detection
