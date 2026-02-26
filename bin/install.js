@@ -733,7 +733,8 @@ function handleEasConfigFlag() {
 .easignore
 .gitignore
 .DS_Store
-package-lock.json`;
+package-lock.json
+bun.lock`;
 
     if (!fs.existsSync(easIgnorePath)) {
         fs.writeFileSync(easIgnorePath, easIgnoreContent);
@@ -795,7 +796,7 @@ function handleGitignoreFlag() {
     if (fs.existsSync(gitignorePath)) {
         content = fs.readFileSync(gitignorePath, "utf8");
     }
-    const linesToAdd = ["ios/", "android/", "package-lock.json", ".idea/", ".vscode/", "app-example"];
+    const linesToAdd = ["ios/", "android/", "package-lock.json", "bun.lock", ".idea/", ".vscode/", "app-example"];
     linesToAdd.forEach((line) => {
         if (!content.includes(line)) {
             content += `\n${line}`;
