@@ -1092,3 +1092,28 @@ setRemainingTime(delaySec);
 **Resultado:** Sucesso — v1.0.24 publicada no npm
 
 ---
+
+## 2026-02-26 - Chore: Remover eas_login.sh obsoleto
+
+### Tarefa: Deletar eas_login.sh e todas as referências
+
+**Pedido:** Usuário pediu para apagar o `eas_login.sh` pois é obsoleto.
+
+**Ações realizadas:**
+- Deletado `templates/eas_login.sh` (continha credenciais hardcoded)
+- Removida função `handleEasLoginScriptFlag()` de `bin/install.js`
+- Removida chamada no fluxo `--new` (linha 1047)
+- Removido handler `--eas-login-script` dos flags individuais (linha 1087)
+- Removido `eas_login.sh` do conteúdo do `.easignore` gerado
+- Removida referência no `README.md` (seção Templates Prontos)
+- Removida referência no `CLAUDE.md` (seção CLI flags)
+
+**Arquivos modificados:**
+- `templates/eas_login.sh` (deletado)
+- `bin/install.js`
+- `README.md`
+- `CLAUDE.md`
+
+**Resultado:** Sucesso — commit `bef89c0` pushed to main
+
+---

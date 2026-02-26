@@ -28,7 +28,8 @@
     "app.plugin.js",
     "index.ts",
     "index.d.ts",
-    "README.md"
+    "README.md",
+    "CLAUDE.md"
   ],
   "type": "commonjs",
   "types": "./index.d.ts",

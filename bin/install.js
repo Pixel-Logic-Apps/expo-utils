@@ -664,13 +664,28 @@ function handleEasConfigFlag() {
         console.log(chalk.green(`  -> Set placeholder "extra.eas.projectId".`));
     }
 
-    newExpo.updates = newExpo.updates || {};
-    if (newExpo.updates.url !== `https://u.expo.dev/${projectId}`) {
-        newExpo.updates.url = `https://u.expo.dev/${projectId}`;
-        console.log(chalk.green(`  -> Set placeholder "updates.url".`));
+    if (newExpo.updates) {
+        delete newExpo.updates;
+        console.log(chalk.green(`  -> Removed "updates" block (not needed with Hot Updater).`));
+    }
+
+    if (!newExpo.experiments?.buildCacheProvider) {
+        newExpo.experiments = newExpo.experiments || {};
+        newExpo.experiments.buildCacheProvider = "eas";
+        console.log(chalk.green(`  -> Set "experiments.buildCacheProvider" to "eas".`));
     }
 
     config.expo = newExpo;
+
+    // Add eas-build-cache-provider to devDependencies
+    const projectPkgPath = path.join(projectRoot, "package.json");
+    const projectPkg = JSON.parse(fs.readFileSync(projectPkgPath, "utf-8"));
+    projectPkg.devDependencies = projectPkg.devDependencies || {};
+    if (!projectPkg.devDependencies["eas-build-cache-provider"]) {
+        projectPkg.devDependencies["eas-build-cache-provider"] = ">=1.0.0";
+        fs.writeFileSync(projectPkgPath, JSON.stringify(projectPkg, null, 2));
+        console.log(chalk.green(`  -> Added "eas-build-cache-provider" to devDependencies.`));
+    }
     writeAppConfig(config);
 
     // --- Create eas.json ---
@@ -757,6 +772,20 @@ function handleConstantsFlag() {
     }
 
     console.log(chalk.green("✅ Constants setup complete."));
+}
+
+function handleClaudeMdFlag() {
+    const srcPath = path.join(moduleDir, "CLAUDE.md");
+    const destPath = path.join(projectRoot, "CLAUDE.md");
+
+    if (!fs.existsSync(srcPath)) return;
+
+    if (!fs.existsSync(destPath)) {
+        fs.copyFileSync(srcPath, destPath);
+        console.log(chalk.green("📄 Created CLAUDE.md in project root."));
+    } else {
+        console.log(chalk.yellow("📄 CLAUDE.md already exists. Skipping."));
+    }
 }
 
 function handleGitignoreFlag() {
@@ -1025,6 +1054,7 @@ async function main() {
         handleTrackingPermissionFlag();
         handleGitignoreFlag(); // Nova chamada para atualizar .gitignore
         handleHotUpdaterFlag(); // Setup hot-updater
+        handleClaudeMdFlag();
 
         const rl = readline.createInterface({input: process.stdin, output: process.stdout});
 
