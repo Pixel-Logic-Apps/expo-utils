@@ -20,8 +20,8 @@
 ### Novo Projeto (Recomendado)
 
 ```bash
-# 1. Criar projeto Expo
-bunx create-expo-app@latest MeuApp
+# 1. Criar projeto Expo (SDK 55)
+bunx create-expo-app@latest MeuApp --template default@sdk-55
 cd MeuApp
 
 # 2. Instalar expo-utils
@@ -34,7 +34,7 @@ bunx expo-utils-install --new
 > **Outros package managers**: O CLI detecta automaticamente o package manager do projeto via lockfile (bun.lock, yarn.lock, pnpm-lock.yaml, package-lock.json). Se nenhum lockfile for encontrado, o default é **bun**. Exemplo com npm:
 >
 > ```bash
-> npx create-expo-app@latest MeuApp && cd MeuApp
+> npx create-expo-app@latest MeuApp --template default@sdk-55 && cd MeuApp
 > npm install github:Pixel-Logic-Apps/expo-utils
 > npx expo-utils-install --new
 > ```
@@ -168,9 +168,12 @@ npx expo-utils-install --new
 | `--srcapp`                | Move pasta app para src/app                     |
 | `--languages`             | Cria pasta languages com traduções              |
 | `--skadnetwork`           | Adiciona SKAdNetworkItems para iOS              |
-| `--constants`             | Cria pasta constants                            |
-| `--eas-config`            | Configura eas.json básico                       |
+| `--constants`             | Cria pasta constants com Strings.ts template    |
+| `--eas-config`            | Configura eas.json, EAS build cache, remove updates block |
 | `--tracking-permission`   | Adiciona permissão de rastreamento iOS          |
+| `--fix-ios-build`         | Aplica fixes de build iOS (static frameworks)   |
+| `--gitignore`             | Atualiza .gitignore com ios/, android/, bun.lock |
+| `--hot-updater`           | Configura Hot Updater (babel, .env, deps)       |
 
 ## 📱 Configuração do Projeto
 
@@ -1111,15 +1114,24 @@ declare global {
 
 - `_layout.tsx` - Layout principal com inicialização completa
 - `index.tsx` - Tela inicial básica
+- `Strings.ts` - Template de constantes do app (copiado para src/constants/)
+- `CLAUDE.md` - Instruções para Claude Code (copiado para raiz do projeto)
 - `google-services.json` - Placeholder Firebase Android
 - `GoogleService-Info.plist` - Placeholder Firebase iOS
+- `babel.config.js` - Config com Hot Updater plugin
 
 ### Configurações Automáticas
 
 - `eas.json` - Configuração básica EAS Build
 - `app.json` - Plugins pré-configurados
+- `experiments.buildCacheProvider` - EAS Build cache
+- `eas-build-cache-provider` - Adicionado às devDependencies
+- `.easignore` - Ignora ios/, android/, bun.lock, etc.
+- `.gitignore` - Atualizado com ios/, android/, bun.lock
 - SKAdNetwork IDs - Lista completa para iOS
 - Permissões - Rastreamento e notificações
+- Hot Updater - babel.config.js, .env, .env.hotupdater
+- Remove bloco `updates` do app.json (não necessário com Hot Updater)
 
 ### Utilitários de Desenvolvimento
 

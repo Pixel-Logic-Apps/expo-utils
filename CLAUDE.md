@@ -29,7 +29,7 @@ The detected PM controls both the install command (`bun add`, `yarn add`, etc.) 
 
 - This project has **no build step** - it's distributed as plain TypeScript/JavaScript
 - TypeScript is only used for type checking in development
-- To test locally, install it in a test Expo project: `bun add /path/to/expo-utils`
+- To test locally: `npm pack` then `bun add ./expo-utils-X.X.X.tgz` in a test project (avoids symlink issues)
 
 ### Running the CLI
 
@@ -42,8 +42,8 @@ The detected PM controls both the install command (`bun add`, `yarn add`, etc.) 
     - `--languages`: Setup i18n with pt/en/es translations
     - `--firebase-placeholders`: Create placeholder Firebase config files
     - `--skadnetwork`: Add SKAdNetwork IDs for iOS
-    - `--constants`: Create constants folder
-    - `--eas-config`: Setup EAS Build and Updates configuration
+    - `--constants`: Create constants folder with Strings.ts template
+    - `--eas-config`: Setup EAS Build, build cache, remove updates block
     - `--tracking-permission`: Add iOS tracking transparency permission
     - `--fix-ios-build`: Apply iOS build fixes (expo-build-properties, static frameworks)
     - `--gitignore`: Update .gitignore with ios/, android/, etc.
@@ -195,8 +195,9 @@ The CLI creates `languages/` folder with JSON files per locale that override app
 
 Since this is a library:
 
-1. Create a test Expo project: `bunx create-expo-app test-project`
-2. Install expo-utils locally: `cd test-project && bun add /path/to/expo-utils`
-3. Run CLI: `bunx expo-utils-install --new`
-4. Test the generated structure, imports, and runtime behavior
-5. Verify that ads, Firebase, and other integrations work correctly
+1. Create a test Expo project: `bunx create-expo-app test-project --template default@sdk-55`
+2. Build .tgz: `cd /path/to/expo-utils && npm pack`
+3. Install in test project: `cd test-project && bun add ../expo-utils/expo-utils-X.X.X.tgz`
+4. Run CLI: `bunx expo-utils-install --new`
+5. Build iOS: `npx expo run:ios`
+6. Verify: Strings.ts, CLAUDE.md, app.json (no updates block, has buildCacheProvider), .gitignore/.easignore (has bun.lock)
