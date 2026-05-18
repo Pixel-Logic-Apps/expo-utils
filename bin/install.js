@@ -729,6 +729,7 @@ function handleEasConfigFlag() {
 /.vscode
 /.git
 /.expo
+/fastlane
 .psd
 .easignore
 .gitignore
