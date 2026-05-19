@@ -6,3 +6,9 @@ package-lock.json
 /.idea/
 /.vscode/
 bun.lock
+
+
+# pldev fastlane
+fastlane/shared/screenshots/__pycache__/
+fastlane/android/fastlane/screenshots/generated
+fastlane/ios/fastlane/screenshots/generated

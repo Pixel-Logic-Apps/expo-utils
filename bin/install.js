@@ -682,7 +682,7 @@ function handleEasConfigFlag() {
     const projectPkg = JSON.parse(fs.readFileSync(projectPkgPath, "utf-8"));
     projectPkg.devDependencies = projectPkg.devDependencies || {};
     if (!projectPkg.devDependencies["eas-build-cache-provider"]) {
-        projectPkg.devDependencies["eas-build-cache-provider"] = ">=1.0.0";
+        projectPkg.devDependencies["eas-build-cache-provider"] = ">=18.5.0";
         fs.writeFileSync(projectPkgPath, JSON.stringify(projectPkg, null, 2));
         console.log(chalk.green(`  -> Added "eas-build-cache-provider" to devDependencies.`));
     }
@@ -797,7 +797,18 @@ function handleGitignoreFlag() {
     if (fs.existsSync(gitignorePath)) {
         content = fs.readFileSync(gitignorePath, "utf8");
     }
-    const linesToAdd = ["ios/", "android/", "package-lock.json", "bun.lock", ".idea/", ".vscode/", "app-example"];
+    const linesToAdd = [
+        "ios/",
+        "android/",
+        "package-lock.json",
+        "bun.lock",
+        ".idea/",
+        ".vscode/",
+        "app-example",
+        "fastlane/shared/screenshots/__pycache__/",
+        "fastlane/android/fastlane/screenshots/generated",
+        "fastlane/ios/fastlane/screenshots/generated",
+    ];
     linesToAdd.forEach((line) => {
         if (!content.includes(line)) {
             content += `\n${line}`;
@@ -829,8 +840,8 @@ function handleHotUpdaterFlag() {
 
     // Add hot-updater if not present
     if (!projectPkg.dependencies["hot-updater"]) {
-        projectPkg.dependencies["hot-updater"] = "^0.25.7";
-        console.log(chalk.green(`  -> Added hot-updater@^0.25.7 to dependencies.`));
+        projectPkg.dependencies["hot-updater"] = ">=0.31.3";
+        console.log(chalk.green(`  -> Added hot-updater@>=0.31.3 to dependencies.`));
         pkgUpdated = true;
     } else {
         console.log(chalk.yellow(`  -> hot-updater already in dependencies.`));
