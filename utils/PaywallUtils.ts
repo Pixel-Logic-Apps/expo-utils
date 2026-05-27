@@ -220,6 +220,34 @@ export class PaywallUtils {
         );
     }
 
+    static getTrialDaysFromProduct(product: any): number {
+        const PERIOD_UNIT_TO_DAYS: Record<string, number> = {
+            DAY: 1,
+            WEEK: 7,
+            MONTH: 30,
+            YEAR: 365,
+            D: 1,
+            W: 7,
+            M: 30,
+            Y: 365,
+        };
+
+        const intro = product?.introPrice;
+        if (!intro) return 0;
+
+        const periodMatch = String(intro.period ?? "").match(/^P(\d+)([DWMY])$/);
+        const units = Number(intro.periodNumberOfUnits) || Number(periodMatch?.[1]) || 0;
+        const unit = String(intro.periodUnit ?? periodMatch?.[2] ?? "").toUpperCase();
+
+        return units * (PERIOD_UNIT_TO_DAYS[unit] ?? 1);
+    }
+
+    static parseSubscriptionPeriodNumber(period: string | undefined): number {
+        if (!period) return 0;
+        const match = period.match(/^P(\d+)([DWMY])$/);
+        return match ? Number(match[1]) || 0 : 0;
+    }
+
     static parseText(value = "", options: {t?: PaywallTranslator; product?: PaywallStoreProduct; item?: PaywallItem | null} = {}) {
         const product = options.product || getProduct(options.item);
         return value
@@ -288,6 +316,8 @@ export class PaywallUtils {
                 PaywallUtils.parseText(productConfig?.badge || productConfig?.discount_info || "", {t, product}).trim(),
             discountPercentage: PaywallUtils.parseText(productConfig?.discount_percentage || "", {t, product}).trim(),
             mostPopular: productConfig?.most_popular === true,
+            trialDays: PaywallUtils.getTrialDaysFromProduct(product),
+            periodCount: PaywallUtils.parseSubscriptionPeriodNumber(product.subscriptionPeriod),
         };
     }
 
@@ -640,6 +670,7 @@ export function usePaywall(options: UsePaywallOptions = {}): UsePaywallResult {
  *         onPurchaseSuccess: () => router.back(),
  *         onRestoreSuccess: () => router.back(),
  *     });
+ *     const trialDays = PaywallUtils.getTrialDaysFromProduct(paywall.selectedItem?.product);
  *
  *     async function buy() {
  *         const result = await paywall.purchaseSelected();
