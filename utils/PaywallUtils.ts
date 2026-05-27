@@ -9,7 +9,7 @@ let purchasesReady = false;
 
 export type PaywallProductSource = "auto" | "offerings" | "products";
 
-export type PaywallTranslator = (key: string, fallback?: string) => string;
+export type PaywallTranslator = (key: string, fallbackOrParams?: string | Record<string, any>) => string;
 
 export interface PaywallProductConfig {
     id: string;
@@ -472,10 +472,25 @@ export class PaywallUtils {
     }
 
     static getButtonText(config: PaywallConfig = {}, t?: PaywallTranslator, item?: PaywallItem | null) {
-        return (
-            PaywallUtils.parseText(config.primary_button_text || "", {t, item}).trim() ||
-            translate(t, "paywall.continue", "Continue")
-        );
+        const configuredText = PaywallUtils.parseText(config.primary_button_text || "", {t, item}).trim();
+        if (configuredText) return configuredText;
+
+        const trialDays = item?.trialDays || PaywallUtils.getTrialDaysFromProduct(item?.product);
+        if (trialDays > 0) {
+            const trialText = t?.("paywall.start_free_trial", {
+                days: trialDays,
+                trial_days: trialDays,
+                free_trial_days: trialDays,
+            });
+
+            if (typeof trialText === "string" && trialText !== "paywall.start_free_trial") {
+                return trialText;
+            }
+
+            return `Try ${trialDays} Days Free`;
+        }
+
+        return translate(t, "paywall.continue", "Continue");
     }
 
     static getDisclaimerText(config: PaywallConfig = {}, t?: PaywallTranslator) {
@@ -670,7 +685,6 @@ export function usePaywall(options: UsePaywallOptions = {}): UsePaywallResult {
  *         onPurchaseSuccess: () => router.back(),
  *         onRestoreSuccess: () => router.back(),
  *     });
- *     const trialDays = PaywallUtils.getTrialDaysFromProduct(paywall.selectedItem?.product);
  *
  *     async function buy() {
  *         const result = await paywall.purchaseSelected();
