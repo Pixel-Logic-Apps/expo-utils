@@ -735,6 +735,8 @@ function handleEasConfigFlag() {
 .gitignore
 .DS_Store
 package-lock.json
+rc-config-screens.json
+rc-config-utils.json
 bun.lock`;
 
     if (!fs.existsSync(easIgnorePath)) {
@@ -808,6 +810,8 @@ function handleGitignoreFlag() {
         "fastlane/shared/screenshots/__pycache__/",
         "fastlane/android/fastlane/screenshots/generated",
         "fastlane/ios/fastlane/screenshots/generated",
+        "fastlane/Gemfile.lock",
+        "fastlane/ios/fastlane/report.xml",
     ];
     linesToAdd.forEach((line) => {
         if (!content.includes(line)) {

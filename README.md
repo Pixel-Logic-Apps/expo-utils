@@ -124,6 +124,50 @@ Após criar seu projeto no Firebase Console, vá em **Remote Config** e adicione
 
 > A key `screens` é opcional. Sua estrutura é livre e acessada via `global.remoteConfigScreens`.
 
+### Paywall headless
+
+O `expo-utils` também expõe um controlador de paywall que automatiza a parte repetitiva: ler `global.remoteConfigScreens.paywall`, carregar produtos do RevenueCat, respeitar ordem/seleção do Remote Config, comprar, restaurar e marcar `@isPremium`. Ele não renderiza UI; cada app continua usando seus próprios cards, imagens, textos e botões.
+
+```tsx
+import {router} from "expo-router";
+import {usePaywall} from "expo-utils";
+
+export default function PaywallScreen() {
+    const paywall = usePaywall({
+        t,
+        productSource: "auto",
+        onPurchaseSuccess: () => router.back(),
+        onRestoreSuccess: () => router.back(),
+    });
+
+    return (
+        <>
+            {paywall.items.map((item) => (
+                <PlanCard
+                    key={item.id}
+                    title={item.title}
+                    price={item.billedPrice}
+                    badge={item.badge}
+                    selected={paywall.selectedProductId === item.id}
+                    onPress={() => paywall.select(item.id)}
+                />
+            ))}
+
+            <PrimaryButton
+                disabled={!paywall.selectedItem || paywall.loading || paywall.purchasing}
+                loading={paywall.purchasing}
+                onPress={paywall.purchaseSelected}>
+                {paywall.getButtonText()}
+            </PrimaryButton>
+
+            <TextButton onPress={paywall.restore}>Restore purchases</TextButton>
+        </>
+    );
+}
+```
+
+Para uso sem hook, use `new PaywallController({t})` ou os métodos estáticos de `PaywallUtils`.
+
 **Descrição dos campos:**
 
 | Campo | Tipo | Descrição |
