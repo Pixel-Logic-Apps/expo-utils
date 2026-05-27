@@ -737,6 +737,7 @@ function handleEasConfigFlag() {
 package-lock.json
 rc-config-screens.json
 rc-config-utils.json
+policy.lock.json
 bun.lock`;
 
     if (!fs.existsSync(easIgnorePath)) {
@@ -803,6 +804,7 @@ function handleGitignoreFlag() {
         "ios/",
         "android/",
         "package-lock.json",
+        "policy.lock.json",
         "bun.lock",
         ".idea/",
         ".vscode/",
