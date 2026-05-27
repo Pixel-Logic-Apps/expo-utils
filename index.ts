@@ -5,5 +5,5 @@ export type {AppConfig, AppStrings, AdUnits, RemoteConfigUtilsType, FacebookConf
 export {getLocalizedMessages, translations, getSystemLanguage} from "./utils/i18n";
 export {default as RouteTracker} from "./utils/RouteTracker";
 export {generatePlacementId, isPlacementBlocked, setCurrentRoute, getCurrentRoute, setBlocklist} from "./utils/AdPlacementTracker";
-export {PERIOD_UNIT_TO_DAYS, PaywallController, PaywallUtils, getPaywallCancelDate, getPaywallTrialDays, parseSubscriptionPeriodNumber, renderPaywallTemplate, usePaywall} from "./utils/PaywallUtils";
-export type {PaywallConfig, PaywallItem, PaywallLoadResult, PaywallOptions, PaywallProductConfig, PaywallPurchaseResult, PaywallTemplateOptions, UsePaywallOptions, UsePaywallResult} from "./utils/PaywallUtils";
+export {PaywallController, PaywallUtils, usePaywall} from "./utils/PaywallUtils";
+export type {PaywallConfig, PaywallItem, PaywallLoadResult, PaywallOptions, PaywallProductConfig, PaywallPurchaseResult, UsePaywallOptions, UsePaywallResult} from "./utils/PaywallUtils";

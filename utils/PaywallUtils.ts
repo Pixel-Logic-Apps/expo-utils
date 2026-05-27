@@ -7,26 +7,9 @@ declare const __DEV__: boolean;
 
 let purchasesReady = false;
 
-export const PERIOD_UNIT_TO_DAYS: Record<string, number> = {
-    DAY: 1,
-    WEEK: 7,
-    MONTH: 30,
-    YEAR: 365,
-    D: 1,
-    W: 7,
-    M: 30,
-    Y: 365,
-};
-
 export type PaywallProductSource = "auto" | "offerings" | "products";
 
 export type PaywallTranslator = (key: string, fallback?: string) => string;
-
-export interface PaywallTemplateOptions {
-    t?: PaywallTranslator;
-    locale?: string;
-    translations?: Record<string, Record<string, string>>;
-}
 
 export interface PaywallProductConfig {
     id: string;
@@ -186,29 +169,6 @@ function getProduct(input: PaywallItem | PaywallStoreProduct | any): PaywallStor
     return undefined;
 }
 
-export function parseSubscriptionPeriodNumber(period: string | undefined): number {
-    if (!period) return 0;
-    const match = period.match(/^P(\d+)([DWMY])$/);
-    return match ? Number(match[1]) || 0 : 0;
-}
-
-function parseSubscriptionPeriodUnit(period: string | undefined): string {
-    if (!period) return "";
-    const match = period.match(/^P\d+([DWMY])$/);
-    return match?.[1] || "";
-}
-
-function getPeriodUnitDays(periodUnit: unknown): number {
-    return PERIOD_UNIT_TO_DAYS[String(periodUnit || "").toUpperCase()] ?? 1;
-}
-
-function getLocaleForDate(locale?: string) {
-    if (!locale) return "en-US";
-    if (locale === "pt") return "pt-BR";
-    if (locale === "en") return "en-US";
-    return locale;
-}
-
 function getGlobalObject() {
     return global as any;
 }
@@ -260,85 +220,10 @@ export class PaywallUtils {
         );
     }
 
-    static getTrialDays(input: PaywallItem | PaywallStoreProduct | any): number {
-        const product = getProduct(input);
-        const intro = product?.introPrice;
-        if (!intro) return 0;
-
-        const periodNumber =
-            Number(intro.periodNumberOfUnits) || parseSubscriptionPeriodNumber(intro.period) || 0;
-        const periodUnit = intro.periodUnit || parseSubscriptionPeriodUnit(intro.period);
-        return periodNumber * getPeriodUnitDays(periodUnit);
-    }
-
-    static getCancelDate(input: PaywallItem | PaywallStoreProduct | any, locale = "en-US"): string {
-        const trialDays = PaywallUtils.getTrialDays(input);
-        if (!trialDays) return "";
-
-        const date = new Date();
-        date.setDate(date.getDate() + trialDays);
-        return date.toLocaleDateString(getLocaleForDate(locale), {
-            year: "numeric",
-            month: "long",
-            day: "numeric",
-        });
-    }
-
-    static getTemplateValue(
-        key: string,
-        input: PaywallItem | PaywallStoreProduct | any,
-        options: PaywallTemplateOptions = {},
-    ): string | null {
-        const product = getProduct(input);
-
-        switch (key) {
-            case "price":
-            case "priceString":
-                return product?.priceString ?? "";
-            case "trial_days":
-                return String(PaywallUtils.getTrialDays(product));
-            case "cancel_date":
-                return PaywallUtils.getCancelDate(product, options.locale);
-            case "period_count":
-                return String(parseSubscriptionPeriodNumber(product?.subscriptionPeriod) || "");
-            case "product_id":
-            case "productIdentifier":
-                return product?.identifier ?? "";
-            case "product_title":
-            case "productTitle":
-                return cleanTitle(product?.title);
-            default:
-                return null;
-        }
-    }
-
-    static renderTemplate(
-        template: string | undefined,
-        input: PaywallItem | PaywallStoreProduct | any,
-        options: PaywallTemplateOptions = {},
-    ): string {
-        if (!template) return "";
-
-        return template.replace(/\{\{([^}]+)\}\}|%\{([^}]+)\}/g, (_match, a, b) => {
-            const key = String(a ?? b).trim();
-            const value = PaywallUtils.getTemplateValue(key, input, options);
-            if (value !== null) return value;
-
-            const locale = options.locale || "en";
-            const raw = options.translations?.[locale]?.[key] ?? options.translations?.en?.[key];
-            const translated = raw ?? options.t?.(key, "");
-
-            if (!translated || translated === key) return "";
-            return PaywallUtils.renderTemplate(translated, input, {...options, t: undefined});
-        });
-    }
-
-    static parseText(
-        value = "",
-        options: PaywallTemplateOptions & {product?: PaywallStoreProduct; item?: PaywallItem | null} = {},
-    ) {
+    static parseText(value = "", options: {t?: PaywallTranslator; product?: PaywallStoreProduct; item?: PaywallItem | null} = {}) {
         const product = options.product || getProduct(options.item);
-        return PaywallUtils.renderTemplate(value, product, options)
+        return value
+            .replace(/%\{([^}]+)\}/g, (_match, key) => translate(options.t, key, key))
             .replace(/\$\{priceString\}/g, product?.priceString || "")
             .replace(/\$\{pricePerWeekString\}/g, product?.pricePerWeekString || product?.priceString || "")
             .replace(/\$\{pricePerMonthString\}/g, product?.pricePerMonthString || "")
@@ -403,8 +288,6 @@ export class PaywallUtils {
                 PaywallUtils.parseText(productConfig?.badge || productConfig?.discount_info || "", {t, product}).trim(),
             discountPercentage: PaywallUtils.parseText(productConfig?.discount_percentage || "", {t, product}).trim(),
             mostPopular: productConfig?.most_popular === true,
-            trialDays: PaywallUtils.getTrialDays(product),
-            periodCount: parseSubscriptionPeriodNumber(product.subscriptionPeriod),
         };
     }
 
@@ -629,104 +512,6 @@ export class PaywallController {
     }
 }
 
-export function getPaywallTrialDays(input: PaywallItem | PaywallStoreProduct | any): number {
-    return PaywallUtils.getTrialDays(input);
-}
-
-export function getPaywallCancelDate(input: PaywallItem | PaywallStoreProduct | any, locale = "en-US"): string {
-    return PaywallUtils.getCancelDate(input, locale);
-}
-
-export function renderPaywallTemplate(
-    template: string | undefined,
-    input: PaywallItem | PaywallStoreProduct | any,
-    options: PaywallTemplateOptions = {},
-): string {
-    return PaywallUtils.renderTemplate(template, input, options);
-}
-
-/*
- * Exemplo de paywall usando o hook headless.
- *
- * A ideia e deixar o expo-utils cuidar de:
- * - carregar Remote Config/RevenueCat
- * - montar os produtos na ordem certa
- * - selecionar plano
- * - comprar/restaurar
- * - marcar @isPremium quando o entitlement for liberado
- *
- * O app fica livre para renderizar qualquer UI.
- *
- * import {router} from "expo-router";
- * import {ActivityIndicator, Alert, Text, TouchableOpacity, View} from "react-native";
- * import {usePaywall} from "expo-utils";
- *
- * export default function PaywallScreen() {
- *     const paywall = usePaywall({
- *         t,
- *         productSource: "auto",
- *         onPurchaseSuccess: () => router.back(),
- *         onRestoreSuccess: () => router.back(),
- *     });
- *     const trialDays = paywall.selectedItem?.trialDays ?? 0;
- *     const trialText = PaywallUtils.renderTemplate(
- *         "{{trial_days}} dias gratis, depois {{price}}. Cancele ate {{cancel_date}}.",
- *         paywall.selectedItem,
- *         {locale: "pt-BR"},
- *     );
- *
- *     async function buy() {
- *         const result = await paywall.purchaseSelected();
- *
- *         if (!result.ok && !result.cancelled) {
- *             Alert.alert("Erro", "Nao foi possivel concluir a compra.");
- *         }
- *     }
- *
- *     if (paywall.loading) {
- *         return <ActivityIndicator />;
- *     }
- *
- *     return (
- *         <View>
- *             {paywall.canClose && (
- *                 <TouchableOpacity onPress={() => router.back()}>
- *                     <Text>Fechar</Text>
- *                 </TouchableOpacity>
- *             )}
- *
- *             {paywall.items.map((item) => {
- *                 const selected = paywall.selectedProductId === item.id;
- *
- *                 return (
- *                     <TouchableOpacity key={item.id} onPress={() => paywall.select(item.id)}>
- *                         <Text>{selected ? "Selecionado" : ""}</Text>
- *                         <Text>{item.title}</Text>
- *                         <Text>{item.billedPrice}</Text>
- *                         <Text>{item.period}</Text>
- *                         {!!item.badge && <Text>{item.badge}</Text>}
- *                     </TouchableOpacity>
- *                 );
- *             })}
- *
- *             <TouchableOpacity
- *                 disabled={!paywall.selectedItem || paywall.purchasing || paywall.restoring}
- *                 onPress={buy}>
- *                 <Text>{paywall.purchasing ? "Comprando..." : paywall.getButtonText()}</Text>
- *             </TouchableOpacity>
- *
- *             {trialDays > 0 && <Text>{trialText}</Text>}
- *
- *             <TouchableOpacity disabled={paywall.restoring} onPress={paywall.restore}>
- *                 <Text>{paywall.restoring ? "Restaurando..." : "Restaurar compras"}</Text>
- *             </TouchableOpacity>
- *
- *             {!!paywall.getDisclaimerText() && <Text>{paywall.getDisclaimerText()}</Text>}
- *         </View>
- *     );
- * }
- */
-
 export function usePaywall(options: UsePaywallOptions = {}): UsePaywallResult {
     const controllerRef = useRef(new PaywallController(options));
     controllerRef.current.setOptions(options);
@@ -829,3 +614,79 @@ export function usePaywall(options: UsePaywallOptions = {}): UsePaywallResult {
         getDisclaimerText,
     };
 }
+
+
+
+/*
+ * Exemplo de paywall usando o hook headless.
+ *
+ * A ideia e deixar o expo-utils cuidar de:
+ * - carregar Remote Config/RevenueCat
+ * - montar os produtos na ordem certa
+ * - selecionar plano
+ * - comprar/restaurar
+ * - marcar @isPremium quando o entitlement for liberado
+ *
+ * O app fica livre para renderizar qualquer UI.
+ *
+ * import {router} from "expo-router";
+ * import {ActivityIndicator, Alert, Text, TouchableOpacity, View} from "react-native";
+ * import {usePaywall} from "expo-utils";
+ *
+ * export default function PaywallScreen() {
+ *     const paywall = usePaywall({
+ *         t,
+ *         productSource: "auto",
+ *         onPurchaseSuccess: () => router.back(),
+ *         onRestoreSuccess: () => router.back(),
+ *     });
+ *
+ *     async function buy() {
+ *         const result = await paywall.purchaseSelected();
+ *
+ *         if (!result.ok && !result.cancelled) {
+ *             Alert.alert("Erro", "Nao foi possivel concluir a compra.");
+ *         }
+ *     }
+ *
+ *     if (paywall.loading) {
+ *         return <ActivityIndicator />;
+ *     }
+ *
+ *     return (
+ *         <View>
+ *             {paywall.canClose && (
+ *                 <TouchableOpacity onPress={() => router.back()}>
+ *                     <Text>Fechar</Text>
+ *                 </TouchableOpacity>
+ *             )}
+ *
+ *             {paywall.items.map((item) => {
+ *                 const selected = paywall.selectedProductId === item.id;
+ *
+ *                 return (
+ *                     <TouchableOpacity key={item.id} onPress={() => paywall.select(item.id)}>
+ *                         <Text>{selected ? "Selecionado" : ""}</Text>
+ *                         <Text>{item.title}</Text>
+ *                         <Text>{item.billedPrice}</Text>
+ *                         <Text>{item.period}</Text>
+ *                         {!!item.badge && <Text>{item.badge}</Text>}
+ *                     </TouchableOpacity>
+ *                 );
+ *             })}
+ *
+ *             <TouchableOpacity
+ *                 disabled={!paywall.selectedItem || paywall.purchasing || paywall.restoring}
+ *                 onPress={buy}>
+ *                 <Text>{paywall.purchasing ? "Comprando..." : paywall.getButtonText()}</Text>
+ *             </TouchableOpacity>
+ *
+ *             <TouchableOpacity disabled={paywall.restoring} onPress={paywall.restore}>
+ *                 <Text>{paywall.restoring ? "Restaurando..." : "Restaurar compras"}</Text>
+ *             </TouchableOpacity>
+ *
+ *             {!!paywall.getDisclaimerText() && <Text>{paywall.getDisclaimerText()}</Text>}
+ *         </View>
+ *     );
+ * }
+ */
