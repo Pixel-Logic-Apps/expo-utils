@@ -55,6 +55,7 @@
     "@react-native-firebase/remote-config": ">=24.0.0",
     "expo": ">=55.0.24",
     "expo-application": ">=55.0.15",
+    "expo-dev-client": ">=55.0.14",
     "expo-blur": ">=55.0.14",
     "expo-build-properties": ">=55.0.14",
     "expo-constants": ">=55.0.16",

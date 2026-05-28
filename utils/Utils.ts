@@ -33,7 +33,8 @@ import * as Application from "expo-application";
 import {AppEventsLogger, Settings as FbsdkSettings} from "react-native-fbsdk-next";
 import Purchases, {LOG_LEVEL} from "react-native-purchases";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import {Alert, Platform, Linking, LogBox} from "react-native";
+import {Alert, Platform, Linking, LogBox, DevSettings} from "react-native";
+import {registerDevMenuItems} from "expo-dev-menu";
 import {HotUpdater} from "@hot-updater/react-native";
 import {logConfigIntegrityValues, reportConfigIntegrity} from "./config-integrity";
 import {setBlocklist} from "./AdPlacementTracker";
@@ -309,6 +310,9 @@ const Utils = {
 
     prepare: async (setAppIsReady: (ready: boolean) => void, appConfig?: any, appStrings?: AppStrings, requestPermissions: boolean = true) => {
         LogBox.ignoreAllLogs(true);
+        if (__DEV__) {
+            registerDevMenuItems([{name: "Clear Storage And Reload", callback: async () => { await AsyncStorage.clear(); DevSettings.reload(); }}]);
+        }
         const rckey = appStrings?.rckey;
         const adUnits = appStrings?.adUnits;
         try {
