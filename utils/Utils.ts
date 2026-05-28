@@ -33,7 +33,7 @@ import * as Application from "expo-application";
 import {AppEventsLogger, Settings as FbsdkSettings} from "react-native-fbsdk-next";
 import Purchases, {LOG_LEVEL} from "react-native-purchases";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import {Alert, Platform, Linking, LogBox, DevSettings} from "react-native";
+import {Alert, Platform, Linking, LogBox, DevSettings, PermissionsAndroid} from "react-native";
 import {registerDevMenuItems} from "expo-dev-menu";
 import {HotUpdater} from "@hot-updater/react-native";
 import {logConfigIntegrityValues, reportConfigIntegrity} from "./config-integrity";
@@ -319,7 +319,11 @@ const Utils = {
             //Caso não queira charmar os trackings no início.
             if (requestPermissions) {
                 const {status} = await requestTrackingPermissionsAsync();
-                await requestPermission(getMessaging(getApp()));
+                if (Platform.OS === "android") {
+                    await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS);
+                } else {
+                    await requestPermission(getMessaging(getApp()));
+                }
             }
 
             //Setup do remoteconfig (Precisa de internet).
