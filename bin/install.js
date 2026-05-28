@@ -339,6 +339,13 @@ function handleLanguagesFlag() {
         config.expo.ios.infoPlist.CFBundleAllowMixedLocalizations = true;
         console.log(chalk.green(`  -> Set 'CFBundleAllowMixedLocalizations' in ios.infoPlist.`));
     }
+    if (!config.expo.ios.infoPlist.UIBackgroundModes || !config.expo.ios.infoPlist.UIBackgroundModes.includes("remote-notification")) {
+        config.expo.ios.infoPlist.UIBackgroundModes = config.expo.ios.infoPlist.UIBackgroundModes || [];
+        if (!config.expo.ios.infoPlist.UIBackgroundModes.includes("remote-notification")) {
+            config.expo.ios.infoPlist.UIBackgroundModes.push("remote-notification");
+        }
+        console.log(chalk.green(`  -> Added 'remote-notification' to UIBackgroundModes in ios.infoPlist.`));
+    }
 
     // 3. Configure locales mapping
     config.expo.locales = config.expo.locales || {};
