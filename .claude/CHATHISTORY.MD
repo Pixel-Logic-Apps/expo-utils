@@ -1,5 +1,41 @@
 # Chat History - expo-utils
 
+## 2026-05-28 - Inicialização da memória + contexto v1.0.27
+
+### Tarefa: Auto-atualização da memória do Claude Code
+
+**Pedido:** Usuário pediu para "se auto atualizar" — inicializar o sistema de memória persistente para o projeto.
+
+**Ações realizadas:**
+- Criada estrutura de memória em `/Users/plapps/.claude/projects/-Users-plapps-Documents-projetos-expo-utils/memory/`
+- Criado `user_profile.md` — perfil do usuário (Bruno Verçosa / Pixel Logic Apps)
+- Criado `project_expo_utils.md` — visão geral do projeto, estrutura, padrões
+- Criado `chathistory.md` — ponteiro para este arquivo
+- Criado `MEMORY.md` — índice de memórias
+
+**Estado do repositório:**
+- Versão atual: **1.0.27**
+- Branch: `main` (limpo)
+
+### Commits desde v1.0.26 (relevantes para contexto)
+
+| Hash | Descrição |
+|------|-----------|
+| `ff9489c` | feat: add expo-dev-client dependency and register dev menu items for storage clearing in Utils |
+| `711df00` | feat: add remote-notification to UIBackgroundModes in ios.infoPlist and update babel plugin path |
+| `8156e48` | feat: add tracking permissions request and log events for topic subscriptions in Utils |
+| `a14723f` | feat: add policy.lock.json to easignore and gitignore handling |
+| `2076abe` | feat: enhance button text handling in PaywallUtils (trial days messaging) |
+| `4215012` | feat: add trial days calculation and subscription period parsing to PaywallUtils |
+| `d578ee2` | refactor: clean up PaywallUtils — remove unused functions and constants |
+| `a426ec3` | feat: add PaywallUtils (paywall controller), screen-size utility, fix install script ignores |
+| `ba906cb` | fix: update dependency versions for eas-build-cache-provider and hot-updater |
+| `d386353` | fix: expo-utils peer dependency range |
+
+**Resultado:** Memória inicializada com sucesso ✅
+
+---
+
 ## 2026-02-26 - Fix: deps não adicionadas ao package.json (build iOS falhava)
 
 ### Tarefa: Corrigir handleDependencyInstall() - pacotes não escritos no package.json

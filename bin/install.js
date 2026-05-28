@@ -808,8 +808,6 @@ function handleGitignoreFlag() {
         content = fs.readFileSync(gitignorePath, "utf8");
     }
     const linesToAdd = [
-        "ios/",
-        "android/",
         "package-lock.json",
         "policy.lock.json",
         "bun.lock",
