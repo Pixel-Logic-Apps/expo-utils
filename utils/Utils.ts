@@ -231,21 +231,21 @@ const Utils = {
 
                 const topicName = appConfig?.expo?.slug || "default-topic";
                 subscribeToTopic(messaging, topicName)
-                    .then(() => expoUtilsWarn("Subscribed to topic:", topicName))
+                    .then(() => { expoUtilsWarn("Subscribed to topic:", topicName); logEvent(analytics, "fcm_topic_subscribe", {topic: topicName}); })
                     .catch(() => expoUtilsWarn("Failed to subscribe to topic:", topicName));
                 const localeInfo = safeGetLocales()[0];
                 const regionCode = localeInfo?.regionCode;
                 if (regionCode) {
                     const countryTopic = `${topicName}-${regionCode.toLowerCase()}`;
                     subscribeToTopic(messaging, countryTopic)
-                        .then(() => expoUtilsWarn("Subscribed to country topic:", countryTopic))
+                        .then(() => { expoUtilsWarn("Subscribed to country topic:", countryTopic); logEvent(analytics, "fcm_topic_subscribe", {topic: countryTopic}); })
                         .catch(() => expoUtilsWarn("Failed to subscribe to country topic:", countryTopic));
                 }
                 const languageCode = localeInfo?.languageCode;
                 if (languageCode) {
                     const langTopic = `${topicName}-lang-${languageCode.toLowerCase()}`;
                     subscribeToTopic(messaging, langTopic)
-                        .then(() => expoUtilsWarn("Subscribed to language topic:", langTopic))
+                        .then(() => { expoUtilsWarn("Subscribed to language topic:", langTopic); logEvent(analytics, "fcm_topic_subscribe", {topic: langTopic}); })
                         .catch(() => expoUtilsWarn("Failed to subscribe to language topic:", langTopic));
                 }
             }
@@ -479,12 +479,14 @@ const Utils = {
             // Se o topic mudou, desinscreve do anterior e inscreve no novo
             if (previousTopic && previousTopic !== newTopic) {
                 await getMessaging(getApp()).unsubscribeFromTopic(previousTopic);
+                logEvent(getAnalytics(getApp()), "fcm_topic_unsubscribe", {topic: previousTopic});
                 console.log("Unsubscribed from topic:", previousTopic);
             }
 
             if (previousTopic !== newTopic) {
                 await getMessaging(getApp()).subscribeToTopic(newTopic);
                 await AsyncStorage.setItem("FCM_CURRENT_TOPIC", newTopic);
+                logEvent(getAnalytics(getApp()), "fcm_topic_subscribe", {topic: newTopic, status});
                 console.log("Subscribed to topic:", newTopic);
             }
         } catch (error) {

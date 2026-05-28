@@ -1,6 +1,7 @@
 import {SplashScreen, Stack, usePathname} from "expo-router";
 import {useEffect, useState} from "react";
 import Utils from "expo-utils/utils/Utils";
+import {requestTrackingPermissionsAsync} from "expo-tracking-transparency";
 import {setupAppOpenListener} from "expo-utils/utils/appopen-ads";
 import AskForReviewOverlay, {AskForReviewEvents} from "expo-utils/utils/ask-for-review";
 import PromotionalContent, {usePromotional} from "expo-utils/utils/modal-promotional-content";
@@ -26,10 +27,11 @@ function RootLayout() {
 
     useEffect(() => {
         global.isAdsEnabled = !__DEV__;
+        requestTrackingPermissionsAsync().then(() =>
         Utils.prepare(setAppIsReady, appConfig, appStrings).then(() => {
             setupAppOpenListener();
             showPromoModal();
-        });
+        }));
         
         const unsubscribe = AskForReviewEvents.onShowPopup(() => {
             setShowReviewOverlay(true);
