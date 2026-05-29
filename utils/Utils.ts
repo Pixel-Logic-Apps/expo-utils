@@ -468,6 +468,10 @@ const Utils = {
                             if (AppState.currentState === "active") finish();
                         });
                     }
+                    // O useEffect roda no COMMIT do React, que NÃO é o frame apresentado na tela.
+                    // O iOS descarta o prompt se ele dispara antes do 1º frame — então damos um
+                    // tempo conservador para o frame ser apresentado antes de pedir o ATT.
+                    await new Promise<void>((resolve) => setTimeout(resolve, 500));
                     const result = await requestTrackingPermissionsAsync();
                     granted = result.status === "granted";
                 } else {

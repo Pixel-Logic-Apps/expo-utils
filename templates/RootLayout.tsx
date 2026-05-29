@@ -45,8 +45,8 @@ function RootLayout() {
     //    do "Permitir".
     useEffect(() => {
         if (!appIsReady) return;
-        SplashScreen.hideAsync().catch(() => {});
         (async () => {
+            await SplashScreen.hideAsync().catch(() => {});
             await Utils.requestTrackingWhenActive(appConfig, appStrings);
             setupAppOpenListener();
             showPromoModal();
