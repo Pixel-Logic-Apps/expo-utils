@@ -13,7 +13,43 @@
 ✅ **Tela de Avaliação**: Abertura automática da loja para reviews (iOS/Android)  
 ✅ **Estrutura do Projeto**: Templates pré-configurados com melhores práticas  
 ✅ **TypeScript Completo**: Tipagem completa e interfaces bem definidas  
-✅ **Compatibilidade Moderna**: Expo SDK 55, Firebase v23+, React Native 0.83+
+✅ **Compatibilidade Moderna**: Expo SDK 55 e 56, Firebase v23+, React Native 0.83+
+
+## 🆕 Novidades da v1.1.0
+
+Versão focada em **confiabilidade**, **`app.json` limpo** e **menos configuração manual**.
+
+### 🎯 SKAdNetwork agora é automático
+
+Os ~160 identificadores de SKAdNetwork **não ficam mais no `app.json`**. O config plugin do expo-utils injeta todos no `Info.plist` **durante o prebuild** — seu `app.json` fica limpo e legível.
+
+- `npx expo-utils-install --skadnetwork` **migra** apps existentes (remove os IDs do `app.json` e mantém qualquer ID customizado seu).
+- Lista de IDs **corrigida e deduplicada** → **162 networks** únicas (incl. `com.apple.ads`).
+
+### 📲 Push (FCM) mais confiável no iOS
+
+Corrigido o erro `No APNS token specified before fetching FCM Token`. O expo-utils agora **espera o APNS token chegar** antes de buscar o token FCM e inscrever em tópicos. Em ambientes sem APNS (ex.: simulador) ele pula com segurança, sem floodar erro.
+
+### 🔐 Prompt de ATT no momento certo
+
+O prompt de **App Tracking Transparency** é exibido **só após o primeiro frame** (app já ativo), evitando que o iOS descarte o prompt silenciosamente. Nenhum dado de tracking é coletado antes do consentimento.
+
+### 🧩 `_layout` mais enxuto (opcional)
+
+Novo `<ExpoUtilsLayout>` encapsula todo o boot (prepare → ATT → overlays) e expõe um callback `onReady` pro seu código pós-boot. O template explícito continua sendo o default, pra quem quer controle total.
+
+### 🔤 Plugins organizados
+
+Novo flag `--sort-plugins` ordena o array `plugins` do `app.json` (plugins simples primeiro, depois os com configuração). Roda **automaticamente** no `--config` e `--new`.
+
+### 📦 Outras melhorias
+
+- **`eas-build-cache-provider`** agora é dependência obrigatória — cache de build EAS pronto de fábrica.
+- Vídeo promocional migrado de `expo-av` → **`expo-video`**.
+- **Android**: solicita `POST_NOTIFICATIONS` junto com o request de push.
+- **Zero `require()` em runtime** (imports estáticos) + tipos globais (`global.remoteConfigUtils`, etc.) vindos do próprio pacote.
+
+> **✅ Validado de ponta a ponta** nesta versão: projeto novo (SDK 56) → install → `--new` → bundle (Metro/Hermes) → prebuild iOS, com telas de teste exercitando promotional modal, image, video, banners (AdMob + promo), screen-size, premium e paywall. `Info.plist` gerado com as 162 SKAdNetwork, ATT, push e frameworks estáticos.
 
 ## 📦 Instalação Rápida
 
