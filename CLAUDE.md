@@ -41,13 +41,14 @@ The detected PM controls both the install command (`bun add`, `yarn add`, etc.) 
     - `--srcapp`: Move app/ to src/app/
     - `--languages`: Setup i18n with pt/en/es translations
     - `--firebase-placeholders`: Create placeholder Firebase config files
-    - `--skadnetwork`: Add SKAdNetwork IDs for iOS
+    - `--skadnetwork`: Remove SKAdNetworkItems from app.json (the IDs are now injected into Info.plist by the expo-utils config plugin at prebuild — see `app.plugin.js`). Keeps any custom IDs not in the plugin list.
     - `--constants`: Create constants folder with Strings.ts template
     - `--eas-config`: Setup EAS Build, build cache, remove updates block
     - `--tracking-permission`: Add iOS tracking transparency permission
     - `--fix-ios-build`: Apply iOS build fixes (expo-build-properties, static frameworks)
     - `--gitignore`: Update .gitignore with ios/, android/, etc.
     - `--hot-updater`: Setup Hot Updater (babel.config.js, .env files, dependencies)
+    - `--sort-plugins`: Reorder app.json `plugins` so string plugins come first, then array (`[name, config]`) plugins (stable within each group). Also runs automatically at the end of `--config` and `--new`.
 
 ## Architecture
 
@@ -128,7 +129,9 @@ The package can be configured via the Expo config plugin in app.json:
 ["expo-utils", {"disableWarnings": true, "disableLogs": true}]
 ```
 
-These flags suppress console output from expo-utils in production.
+These flags suppress console output from expo-utils in production (read at **runtime** from app.json via `plugin[1]?.disableWarnings`/`disableLogs` in `Utils.ts`).
+
+The same config plugin (`app.plugin.js`) also injects all SKAdNetwork IDs (`data/skadnetwork_ids.json`) into the iOS `Info.plist` at **prebuild** via `withInfoPlist`, so the ~160 IDs no longer need to live in `app.json`. The merge is case-insensitive and preserves any custom `SKAdNetworkItems` already present. The plugin is wrapped in `createRunOncePlugin` to avoid double-application. Just keep `["expo-utils", { ... }]` in the `plugins` array.
 
 ## Common Patterns
 

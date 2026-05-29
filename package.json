@@ -54,6 +54,7 @@
     "@react-native-firebase/firestore": ">=24.0.0",
     "@react-native-firebase/messaging": ">=24.0.0",
     "@react-native-firebase/remote-config": ">=24.0.0",
+    "eas-build-cache-provider": ">=20.0.0",
     "expo": ">=55.0.24",
     "expo-application": ">=55.0.15",
     "expo-dev-client": ">=55.0.14",

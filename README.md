@@ -211,13 +211,14 @@ npx expo-utils-install --new
 | `--layout`                | Substitui \_layout.tsx por template configurado |
 | `--srcapp`                | Move pasta app para src/app                     |
 | `--languages`             | Cria pasta languages com traduções              |
-| `--skadnetwork`           | Adiciona SKAdNetworkItems para iOS              |
+| `--skadnetwork`           | Remove SKAdNetworkItems do app.json (agora injetados no Info.plist pelo config plugin no prebuild; mantém IDs customizados) |
 | `--constants`             | Cria pasta constants com Strings.ts template    |
 | `--eas-config`            | Configura eas.json, EAS build cache, remove updates block |
 | `--tracking-permission`   | Adiciona permissão de rastreamento iOS          |
 | `--fix-ios-build`         | Aplica fixes de build iOS (static frameworks)   |
 | `--gitignore`             | Atualiza .gitignore com ios/, android/, bun.lock |
 | `--hot-updater`           | Configura Hot Updater (babel, .env, deps)       |
+| `--sort-plugins`          | Ordena os plugins do app.json (strings primeiro, depois os com config) |
 
 ## 📱 Configuração do Projeto
 

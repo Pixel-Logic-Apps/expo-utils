@@ -160,6 +160,30 @@ async function handleDependencyInstall() {
     });
 }
 
+// Reordena config.expo.plugins: plugins simples (string) primeiro, depois os com
+// configuração (array [nome, {...}]). Mantém a ordem relativa dentro de cada grupo (estável).
+function sortPlugins(config) {
+    if (!config || !config.expo || !Array.isArray(config.expo.plugins)) return false;
+    const plugins = config.expo.plugins;
+    const strings = plugins.filter((p) => typeof p === "string");
+    const arrays = plugins.filter((p) => Array.isArray(p));
+    const others = plugins.filter((p) => typeof p !== "string" && !Array.isArray(p));
+    config.expo.plugins = [...strings, ...arrays, ...others];
+    return true;
+}
+
+function handleSortPluginsFlag() {
+    console.log(chalk.cyan("🔤 Ordenando plugins do app.json (strings primeiro, depois os com config)..."));
+    const config = getAppConfig();
+    if (!config) return;
+    if (!sortPlugins(config)) {
+        console.log(chalk.yellow("  -> Nenhum array 'plugins' encontrado em app.json."));
+        return;
+    }
+    writeAppConfig(config);
+    console.log(chalk.green("✅ Plugins ordenados."));
+}
+
 function handleConfigFlag() {
     console.log(chalk.cyan("🔧 Configuring standard plugins in app.json..."));
     const config = getAppConfig();
@@ -231,6 +255,9 @@ function handleConfigFlag() {
     } else {
         console.log(chalk.yellow(`  -> Android permission ${adIdPermission} already configured.`));
     }
+
+    // Deixa o array de plugins ordenado: strings primeiro, depois os com config.
+    sortPlugins(config);
 
     writeAppConfig(config);
     console.log(chalk.green("✅ Plugin configuration step complete."));
@@ -363,71 +390,59 @@ function handleLanguagesFlag() {
 }
 
 function handleSkadnetworkFlag() {
-    console.log(chalk.cyan("📊 Ensuring all SKAdNetworkItems are present..."));
+    console.log(chalk.cyan("📊 Limpando SKAdNetworkItems do app.json..."));
     const config = getAppConfig();
     if (!config) return;
 
-    // Load the complete list of required IDs from the module's data file
-    const skadNetworkItemsPath = path.join(
-        moduleDir,
-        "data",
-        "skadnetwork_ids.json",
-    );
-    if (!fs.existsSync(skadNetworkItemsPath)) {
-        console.error(chalk.red("❌ Could not find skadnetwork_ids.json in the expo-utils module."));
-        return;
-    }
-    const requiredItems = require(skadNetworkItemsPath);
+    // Os IDs agora são injetados no Info.plist pelo config plugin do expo-utils durante o
+    // prebuild (ver app.plugin.js). Então não precisam mais ficar no app.json.
+    const infoPlist = config.expo && config.expo.ios && config.expo.ios.infoPlist;
+    const existing =
+        infoPlist && Array.isArray(infoPlist.SKAdNetworkItems) ? infoPlist.SKAdNetworkItems : null;
 
-    config.expo = config.expo || {};
-    config.expo.ios = config.expo.ios || {};
-    config.expo.ios.infoPlist = config.expo.ios.infoPlist || {};
-
-    const existingItems = config.expo.ios.infoPlist.SKAdNetworkItems || [];
-
-    // Use a Map to ensure uniqueness based on the SKAdNetworkIdentifier
-    const combinedItemsMap = new Map();
-
-    // First, add existing items to the map
-    existingItems.forEach((item) => {
-        if (item.SKAdNetworkIdentifier) {
-            combinedItemsMap.set(item.SKAdNetworkIdentifier, item);
-        }
-    });
-
-    // Then, add/overwrite with the required items
-    requiredItems.forEach((item) => {
-        if (item.SKAdNetworkIdentifier) {
-            combinedItemsMap.set(item.SKAdNetworkIdentifier, item);
-        }
-    });
-
-    // Convert the map values back to an array
-    const newSkadItems = Array.from(combinedItemsMap.values());
-
-    // For better readability and consistency, sort the items alphabetically
-    newSkadItems.sort((a, b) => a.SKAdNetworkIdentifier.localeCompare(b.SKAdNetworkIdentifier));
-
-    const originalCount = existingItems.length;
-    const finalCount = newSkadItems.length;
-
-    // Replace the old list with the new, complete, and deduplicated list
-    config.expo.ios.infoPlist.SKAdNetworkItems = newSkadItems;
-
-    if (finalCount > originalCount) {
+    if (!existing || existing.length === 0) {
         console.log(
-            chalk.green(
-                `  -> Added ${finalCount - originalCount} new SKAdNetworkIdentifier(s). Total is now ${finalCount}.`,
+            chalk.yellow(
+                "  -> Nenhum SKAdNetworkItems no app.json — o plugin expo-utils injeta os IDs no prebuild automaticamente.",
             ),
         );
-    } else if (finalCount === originalCount && originalCount > 0) {
-        console.log(chalk.yellow(`  -> All ${finalCount} required SKAdNetworkIdentifiers were already present.`));
-    } else if (finalCount > 0) {
-        console.log(chalk.green(`  -> Ensured all ${finalCount} SKAdNetworkIdentifiers are present.`));
+        console.log(chalk.green("✅ SKAdNetwork gerenciado pelo config plugin (app.json limpo)."));
+        return;
     }
 
+    // Carrega a lista que o plugin injeta — só removemos do app.json os IDs cobertos por ela.
+    // IDs customizados (fora da lista) ficam no app.json pra não sumirem do build.
+    let pluginIds = new Set();
+    const skadNetworkItemsPath = path.join(moduleDir, "data", "skadnetwork_ids.json");
+    if (fs.existsSync(skadNetworkItemsPath)) {
+        pluginIds = new Set(
+            require(skadNetworkItemsPath).map((i) => (i.SKAdNetworkIdentifier || "").toLowerCase()),
+        );
+    }
+
+    const kept = existing.filter((item) => {
+        const id = item && item.SKAdNetworkIdentifier;
+        return !(typeof id === "string" && pluginIds.has(id.toLowerCase()));
+    });
+    const removed = existing.length - kept.length;
+
+    if (kept.length > 0) {
+        infoPlist.SKAdNetworkItems = kept;
+        console.log(
+            chalk.green(
+                `  -> Removidos ${removed} SKAdNetworkItems cobertos pelo plugin; mantidos ${kept.length} customizados no app.json.`,
+            ),
+        );
+    } else {
+        delete infoPlist.SKAdNetworkItems;
+        console.log(
+            chalk.green(
+                `  -> Removidos ${removed} SKAdNetworkItems do app.json (agora injetados pelo plugin no prebuild).`,
+            ),
+        );
+    }
     writeAppConfig(config);
-    console.log(chalk.green("✅ SKAdNetworkItems setup complete."));
+    console.log(chalk.green("✅ SKAdNetwork gerenciado pelo config plugin (app.json limpo)."));
 }
 
 function handleFirebasePlaceholdersFlag() {
@@ -684,12 +699,17 @@ function handleEasConfigFlag() {
 
     config.expo = newExpo;
 
-    // Add eas-build-cache-provider to devDependencies
+    // Garante eas-build-cache-provider (obrigatório). Já é peerDependency do expo-utils, então
+    // o check de deps o instala em "dependencies". Aqui só adicionamos em devDependencies se ele
+    // não estiver em NENHUM lugar (evita duplicar em dependencies E devDependencies).
     const projectPkgPath = path.join(projectRoot, "package.json");
     const projectPkg = JSON.parse(fs.readFileSync(projectPkgPath, "utf-8"));
     projectPkg.devDependencies = projectPkg.devDependencies || {};
-    if (!projectPkg.devDependencies["eas-build-cache-provider"]) {
-        projectPkg.devDependencies["eas-build-cache-provider"] = ">=18.5.0";
+    const alreadyHasCacheProvider =
+        (projectPkg.dependencies && projectPkg.dependencies["eas-build-cache-provider"]) ||
+        projectPkg.devDependencies["eas-build-cache-provider"];
+    if (!alreadyHasCacheProvider) {
+        projectPkg.devDependencies["eas-build-cache-provider"] = ">=20.0.0";
         fs.writeFileSync(projectPkgPath, JSON.stringify(projectPkg, null, 2));
         console.log(chalk.green(`  -> Added "eas-build-cache-provider" to devDependencies.`));
     }
@@ -1079,6 +1099,7 @@ async function main() {
         handleGitignoreFlag(); // Nova chamada para atualizar .gitignore
         handleHotUpdaterFlag(); // Setup hot-updater
         handleClaudeMdFlag();
+        handleSortPluginsFlag(); // Ordena os plugins por último (após todos os handlers que adicionam plugins)
 
         const rl = readline.createInterface({input: process.stdin, output: process.stdout});
 
@@ -1113,6 +1134,7 @@ async function main() {
         if (args.includes("--srcapp")) handleSrcAppFlag();
         if (args.includes("--languages")) handleLanguagesFlag();
         if (args.includes("--skadnetwork")) handleSkadnetworkFlag();
+        if (args.includes("--sort-plugins")) handleSortPluginsFlag();
         if (args.includes("--firebase-placeholders")) handleFirebasePlaceholdersFlag();
         if (args.includes("--fix-ios-build")) handleIosBuildFixFlag();
         if (args.includes("--tracking-permission")) handleTrackingPermissionFlag();
