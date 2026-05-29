@@ -17,7 +17,7 @@ export function expoUtilsLog(...args: any[]) {
 import {AppConfig, AppStrings, RemoteConfigUtilsType} from "./types";
 import {getLocalizedMessages} from "./i18n";
 import {getLocales} from "expo-localization";
-const safeGetLocales = (): Array<{languageCode?: string; regionCode?: string}> => {
+const safeGetLocales = (): Array<{languageCode?: string | null; regionCode?: string | null}> => {
     try {
         return getLocales();
     } catch {
