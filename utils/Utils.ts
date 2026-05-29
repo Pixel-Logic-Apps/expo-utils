@@ -135,20 +135,33 @@ const Utils = {
 
     getRemoteConfigUtils: async (): Promise<RemoteConfigUtilsType> => {
         const app = getApp();
+        const DEFAULT = {is_ads_enabled: false, min_version: 1.0} as any;
         if (!app) {
             expoUtilsWarn("Firebase not configured, using default settings");
-            return {is_ads_enabled: false, min_version: 1.0} as any;
+            return DEFAULT;
         }
-        const remoteConfig = getRemoteConfig(app);
-        await setConfigSettings(remoteConfig, {minimumFetchIntervalMillis: 0});
-        await setDefaults(remoteConfig, {
-            utils: JSON.stringify({is_ads_enabled: false}),
-            screens: JSON.stringify({}),
-        });
-        try {
-            await fetchAndActivate(remoteConfig);
-        } catch {}
-        return JSON.parse(getValue(remoteConfig, "utils").asString());
+        const fetchConfigs = async (): Promise<RemoteConfigUtilsType> => {
+            try {
+                const remoteConfig = getRemoteConfig(app);
+                await setConfigSettings(remoteConfig, {minimumFetchIntervalMillis: 0});
+                await setDefaults(remoteConfig, {
+                    utils: JSON.stringify({is_ads_enabled: false}),
+                    screens: JSON.stringify({}),
+                });
+                try {
+                    await fetchAndActivate(remoteConfig);
+                } catch {}
+                return JSON.parse(getValue(remoteConfig, "utils").asString());
+            } catch {
+                return DEFAULT;
+            }
+        };
+        // Timeout de segurança: se o Remote Config (rede/nativo) pendurar, NÃO trava o boot —
+        // seguimos com os defaults e o app renderiza normalmente.
+        return Promise.race([
+            fetchConfigs(),
+            new Promise<RemoteConfigUtilsType>((resolve) => setTimeout(() => resolve(DEFAULT), 60000)),
+        ]);
     },
 
     getRemoteConfigScreens: async (): Promise<any> => {
@@ -299,11 +312,12 @@ const Utils = {
         }
     },
 
-    checkForRequiredUpdateDialog: async (remoteConfigSettings: RemoteConfigUtilsType) => {
+    checkForRequiredUpdateDialog: async () => {
         try {
+            const remoteConfigs = (global as any).remoteConfigUtils as RemoteConfigUtilsType;
             if (!Application.nativeApplicationVersion) return;
             const version = parseFloat(Application.nativeApplicationVersion);
-            const minVersion = parseFloat((remoteConfigSettings?.min_version ?? 0).toString());
+            const minVersion = parseFloat((remoteConfigs?.min_version ?? 0).toString());
 
             if (isNaN(minVersion) || isNaN(version) || version >= minVersion) {
                 return;
@@ -321,7 +335,7 @@ const Utils = {
                     if (iosAppId) {
                         url = `https://apps.apple.com/app/apple-store/id${iosAppId}`;
                     } else {
-                        const fallbackAppId = remoteConfigSettings.ios_app_id;
+                        const fallbackAppId = remoteConfigs.ios_app_id;
                         url = fallbackAppId
                             ? `https://apps.apple.com/app/apple-store/id${fallbackAppId}`
                             : "https://apps.apple.com/";
@@ -390,9 +404,10 @@ const Utils = {
         const adUnits = appStrings?.adUnits;
         try {
             //Setup do remoteconfig (Precisa de internet). Trabalho NÃO-tracking — sempre roda.
+            //HotUpdater: já é disparado no module-scope do RootLayout (initHotUpdater) — não duplicamos aqui.
+            //checkForRequiredUpdateDialog: movido para DEPOIS do ATT (RootLayout) para o Alert não
+            //colidir/suprimir o prompt do ATT (iOS exibe um modal de sistema por vez).
             const remoteConfigs = await Utils.getRemoteConfigUtils();
-            try { await Utils.maybeApplyUpdate(appStrings?.hotUpdaterUrl); }           catch (e) { expoUtilsWarn("maybeApplyUpdate:", e); }
-            try { await Utils.checkForRequiredUpdateDialog(remoteConfigs); }           catch (e) { expoUtilsWarn("checkForRequiredUpdateDialog:", e); }
             try { await Utils.setupRevenueCat(rckey); }                                catch (e) { expoUtilsWarn("setupRevenueCat:", e); }
             try { await Utils.setupGlobalConfigs(appConfig, remoteConfigs, adUnits); } catch (e) { expoUtilsWarn("setupGlobalConfigs:", e); }
             try { await reportConfigIntegrity(remoteConfigs, appConfig); }             catch (e) { expoUtilsWarn("reportConfigIntegrity:", e); }
@@ -488,14 +503,15 @@ const Utils = {
             try { await Utils.requestPushPermission(); } catch (e) { expoUtilsWarn("requestPushPermission:", e); }
         }
 
-        // SDKs de tracking rodam DEPOIS do prompt. O advertiser/IDFA do FB segue o resultado real
-        // do ATT (granted); TikTok/atribuição inicializam mas só obtêm IDFA real quando concedido.
+        // SDKs de tracking rodam DEPOIS do prompt. FB advertiser/IDFA e a coleta de IDFA do
+        // RevenueCat (collectDeviceIdentifiers) seguem o resultado real do ATT (granted). TikTok/
+        // link-in-bio inicializam para SKAdNetwork/atribuição agregada (não recebem IDFA do nosso código).
         const rckey = appStrings?.rckey;
         const remoteConfigs = (global as any).remoteConfigUtils as RemoteConfigUtilsType;
         try { await Utils.initFBSDK(appConfig, granted); }                   catch (e) { expoUtilsWarn("initFBSDK:", e); }
         try { await Utils.initTikTokSDK(remoteConfigs, rckey); }             catch (e) { expoUtilsWarn("initTikTokSDK:", e); }
         try { await Utils.initLinkInBioTracking(remoteConfigs, appConfig); } catch (e) { expoUtilsWarn("initLinkInBioTracking:", e); }
-        try { await Utils.setupAttribution(rckey); }                         catch (e) { expoUtilsWarn("setupAttribution:", e); }
+        try { await Utils.setupAttribution(rckey, granted); }                catch (e) { expoUtilsWarn("setupAttribution:", e); }
 
         return granted;
     },
@@ -636,10 +652,13 @@ const Utils = {
         }
     },
 
-    setupAttribution: async (rckey?: string) => {
+    setupAttribution: async (rckey?: string, attGranted: boolean = false) => {
         if (!rckey) return;
-        await Purchases.enableAdServicesAttributionTokenCollection();
-        await Purchases.collectDeviceIdentifiers();
+        await Purchases.enableAdServicesAttributionTokenCollection(); // Apple AdServices: permitido sem ATT
+        if (attGranted) {
+            // collectDeviceIdentifiers lê o IDFA — só coletamos com consentimento ATT concedido.
+            await Purchases.collectDeviceIdentifiers();
+        }
         await Purchases.setFBAnonymousID(await AppEventsLogger.getAnonymousID());
         await Purchases.setPushToken(await getToken(getMessaging(getApp())));
         await Purchases.setFirebaseAppInstanceID(await getAppInstanceId(getAnalytics(getApp())));

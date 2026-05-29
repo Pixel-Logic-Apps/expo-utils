@@ -48,6 +48,8 @@ function RootLayout() {
         (async () => {
             await SplashScreen.hideAsync().catch(() => {});
             await Utils.requestTrackingWhenActive(appConfig, appStrings);
+            // Depois do ATT: checa update obrigatório (evita o Alert colidir/suprimir o prompt do ATT).
+            await Utils.checkForRequiredUpdateDialog(global.remoteConfigUtils);
             setupAppOpenListener();
             showPromoModal();
         })();
