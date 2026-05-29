@@ -46,7 +46,7 @@ import {
     fetchAndActivate,
     getValue,
 } from "@react-native-firebase/remote-config";
-import {getMessaging, requestPermission, onMessage, subscribeToTopic, getToken, setBackgroundMessageHandler, experimentalSetDeliveryMetricsExportedToBigQueryEnabled, registerDeviceForRemoteMessages} from "@react-native-firebase/messaging";
+import {getMessaging, requestPermission, onMessage, subscribeToTopic, getToken, setBackgroundMessageHandler, experimentalSetDeliveryMetricsExportedToBigQueryEnabled, registerDeviceForRemoteMessages, getAPNSToken} from "@react-native-firebase/messaging";
 import {getAnalytics, getAppInstanceId, logEvent} from "@react-native-firebase/analytics";
 import {getApp} from "@react-native-firebase/app";
 import TiktokAdsEvents, {TikTokStandardEvents, TikTokWaitForConfig} from "expo-tiktok-ads-events";
@@ -97,6 +97,10 @@ export async function initHotUpdater(baseURL?: string) {
         expoUtilsWarn("initHotUpdater:", e);
     }
 }
+
+// Memoiza o portão de APNs: o token (ou a ausência dele) não muda dentro de uma sessão,
+// então pollamos uma única vez e reusamos o resultado em requestFCMToken/setupMessagingTopics/etc.
+let apnsReadyPromise: Promise<boolean> | null = null;
 
 const Utils = {
     // Função para buscar App ID iOS a partir do bundle ID
@@ -227,14 +231,48 @@ const Utils = {
      * o token, evitando a janela de fresh install em que subscribeToTopic falharia por token ainda
      * inexistente. No iOS o auto-register (default true) já cobre o registro; o `if` é só fallback.
      */
+    /**
+     * Portão de APNs: no iOS o APNS token chega via callback NATIVO assíncrono.
+     * `registerDeviceForRemoteMessages` só INICIA o registro — não espera o token.
+     * Se chamarmos getToken/subscribeToTopic antes do APNS token existir, o Firebase
+     * solta "No APNS token specified before fetching FCM Token" (Code 505).
+     * Aqui registramos e fazemos polling do getAPNSToken até ele aparecer (ou timeout).
+     * Retorna false quando o APNS nunca chega (ex.: simulador sem push) — aí o caller
+     * pula getToken/inscrições em vez de falhar com erro.
+     */
+    ensureApnsReady: async (timeoutMs = 10000): Promise<boolean> => {
+        if (Platform.OS !== "ios") return true; // Android não usa APNs
+        if (apnsReadyPromise) return apnsReadyPromise; // pollamos só 1x por sessão
+        apnsReadyPromise = (async () => {
+            try {
+                const messaging = getMessaging(getApp());
+                // no-op se auto-register (default true) já registrou
+                if (!messaging.isDeviceRegisteredForRemoteMessages) {
+                    await registerDeviceForRemoteMessages(messaging);
+                }
+                const start = Date.now();
+                let apnsToken = await getAPNSToken(messaging);
+                while (!apnsToken && Date.now() - start < timeoutMs) {
+                    await new Promise((resolve) => setTimeout(resolve, 300));
+                    apnsToken = await getAPNSToken(messaging);
+                }
+                if (!apnsToken) {
+                    expoUtilsWarn("APNS token indisponível (ex.: simulador sem push) — pulando FCM token/tópicos.");
+                    return false;
+                }
+                return true;
+            } catch (e) {
+                expoUtilsWarn("ensureApnsReady:", e);
+                return false;
+            }
+        })();
+        return apnsReadyPromise;
+    },
+
     requestFCMToken: async () =>{
+        // Espera o APNS token de verdade antes de buscar o FCM token (iOS).
+        if (!(await Utils.ensureApnsReady())) return;
         const messaging = getMessaging(getApp());
-        // iOS: garante registro pra remote messages (no-op se auto-register já fez — default true)
-        if (Platform.OS === "ios" && !messaging.isDeviceRegisteredForRemoteMessages) {
-            await registerDeviceForRemoteMessages(messaging);
-        }
-        // Portão: só resolve quando o token (APNs → FCM) está disponível.
-        // A partir daqui subscribeToTopic é garantido.
         await getToken(messaging);
     },
 
@@ -284,6 +322,10 @@ const Utils = {
                         return Promise.resolve();
                     });
                 } catch (e) { expoUtilsWarn("setBackgroundMessageHandler:", e); }
+
+                // Inscrições em tópico exigem o APNS token no iOS (senão "No APNS token specified").
+                // Esperamos ele aqui; se não chegar (ex.: simulador), pulamos sem spammar erro.
+                if (!(await Utils.ensureApnsReady())) return;
 
                 const topicName = appConfig?.expo?.slug || "default-topic";
                 subscribeToTopic(messaging, topicName)
@@ -620,6 +662,8 @@ const Utils = {
 
     updateRCStatusMessagingTopic: async (appConfig?: AppConfig, rckey?: string) => {
         if (!rckey) return;
+        // subscribe/unsubscribe exigem APNS token no iOS — pula se indisponível (ex.: simulador)
+        if (!(await Utils.ensureApnsReady())) return;
         try {
 
             const messaging = getMessaging(getApp());
