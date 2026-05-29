@@ -325,9 +325,24 @@ function handleLanguagesFlag() {
 
     const baseAppName = config.expo?.name || "MyApp";
     const languages = {
-        pt: {name: `${baseAppName}`, file: "pt.json"},
-        en: {name: `${baseAppName}`, file: "en.json"},
-        es: {name: `${baseAppName}`, file: "es.json"},
+        pt: {
+            name: `${baseAppName}`,
+            file: "pt.json",
+            tracking:
+                "Precisamos da sua permissão para personalizar sua experiência com anúncios e conteúdos relevantes. Seus dados nos ajudam a melhorar as recomendações e garantir que você veja o que é mais interessante para você.",
+        },
+        en: {
+            name: `${baseAppName}`,
+            file: "en.json",
+            tracking:
+                "We need your permission to personalize your experience with relevant ads and content. Your data helps us improve recommendations and ensure you see what's most interesting to you.",
+        },
+        es: {
+            name: `${baseAppName}`,
+            file: "es.json",
+            tracking:
+                "Necesitamos tu permiso para personalizar tu experiencia con anuncios y contenido relevantes. Tus datos nos ayudan a mejorar las recomendaciones y garantizar que veas lo que más te interesa.",
+        },
     };
 
     Object.keys(languages).forEach((langCode) => {
@@ -337,7 +352,8 @@ function handleLanguagesFlag() {
         if (!fs.existsSync(filePath)) {
             const localizedConfig = {
                 ios:{
-                    CFBundleDisplayName: langInfo.name
+                    CFBundleDisplayName: langInfo.name,
+                    NSUserTrackingUsageDescription: langInfo.tracking
                 },
                 android:{
                     app_name: langInfo.name
@@ -555,7 +571,15 @@ function handleIosBuildFixFlag() {
     const iosBuildConfig = {
         useFrameworks: "static",
         useModularHeaders: true,
-        forceStaticLinking: ["RNFBApp", "RNFBAuth", "RNFBFirestore"]
+        forceStaticLinking: [
+            "RNFBApp",
+            "RNFBAuth",
+            "RNFBFirestore",
+            "RNFBMessaging",
+            "RNFBCrashlytics",
+            "RNFBAnalytics",
+            "RNFBRemoteConfig"
+        ]
     };
 
     if (buildPropertiesIndex !== -1) {

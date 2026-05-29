@@ -1,6 +1,6 @@
 {
   "name": "expo-utils",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "CLI tool and utility library that automates 90% of the initial setup for Expo/React Native projects",
   "keywords": [
     "expo",
@@ -67,7 +67,6 @@
     "expo-linking": ">=55.0.15",
     "expo-localization": ">=55.0.14",
     "expo-mail-composer": ">=55.0.14",
-    "expo-media-library": ">=55.0.17",
     "expo-network": ">=55.0.14",
     "expo-print": ">=55.0.15",
     "expo-router": ">=55.0.14",
@@ -163,9 +162,6 @@
       "optional": true
     },
     "expo-mail-composer": {
-      "optional": true
-    },
-    "expo-media-library": {
       "optional": true
     },
     "expo-network": {
