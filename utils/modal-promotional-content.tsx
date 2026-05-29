@@ -1,4 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import DEFAULT_NOTIFICATION_BG from "../assets/notification-bg-terrazzo.jpg";
 import {LinearGradient} from "expo-linear-gradient";
 import {getLocales} from "expo-localization";
 import * as Linking from "expo-linking";
@@ -607,6 +608,9 @@ function FullscreenContent({visible, onClose, colors: colorsProp, t, config}: Pr
         let VideoComponent: any = null;
         if (config.videoUrl) {
             try {
+                // expo-av é OPCIONAL (não é peerDep nem vem instalado): carregado dinamicamente
+                // só quando há videoUrl. Import estático quebraria o bundle de apps sem expo-av.
+                // eslint-disable-next-line @typescript-eslint/no-var-requires
                 VideoComponent = require("expo-av").Video;
             } catch {}
         }
@@ -717,7 +721,7 @@ function FullscreenContent({visible, onClose, colors: colorsProp, t, config}: Pr
 
 // ─── Notification Card (iOS-style notification) ─────────────────────────────
 
-const DEFAULT_NOTIFICATION_BG = require("../assets/notification-bg-terrazzo.jpg");
+// DEFAULT_NOTIFICATION_BG importado estaticamente no topo do arquivo
 
 function NotificationCardContent({visible, onClose, colors: colorsProp, t, config}: Props & {config: PromotionalConfig}) {
     const insets = useSafeAreaInsets();

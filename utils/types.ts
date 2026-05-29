@@ -84,4 +84,19 @@ export interface RemoteConfigUtilsType {
     tiktokads?: {token: string; appid: string; tkappid: string; isdebug: boolean};
     clarity_id?: string;
     trends_tracking_url?: string;
+    is_opted_out_trial_enabled?: boolean;
+}
+
+/**
+ * Augmentação global injetada pela própria lib. Como este arquivo é importado em toda a cadeia
+ * que usa o expo-utils (Utils -> ./types, o template, o index), o TypeScript carrega esta
+ * declaração automaticamente no projeto que instala o pacote — o dev NÃO precisa criar nenhum
+ * global.d.ts. Acesse via `globalThis.remoteConfigUtils` etc. (não declaramos o nome `global`
+ * aqui de propósito, para não conflitar com @types/node em apps que o tenham).
+ */
+declare global {
+    var remoteConfigUtils: RemoteConfigUtilsType;
+    var remoteConfigScreens: any;
+    var isAdsEnabled: boolean;
+    var adUnits: any;
 }

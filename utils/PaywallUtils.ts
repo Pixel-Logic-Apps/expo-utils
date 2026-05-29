@@ -1,5 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {useCallback, useEffect, useMemo, useRef, useState} from "react";
+import Purchases from "react-native-purchases";
 
 type PurchasesModule = any;
 
@@ -133,9 +134,7 @@ export interface UsePaywallResult extends PaywallLoadResult {
 }
 
 function getPurchases(): PurchasesModule {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const mod = require("react-native-purchases");
-    return mod.default || mod;
+    return Purchases;
 }
 
 function uniq(values: string[]) {

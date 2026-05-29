@@ -6,15 +6,9 @@ import AskForReviewOverlay, {AskForReviewEvents} from "expo-utils/utils/ask-for-
 import PromotionalContent, {usePromotional} from "expo-utils/utils/modal-promotional-content";
 import appConfig from "../../app.json";
 import appStrings from "../constants/Strings";
-import type {RemoteConfigUtilsType} from "expo-utils/utils/types";
 
-declare global {
-    var remoteConfigUtils: RemoteConfigUtilsType;
-    var remoteConfigScreens: any;
-    var isAdsEnabled: boolean;
-    var adUnits: any;
-}
-
+// As globais (globalThis.remoteConfigUtils, isAdsEnabled, etc.) já vêm tipadas pelo próprio
+// expo-utils — não precisa declarar nada aqui nem criar um global.d.ts.
 SplashScreen.preventAutoHideAsync().catch(() => {});
 initHotUpdater(appStrings.hotUpdaterUrl);
 
@@ -29,7 +23,7 @@ function RootLayout() {
     //    SDKs de tracking, e define appIsReady ao final — então o app sempre renderiza
     //    (sem risco de tela travada esperando permissão).
     useEffect(() => {
-        global.isAdsEnabled = !__DEV__;
+        globalThis.isAdsEnabled = !__DEV__;
         Utils.prepare(setAppIsReady, appConfig, appStrings);
         const unsubscribe = AskForReviewEvents.onShowPopup(() => {
             setShowReviewOverlay(true);
@@ -49,7 +43,8 @@ function RootLayout() {
             await SplashScreen.hideAsync().catch(() => {});
             await Utils.requestTrackingWhenActive(appConfig, appStrings);
             // Depois do ATT: checa update obrigatório (evita o Alert colidir/suprimir o prompt do ATT).
-            await Utils.checkForRequiredUpdateDialog(global.remoteConfigUtils);
+            // Lê o remoteConfig do globalThis internamente — não passa argumento.
+            await Utils.checkForRequiredUpdateDialog();
             setupAppOpenListener();
             showPromoModal();
         })();
@@ -68,7 +63,7 @@ function RootLayout() {
             <AskForReviewOverlay
                 visible={showReviewOverlay}
                 onClose={() => setShowReviewOverlay(false)}
-                delay={global.remoteConfigUtils?.review_type_delay || 0}
+                delay={globalThis.remoteConfigUtils?.review_type_delay || 0}
             />
         </>
     );

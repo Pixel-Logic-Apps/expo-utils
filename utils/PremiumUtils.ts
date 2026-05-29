@@ -1,4 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import Purchases from "react-native-purchases";
 
 /**
  * Classe utilitária para gerenciar funcionalidades relacionadas ao status premium
@@ -27,7 +28,6 @@ export class PremiumUtils {
                 return (await AsyncStorage.getItem("@isPremium")) === "true";
             }
 
-            const Purchases = require("react-native-purchases").default;
             const customerInfo = await Purchases.getCustomerInfo();
 
             // Se o trial opted out estiver habilitado, retorna true se o usuário

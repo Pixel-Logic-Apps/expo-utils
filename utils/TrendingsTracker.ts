@@ -356,7 +356,7 @@ class TrendingsTrackerClass {
    */
   private getLocale(): string {
     try {
-      const { NativeModules: NM } = require('react-native');
+      const NM = NativeModules; // importado estaticamente no topo
 
       // iOS
       if (Platform.OS === 'ios') {

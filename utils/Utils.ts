@@ -1,6 +1,6 @@
 // Função para warnings configuráveis do expo-utils
 export function expoUtilsWarn(...args: any[]) {
-    if (!(global as any).disableExpoUtilsWarnings) {
+    if (!(globalThis as any).disableExpoUtilsWarnings) {
         // eslint-disable-next-line no-console
         console.warn(...args);
     }
@@ -8,7 +8,7 @@ export function expoUtilsWarn(...args: any[]) {
 
 // Função para logs configuráveis do expo-utils
 export function expoUtilsLog(...args: any[]) {
-    if (!(global as any).disableExpoUtilsLogs) {
+    if (!(globalThis as any).disableExpoUtilsLogs) {
         // eslint-disable-next-line no-console
         console.log(...args);
     }
@@ -16,20 +16,19 @@ export function expoUtilsLog(...args: any[]) {
 
 import {AppConfig, AppStrings, RemoteConfigUtilsType} from "./types";
 import {getLocalizedMessages} from "./i18n";
+import {getLocales} from "expo-localization";
 const safeGetLocales = (): Array<{languageCode?: string; regionCode?: string}> => {
     try {
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const mod = require("expo-localization");
-        if (mod && typeof mod.getLocales === "function") {
-            return mod.getLocales();
-        }
-    } catch {}
-    return [{languageCode: "en"}];
+        return getLocales();
+    } catch {
+        return [{languageCode: "en"}];
+    }
 };
 
 // Static imports for runtime dependencies
 import {requestTrackingPermissionsAsync, getTrackingPermissionsAsync} from "expo-tracking-transparency";
 import * as Application from "expo-application";
+import * as Clarity from "@microsoft/react-native-clarity";
 import {AppEventsLogger, Settings as FbsdkSettings} from "react-native-fbsdk-next";
 import Purchases, {LOG_LEVEL} from "react-native-purchases";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -218,7 +217,6 @@ const Utils = {
             return;
         }
         try {
-            const Clarity = require("@microsoft/react-native-clarity");
             Clarity.initialize(clarityProjectId, {logLevel: Clarity.LogLevel.None});
         } catch {}
     },
@@ -314,7 +312,7 @@ const Utils = {
 
     checkForRequiredUpdateDialog: async () => {
         try {
-            const remoteConfigs = (global as any).remoteConfigUtils as RemoteConfigUtilsType;
+            const remoteConfigs = (globalThis as any).remoteConfigUtils as RemoteConfigUtilsType;
             if (!Application.nativeApplicationVersion) return;
             const version = parseFloat(Application.nativeApplicationVersion);
             const minVersion = parseFloat((remoteConfigs?.min_version ?? 0).toString());
@@ -507,7 +505,7 @@ const Utils = {
         // RevenueCat (collectDeviceIdentifiers) seguem o resultado real do ATT (granted). TikTok/
         // link-in-bio inicializam para SKAdNetwork/atribuição agregada (não recebem IDFA do nosso código).
         const rckey = appStrings?.rckey;
-        const remoteConfigs = (global as any).remoteConfigUtils as RemoteConfigUtilsType;
+        const remoteConfigs = (globalThis as any).remoteConfigUtils as RemoteConfigUtilsType;
         try { await Utils.initFBSDK(appConfig, granted); }                   catch (e) { expoUtilsWarn("initFBSDK:", e); }
         try { await Utils.initTikTokSDK(remoteConfigs, rckey); }             catch (e) { expoUtilsWarn("initTikTokSDK:", e); }
         try { await Utils.initLinkInBioTracking(remoteConfigs, appConfig); } catch (e) { expoUtilsWarn("initLinkInBioTracking:", e); }
@@ -667,19 +665,19 @@ const Utils = {
 
     setupGlobalConfigs: async (appConfig?: any, remoteConfigs?: RemoteConfigUtilsType, adUnits?: object) => {
         if (getExpoUtilsDisableWarnings(appConfig)) {
-            (global as any).disableExpoUtilsWarnings = true;
+            (globalThis as any).disableExpoUtilsWarnings = true;
         }
         if (getExpoUtilsDisableLogs(appConfig)) {
-            (global as any).disableExpoUtilsLogs = true;
+            (globalThis as any).disableExpoUtilsLogs = true;
         }
         if (adUnits) {
-            (global as any).adUnits = adUnits;
+            (globalThis as any).adUnits = adUnits;
         }
         if (remoteConfigs?.is_ads_enabled === false) {
-            (global as any).isAdsEnabled = false;
+            (globalThis as any).isAdsEnabled = false;
         }
-        (global as any).remoteConfigUtils = remoteConfigs;
-        try { (global as any).remoteConfigScreens = await Utils.getRemoteConfigScreens(); } catch {}
+        (globalThis as any).remoteConfigUtils = remoteConfigs;
+        try { (globalThis as any).remoteConfigScreens = await Utils.getRemoteConfigScreens(); } catch {}
         if (remoteConfigs?.ad_blocklist) {
             setBlocklist(remoteConfigs.ad_blocklist);
         }

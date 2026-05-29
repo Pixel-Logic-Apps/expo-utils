@@ -1,4 +1,5 @@
 import React, {useEffect, useRef} from "react";
+import DEFAULT_REVIEW_IMAGE from "../assets/banner-star.jpg";
 import {
     View,
     Text,
@@ -122,8 +123,7 @@ interface AskForReviewOverlayProps {
     notNowText?: string;
 }
 
-// Default review banner image
-const DEFAULT_REVIEW_IMAGE = require("../assets/banner-star.jpg");
+// Default review banner image (importada estaticamente no topo)
 
 // Default translations
 const TRANSLATIONS: Record<string, {title: string; message: string; rateNow: string; notNow: string}> = {

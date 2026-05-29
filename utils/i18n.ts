@@ -1,4 +1,5 @@
 // Sistema de internacionalização para expo-utils
+import {NativeModules} from "react-native";
 export interface Translations {
     updateRequired: string;
     updateMessage: string;
@@ -114,9 +115,7 @@ export const getSystemLanguage = (): string => {
             return navigator.language;
         }
 
-        // React Native iOS/Android
-        const NativeModules = require("react-native")?.NativeModules;
-
+        // React Native iOS/Android (NativeModules importado estaticamente no topo)
         // iOS
         if (NativeModules?.SettingsManager?.settings?.AppleLanguages) {
             return NativeModules.SettingsManager.settings.AppleLanguages[0];
