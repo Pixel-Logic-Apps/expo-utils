@@ -28,15 +28,15 @@ const safeGetLocales = (): Array<{languageCode?: string; regionCode?: string}> =
 };
 
 // Static imports for runtime dependencies
-import {requestTrackingPermissionsAsync} from "expo-tracking-transparency";
+import {requestTrackingPermissionsAsync, getTrackingPermissionsAsync} from "expo-tracking-transparency";
 import * as Application from "expo-application";
 import {AppEventsLogger, Settings as FbsdkSettings} from "react-native-fbsdk-next";
 import Purchases, {LOG_LEVEL} from "react-native-purchases";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import {Alert, Platform, Linking, LogBox, DevSettings, PermissionsAndroid} from "react-native";
+import {Alert, AppState, Platform, Linking, LogBox, DevSettings, PermissionsAndroid} from "react-native";
 import {registerDevMenuItems} from "expo-dev-menu";
 import {HotUpdater} from "@hot-updater/react-native";
-import {logConfigIntegrityValues, reportConfigIntegrity} from "./config-integrity";
+import {reportConfigIntegrity} from "./config-integrity";
 import {setBlocklist} from "./AdPlacementTracker";
 
 // Importações modulares do Firebase
@@ -47,7 +47,7 @@ import {
     fetchAndActivate,
     getValue,
 } from "@react-native-firebase/remote-config";
-import {getMessaging, requestPermission, onMessage, subscribeToTopic, getToken, setBackgroundMessageHandler, experimentalSetDeliveryMetricsExportedToBigQueryEnabled} from "@react-native-firebase/messaging";
+import {getMessaging, requestPermission, onMessage, subscribeToTopic, getToken, setBackgroundMessageHandler, experimentalSetDeliveryMetricsExportedToBigQueryEnabled, registerDeviceForRemoteMessages} from "@react-native-firebase/messaging";
 import {getAnalytics, getAppInstanceId, logEvent} from "@react-native-firebase/analytics";
 import {getApp} from "@react-native-firebase/app";
 import TiktokAdsEvents, {TikTokStandardEvents, TikTokWaitForConfig} from "expo-tiktok-ads-events";
@@ -81,6 +81,22 @@ function getExpoUtilsDisableLogs(appConfig?: any): boolean {
         }
     }
     return false;
+}
+
+export async function initHotUpdater(baseURL?: string) {
+    if (!baseURL) return;
+    try {
+        HotUpdater.init({baseURL});
+        const updateInfo = await HotUpdater.checkForUpdate({updateStrategy: "appVersion"});
+        if (updateInfo) {
+            await updateInfo.updateBundle();
+            if (updateInfo.shouldForceUpdate) {
+                await HotUpdater.reload();
+            }
+        }
+    } catch (e) {
+        expoUtilsWarn("initHotUpdater:", e);
+    }
 }
 
 const Utils = {
@@ -160,7 +176,7 @@ const Utils = {
         }
     },
 
-    initFBSDK: async (appConfig?: AppConfig) => {
+    initFBSDK: async (appConfig?: AppConfig, attGranted: boolean = false) => {
         try {
             FbsdkSettings.initializeSDK();
             const fbConfig = appConfig?.expo?.plugins?.find(
@@ -173,7 +189,10 @@ const Utils = {
                 return;
             }
             FbsdkSettings.setAppID(appID);
-            await FbsdkSettings.setAdvertiserTrackingEnabled(true);
+            // A coleta de IDFA é desligada por padrão no plugin (advertiserIDCollectionEnabled:false).
+            // Aqui seguimos o resultado REAL do ATT: advertiser/IDFA só ligam quando attGranted === true.
+            FbsdkSettings.setAdvertiserIDCollectionEnabled(attGranted);
+            await FbsdkSettings.setAdvertiserTrackingEnabled(attGranted);
         } catch (error) {
             console.error("Error setting up Facebook SDK:", error);
         }
@@ -190,7 +209,26 @@ const Utils = {
             Clarity.initialize(clarityProjectId, {logLevel: Clarity.LogLevel.None});
         } catch {}
     },
-    setupPushNotifications: async (appConfig?: AppConfig) => {
+
+    requestFCMToken: async () =>{
+        const messaging = getMessaging(getApp());
+        // iOS: garante registro pra remote messages (no-op se auto-register já fez — default true)
+        if (Platform.OS === "ios" && !messaging.isDeviceRegisteredForRemoteMessages) {
+            await registerDeviceForRemoteMessages(messaging);
+        }
+        // Portão: só resolve quando o token (APNs → FCM) está disponível.
+        // A partir daqui subscribeToTopic é garantido.
+        await getToken(messaging);
+    },
+
+    setupMessagingTopics: async (appConfig?: AppConfig, rckey?: string) => {
+
+        try { 
+            await Utils.updateRCStatusMessagingTopic(appConfig, rckey); 
+        }  catch (e) { 
+            expoUtilsWarn("updateRCStatusMessagingTopic:", e); 
+        }
+
         try {
             const app = getApp();
             if (app) {
@@ -308,7 +346,31 @@ const Utils = {
         }
     },
 
-    prepare: async (setAppIsReady: (ready: boolean) => void, appConfig?: any, appStrings?: AppStrings, requestPermissions: boolean = true) => {
+    /**
+     * Solicita a permissão de Push Notifications (NÃO chama ATT).
+     * O ATT é solicitado ANTES de prepare(), no RootLayout, com gate de AppState.
+     */
+    requestPushPermission: async () => {
+        try {
+            if (Platform.OS === "android") {
+                await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS);
+            } else {
+                await requestPermission(getMessaging(getApp()));
+            }
+        } catch (e) {
+            expoUtilsWarn("requestPushPermission:", e);
+        }
+    },
+
+    /**
+     * @param trackingAllowed Resultado do prompt ATT (granted) resolvido ANTES de prepare.
+     *   - true  => usuário autorizou: inicializa SDKs de tracking e coleta de identificadores.
+     *   - false => usuário negou OU consentimento ainda não foi dado: SDKs de tracking NÃO são
+     *              inicializados e nenhum identificador de rastreamento (IDFA/advertiser) é coletado.
+     *   prepare() NUNCA chama requestTrackingPermissionsAsync() — isso é responsabilidade do
+     *   RootLayout (chamada única, com gate de AppState.active, e aguardada antes de prepare).
+     */
+    prepare: async (setAppIsReady: (ready: boolean) => void, appConfig?: any, appStrings?: AppStrings) => {
         LogBox.ignoreAllLogs(true);
         if (__DEV__) {
             registerDevMenuItems([{name: "Clear Storage And Reload", callback: async () => { await AsyncStorage.clear(); DevSettings.reload(); }}]);
@@ -316,48 +378,100 @@ const Utils = {
         const rckey = appStrings?.rckey;
         const adUnits = appStrings?.adUnits;
         try {
-            //Caso não queira charmar os trackings no início.
-            if (requestPermissions) {
-                const {status} = await requestTrackingPermissionsAsync();
-                if (Platform.OS === "android") {
-                    await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS);
-                } else {
-                    await requestPermission(getMessaging(getApp()));
-                }
-            }
-
-            //Setup do remoteconfig (Precisa de internet).
+            //Setup do remoteconfig (Precisa de internet). Trabalho NÃO-tracking — sempre roda.
             const remoteConfigs = await Utils.getRemoteConfigUtils();
-            try { await Utils.maybeApplyUpdate(); }                                    catch (e) { expoUtilsWarn("maybeApplyUpdate:", e); }
+            try { await Utils.maybeApplyUpdate(appStrings?.hotUpdaterUrl); }           catch (e) { expoUtilsWarn("maybeApplyUpdate:", e); }
             try { await Utils.checkForRequiredUpdateDialog(remoteConfigs); }           catch (e) { expoUtilsWarn("checkForRequiredUpdateDialog:", e); }
             try { await Utils.setupRevenueCat(rckey); }                                catch (e) { expoUtilsWarn("setupRevenueCat:", e); }
             try { await Utils.setupGlobalConfigs(appConfig, remoteConfigs, adUnits); } catch (e) { expoUtilsWarn("setupGlobalConfigs:", e); }
             try { await reportConfigIntegrity(remoteConfigs, appConfig); }             catch (e) { expoUtilsWarn("reportConfigIntegrity:", e); }
 
-            //Precisa de carregar todas as libs pra setar os ids.
+            //Trabalho NÃO-tracking que pode rodar sem consentimento (push topics + clarity).
             (async () => {
-                try { await Utils.initFBSDK(appConfig); }                            catch (e) { expoUtilsWarn("initFBSDK:", e); }
-                try { await Utils.initTikTokSDK(remoteConfigs, rckey); }             catch (e) { expoUtilsWarn("initTikTokSDK:", e); }
-                try { await Utils.setupClarity(remoteConfigs); }                     catch (e) { expoUtilsWarn("setupClarity:", e); }
-                try { await Utils.setupPushNotifications(appConfig); }               catch (e) { expoUtilsWarn("setupPushNotifications:", e); }
-                try { await Utils.initLinkInBioTracking(remoteConfigs, appConfig); } catch (e) { expoUtilsWarn("initLinkInBioTracking:", e); }
-                try { await Utils.setupAttribution(rckey); }                         catch (e) { expoUtilsWarn("setupAttribution:", e); }
-                try { await Utils.updateMessagingTopic(appConfig, rckey); }          catch (e) { expoUtilsWarn("updateMessagingTopic:", e); }
+                try { await Utils.setupClarity(remoteConfigs); }                        catch (e) { expoUtilsWarn("setupClarity:", e); }
+                try { await Utils.requestFCMToken(); }                                  catch (e) { expoUtilsWarn("requestFCMToken:", e); }
+                try { await Utils.setupMessagingTopics(appConfig, rckey); }             catch (e) { expoUtilsWarn("setupPushNotifications:", e); }
             })();
+
 
             //Listener se mudou informacao do Usuário.
             try {
                 if (rckey) {
                     Purchases.addCustomerInfoUpdateListener(() => {
-                        Utils.updateMessagingTopic(appConfig, rckey);
+                        Utils.updateRCStatusMessagingTopic(appConfig, rckey);
                     });
                 }
             } catch (e) { expoUtilsWarn("addCustomerInfoUpdateListener:", e); }
+
+
         } catch (e) {
             expoUtilsWarn("Error in prepare:", e);
         } finally {
             setAppIsReady(true);
         }
+    },
+
+    /**
+     * Solicita o prompt ATT de forma confiável: garante que o app esteja em foreground/active
+     * antes de chamar requestTrackingAuthorization (requisito do iOS 15+, senão o prompt é
+     * silenciosamente ignorado). Pré-checa o status e só pede quando ainda está 'undetermined'.
+     * Aguarda o resultado e retorna se foi concedido (granted). Chamada ÚNICA (sem duplicação).
+     * NÃO trava: a espera por foreground tem timeout de fallback.
+     */
+    requestTrackingWhenActive: async (appConfig?: any, appStrings?: AppStrings, fcmTrackingAllowed: boolean = true): Promise<boolean> => {
+        let granted = true;
+
+        if (Platform.OS === "ios") {
+            try {
+                const current = await getTrackingPermissionsAsync();
+                if (current.status === "undetermined") {
+                    // O prompt do ATT só é exibido com o app em foreground/active. Esperamos esse
+                    // estado, mas SEMPRE com timeout de fallback para NUNCA travar o boot do app
+                    // (ex.: iPad em multitarefa/Split View pode reportar "inactive" indefinidamente).
+                    if (AppState.currentState !== "active") {
+                        await new Promise<void>((resolve) => {
+                            let done = false;
+                            const finish = () => {
+                                if (done) return;
+                                done = true;
+                                sub.remove();
+                                clearTimeout(timer);
+                                resolve();
+                            };
+                            const sub = AppState.addEventListener("change", (next) => {
+                                if (next === "active") finish();
+                            });
+                            const timer = setTimeout(finish, 4000);
+                            // Caso já tenha virado active entre a checagem e o registro do listener.
+                            if (AppState.currentState === "active") finish();
+                        });
+                    }
+                    const result = await requestTrackingPermissionsAsync();
+                    granted = result.status === "granted";
+                } else {
+                    granted = current.status === "granted";
+                }
+            } catch (e) {
+                expoUtilsWarn("requestTrackingWhenActive:", e);
+                granted = false;
+            }
+        }
+
+        // Push (iOS e Android) — não é tracking de IDFA, roda independente do ATT.
+        if (fcmTrackingAllowed) {
+            try { await Utils.requestPushPermission(); } catch (e) { expoUtilsWarn("requestPushPermission:", e); }
+        }
+
+        // SDKs de tracking rodam DEPOIS do prompt. O advertiser/IDFA do FB segue o resultado real
+        // do ATT (granted); TikTok/atribuição inicializam mas só obtêm IDFA real quando concedido.
+        const rckey = appStrings?.rckey;
+        const remoteConfigs = (global as any).remoteConfigUtils as RemoteConfigUtilsType;
+        try { await Utils.initFBSDK(appConfig, granted); }                   catch (e) { expoUtilsWarn("initFBSDK:", e); }
+        try { await Utils.initTikTokSDK(remoteConfigs, rckey); }             catch (e) { expoUtilsWarn("initTikTokSDK:", e); }
+        try { await Utils.initLinkInBioTracking(remoteConfigs, appConfig); } catch (e) { expoUtilsWarn("initLinkInBioTracking:", e); }
+        try { await Utils.setupAttribution(rckey); }                         catch (e) { expoUtilsWarn("setupAttribution:", e); }
+
+        return granted;
     },
 
     initLinkInBioTracking: async (remoteConfig: RemoteConfigUtilsType, appConfig: AppConfig) => {
@@ -389,17 +503,8 @@ const Utils = {
         }
     },
 
-    // Função para verificar e aplicar updates do HotUpdater
-    maybeApplyUpdate: async () => {
-        const updateInfo = await HotUpdater.checkForUpdate({
-            updateStrategy: "appVersion",
-        });
-        if (updateInfo) {
-            await updateInfo.updateBundle();
-            if (updateInfo.shouldForceUpdate) {
-                await HotUpdater.reload();
-            }
-        }
+    maybeApplyUpdate: async (baseURL?: string) => {
+        await initHotUpdater(baseURL);
     },
 
     getRevenueCatStatus: (customerInfo: any): string => {
@@ -472,9 +577,12 @@ const Utils = {
         return "free";
     },
 
-    updateMessagingTopic: async (appConfig: AppConfig, rckey?: string) => {
+    updateRCStatusMessagingTopic: async (appConfig?: AppConfig, rckey?: string) => {
         if (!rckey) return;
         try {
+
+            const messaging = getMessaging(getApp());
+
             const slug = appConfig?.expo?.slug || "default-topic";
             const customerInfo = await Purchases.getCustomerInfo();
 
@@ -486,13 +594,13 @@ const Utils = {
 
             // Se o topic mudou, desinscreve do anterior e inscreve no novo
             if (previousTopic && previousTopic !== newTopic) {
-                await getMessaging(getApp()).unsubscribeFromTopic(previousTopic);
+                await messaging.unsubscribeFromTopic(previousTopic);
                 logEvent(getAnalytics(getApp()), "fcm_topic_unsubscribe", {topic: previousTopic});
                 console.log("Unsubscribed from topic:", previousTopic);
             }
 
             if (previousTopic !== newTopic) {
-                await getMessaging(getApp()).subscribeToTopic(newTopic);
+                await messaging.subscribeToTopic(newTopic);
                 await AsyncStorage.setItem("FCM_CURRENT_TOPIC", newTopic);
                 logEvent(getAnalytics(getApp()), "fcm_topic_subscribe", {topic: newTopic, status});
                 console.log("Subscribed to topic:", newTopic);

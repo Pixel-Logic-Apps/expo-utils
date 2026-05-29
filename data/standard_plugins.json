@@ -8,7 +8,7 @@
         "clientToken": "c3f7f40770025caa43c54b87827739ab",
         "displayName": "App Name",
         "scheme": "fb713855851155194",
-        "advertiserIDCollectionEnabled": true,
+        "advertiserIDCollectionEnabled": false,
         "autoLogAppEventsEnabled": true,
         "isAutoInitEnabled": true
     },

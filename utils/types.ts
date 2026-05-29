@@ -32,6 +32,7 @@ export interface AdUnits {
 export interface AppStrings {
     rckey?: string;
     adUnits?: AdUnits;
+    hotUpdaterUrl?: string;
     [key: string]: any;
 }
 
