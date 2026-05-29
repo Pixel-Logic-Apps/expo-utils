@@ -18,37 +18,23 @@ function RootLayout() {
     const pathname = usePathname();
     const {visible: showPromo, show: showPromoModal, hide: hidePromoModal} = usePromotional(pathname);
 
-    // 1) Boot: só trabalho que NÃO depende de consentimento (remote config, hot updater,
-    //    RevenueCat, configs, token FCM e tópicos). prepare() não pede ATT/push nem inicia
-    //    SDKs de tracking, e define appIsReady ao final — então o app sempre renderiza
-    //    (sem risco de tela travada esperando permissão).
-    useEffect(() => {
-        global.isAdsEnabled = !__DEV__;
-        Utils.prepare(setAppIsReady, appConfig, appStrings);
-        const unsubscribe = AskForReviewEvents.onShowPopup(() => {
-            setShowReviewOverlay(true);
-        });
-        return unsubscribe;
-    }, []);
+    // Boot numa função só. O useEffect roda no mount e usa o retorno (unsubscribe) como cleanup.
+    useEffect(() => bootstrap(), []);
 
-    // 2) Só DEPOIS do primeiro frame (splash escondido, app em foreground) chamamos o ATT.
-    //    Pedir durante o splash/launch é o que fazia o prompt sumir de forma intermitente em
-    //    devices físicos. requestTrackingWhenActive() orquestra, nesta ordem: prompt ATT (iOS) →
-    //    permissão de push (iOS/Android) → SDKs de tracking (FB/TikTok/atribuição) já com o
-    //    resultado do consentimento, garantindo que nenhum IDFA/advertiser seja coletado antes
-    //    do "Permitir".
-    useEffect(() => {
-        if (!appIsReady) return;
+    function bootstrap() {
+        global.isAdsEnabled = !__DEV__;
         (async () => {
+            // Boot NÃO-tracking (prepare marca appIsReady -> renderiza a UI real). Só DEPOIS do
+            // primeiro frame (splash escondido) pedimos o ATT — timing confiável p/ o prompt e
+            // nenhum dado de tracking coletado antes do consentimento.
+            await Utils.prepare(setAppIsReady, appConfig, appStrings);
             await SplashScreen.hideAsync().catch(() => {});
             await Utils.requestTrackingWhenActive(appConfig, appStrings);
-            // Depois do ATT: checa update obrigatório (evita o Alert colidir/suprimir o prompt do ATT).
-            // Lê o remoteConfig do globalThis internamente — não passa argumento.
-            await Utils.checkForRequiredUpdateDialog();
             setupAppOpenListener();
             showPromoModal();
         })();
-    }, [appIsReady]);
+        return AskForReviewEvents.onShowPopup(() => setShowReviewOverlay(true));
+    }
 
     if (!appIsReady) {
         return null;
