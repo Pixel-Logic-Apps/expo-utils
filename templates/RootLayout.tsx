@@ -7,8 +7,11 @@ import PromotionalContent, {usePromotional} from "expo-utils/utils/modal-promoti
 import appConfig from "../../app.json";
 import appStrings from "../constants/Strings";
 
-// As globais (global.remoteConfigUtils, isAdsEnabled, etc.) e o próprio nome `global` já vêm
-// tipados pelo expo-utils — não precisa declarar nada aqui nem criar um global.d.ts.
+// Prefere um _layout enxuto? Troque tudo abaixo por <ExpoUtilsLayout> (de "expo-utils/utils/ExpoUtilsLayout"),
+// que encapsula esse boot e expõe um callback onReady. Este template explícito é o default por dar
+// controle total de CADA fase do boot.
+
+// Module-scope: roda no IMPORT, antes do mount/prepare (Hot Updater aplica OTA o quanto antes).
 SplashScreen.preventAutoHideAsync().catch(() => {});
 initHotUpdater(appStrings.hotUpdaterUrl);
 
@@ -18,23 +21,22 @@ function RootLayout() {
     const pathname = usePathname();
     const {visible: showPromo, show: showPromoModal, hide: hidePromoModal} = usePromotional(pathname);
 
-    // Boot numa função só. O useEffect roda no mount e usa o retorno (unsubscribe) como cleanup.
-    useEffect(() => bootstrap(), []);
-
-    function bootstrap() {
+    useEffect(() => {
         global.isAdsEnabled = !__DEV__;
         (async () => {
-            // Boot NÃO-tracking (prepare marca appIsReady -> renderiza a UI real). Só DEPOIS do
-            // primeiro frame (splash escondido) pedimos o ATT — timing confiável p/ o prompt e
-            // nenhum dado de tracking coletado antes do consentimento.
             await Utils.prepare(setAppIsReady, appConfig, appStrings);
             await SplashScreen.hideAsync().catch(() => {});
             await Utils.requestTrackingWhenActive(appConfig, appStrings);
             setupAppOpenListener();
             showPromoModal();
+
+            // 👉 SEU CÓDIGO PÓS-PREPARE AQUI (global.remoteConfigUtils já disponível).
+            // Só DEPOIS do primeiro frame (splash escondido) pedimos o ATT — timing confiável
+            // do prompt e nada de tracking coletado antes do consentimento.
+
         })();
         return AskForReviewEvents.onShowPopup(() => setShowReviewOverlay(true));
-    }
+    }, []);
 
     if (!appIsReady) {
         return null;

@@ -484,7 +484,7 @@ const Utils = {
                     // O useEffect roda no COMMIT do React, que NÃO é o frame apresentado na tela.
                     // O iOS descarta o prompt se ele dispara antes do 1º frame — então damos um
                     // tempo conservador para o frame ser apresentado antes de pedir o ATT.
-                    await new Promise<void>((resolve) => setTimeout(resolve, 500));
+                    await new Promise<void>((resolve) => setTimeout(resolve, 1000));
                     const result = await requestTrackingPermissionsAsync();
                     granted = result.status === "granted";
                 } else {
@@ -510,6 +510,7 @@ const Utils = {
         try { await Utils.initTikTokSDK(remoteConfigs, rckey); }             catch (e) { expoUtilsWarn("initTikTokSDK:", e); }
         try { await Utils.initLinkInBioTracking(remoteConfigs, appConfig); } catch (e) { expoUtilsWarn("initLinkInBioTracking:", e); }
         try { await Utils.setupAttribution(rckey, granted); }                catch (e) { expoUtilsWarn("setupAttribution:", e); }
+        try { await Utils.checkForRequiredUpdateDialog(); }                  catch (e) { expoUtilsWarn("setupAttribution:", e); }
 
         return granted;
     },
