@@ -6,27 +6,20 @@ import * as Linking from "expo-linking";
 import React, {useEffect, useRef, useState} from "react";
 import {Animated, Dimensions, Image, Modal, PanResponder, Pressable, StyleSheet, Text, View, ViewStyle} from "react-native";
 import {useSafeAreaInsets} from "react-native-safe-area-context";
+import {useVideoPlayer, VideoView} from "expo-video";
 import type {PromotionalConfig, PromotionalShadow} from "./types";
 export type {PromotionalShadow};
 
-// expo-video é OPCIONAL (não é peerDep nem vem instalado): carregado dinamicamente só quando
-// há videoUrl no promo. Import estático quebraria o bundle de apps sem expo-video.
-let ExpoVideo: any = null;
-try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    ExpoVideo = require("expo-video");
-} catch {}
-
-// Componente próprio por causa das regras de hooks (useVideoPlayer precisa ser chamado
-// incondicionalmente). Só é renderizado quando ExpoVideo está disponível.
+// PromoVideo precisa ser componente próprio por causa das regras de hooks
+// (useVideoPlayer é chamado incondicionalmente). expo-video é peerDep (instalado pelo CLI).
 function PromoVideo({uri}: {uri: string}) {
-    const player = ExpoVideo.useVideoPlayer(uri, (p: any) => {
+    const player = useVideoPlayer(uri, (p) => {
         p.loop = true;
         p.muted = false;
         p.play();
     });
     return (
-        <ExpoVideo.VideoView
+        <VideoView
             style={StyleSheet.absoluteFillObject}
             player={player}
             contentFit="cover"
@@ -634,7 +627,7 @@ function FullscreenContent({visible, onClose, colors: colorsProp, t, config}: Pr
         return (
             <Modal visible={visible} animationType="fade" onRequestClose={canClose ? onClose : undefined}>
                 <Pressable style={{flex: 1}} onPress={handleBaixar}>
-                    {ExpoVideo && config.videoUrl ? (
+                    {config.videoUrl ? (
                         <PromoVideo uri={config.videoUrl} />
                     ) : config.imageUrl ? (
                         <Image source={{uri: config.imageUrl}} style={StyleSheet.absoluteFillObject} resizeMode="cover" />

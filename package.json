@@ -239,6 +239,7 @@
     "expo-splash-screen": "~55.0.21",
     "expo-tiktok-ads-events": "^0.1.6",
     "expo-tracking-transparency": "~55.0.14",
+    "expo-video": "~55.0.17",
     "react": "19.2.0",
     "react-native": "0.83.6",
     "react-native-fbsdk-next": "^13.4.3",
