@@ -91,10 +91,13 @@ export interface RemoteConfigUtilsType {
  * Augmentação global injetada pela própria lib. Como este arquivo é importado em toda a cadeia
  * que usa o expo-utils (Utils -> ./types, o template, o index), o TypeScript carrega esta
  * declaração automaticamente no projeto que instala o pacote — o dev NÃO precisa criar nenhum
- * global.d.ts. Acesse via `globalThis.remoteConfigUtils` etc. (não declaramos o nome `global`
- * aqui de propósito, para não conflitar com @types/node em apps que o tenham).
+ * global.d.ts. Pode acessar via `global.X` ou `globalThis.X` (em runtime são o mesmo objeto).
  */
 declare global {
+    // Tipa o NOME `global` (Expo/RN não declara por padrão). É idêntico ao @types/node moderno
+    // (typeof globalThis), então faz merge sem conflito em apps que já tenham @types/node.
+    // eslint-disable-next-line no-var
+    var global: typeof globalThis;
     var remoteConfigUtils: RemoteConfigUtilsType;
     var remoteConfigScreens: any;
     var isAdsEnabled: boolean;

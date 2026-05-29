@@ -1,6 +1,6 @@
 // Função para warnings configuráveis do expo-utils
 export function expoUtilsWarn(...args: any[]) {
-    if (!(globalThis as any).disableExpoUtilsWarnings) {
+    if (!(global as any).disableExpoUtilsWarnings) {
         // eslint-disable-next-line no-console
         console.warn(...args);
     }
@@ -8,7 +8,7 @@ export function expoUtilsWarn(...args: any[]) {
 
 // Função para logs configuráveis do expo-utils
 export function expoUtilsLog(...args: any[]) {
-    if (!(globalThis as any).disableExpoUtilsLogs) {
+    if (!(global as any).disableExpoUtilsLogs) {
         // eslint-disable-next-line no-console
         console.log(...args);
     }
@@ -312,7 +312,7 @@ const Utils = {
 
     checkForRequiredUpdateDialog: async () => {
         try {
-            const remoteConfigs = (globalThis as any).remoteConfigUtils as RemoteConfigUtilsType;
+            const remoteConfigs = (global as any).remoteConfigUtils as RemoteConfigUtilsType;
             if (!Application.nativeApplicationVersion) return;
             const version = parseFloat(Application.nativeApplicationVersion);
             const minVersion = parseFloat((remoteConfigs?.min_version ?? 0).toString());
@@ -505,7 +505,7 @@ const Utils = {
         // RevenueCat (collectDeviceIdentifiers) seguem o resultado real do ATT (granted). TikTok/
         // link-in-bio inicializam para SKAdNetwork/atribuição agregada (não recebem IDFA do nosso código).
         const rckey = appStrings?.rckey;
-        const remoteConfigs = (globalThis as any).remoteConfigUtils as RemoteConfigUtilsType;
+        const remoteConfigs = (global as any).remoteConfigUtils as RemoteConfigUtilsType;
         try { await Utils.initFBSDK(appConfig, granted); }                   catch (e) { expoUtilsWarn("initFBSDK:", e); }
         try { await Utils.initTikTokSDK(remoteConfigs, rckey); }             catch (e) { expoUtilsWarn("initTikTokSDK:", e); }
         try { await Utils.initLinkInBioTracking(remoteConfigs, appConfig); } catch (e) { expoUtilsWarn("initLinkInBioTracking:", e); }
@@ -665,19 +665,19 @@ const Utils = {
 
     setupGlobalConfigs: async (appConfig?: any, remoteConfigs?: RemoteConfigUtilsType, adUnits?: object) => {
         if (getExpoUtilsDisableWarnings(appConfig)) {
-            (globalThis as any).disableExpoUtilsWarnings = true;
+            (global as any).disableExpoUtilsWarnings = true;
         }
         if (getExpoUtilsDisableLogs(appConfig)) {
-            (globalThis as any).disableExpoUtilsLogs = true;
+            (global as any).disableExpoUtilsLogs = true;
         }
         if (adUnits) {
-            (globalThis as any).adUnits = adUnits;
+            (global as any).adUnits = adUnits;
         }
         if (remoteConfigs?.is_ads_enabled === false) {
-            (globalThis as any).isAdsEnabled = false;
+            (global as any).isAdsEnabled = false;
         }
-        (globalThis as any).remoteConfigUtils = remoteConfigs;
-        try { (globalThis as any).remoteConfigScreens = await Utils.getRemoteConfigScreens(); } catch {}
+        (global as any).remoteConfigUtils = remoteConfigs;
+        try { (global as any).remoteConfigScreens = await Utils.getRemoteConfigScreens(); } catch {}
         if (remoteConfigs?.ad_blocklist) {
             setBlocklist(remoteConfigs.ad_blocklist);
         }

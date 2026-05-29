@@ -7,8 +7,8 @@ import PromotionalContent, {usePromotional} from "expo-utils/utils/modal-promoti
 import appConfig from "../../app.json";
 import appStrings from "../constants/Strings";
 
-// As globais (globalThis.remoteConfigUtils, isAdsEnabled, etc.) já vêm tipadas pelo próprio
-// expo-utils — não precisa declarar nada aqui nem criar um global.d.ts.
+// As globais (global.remoteConfigUtils, isAdsEnabled, etc.) e o próprio nome `global` já vêm
+// tipados pelo expo-utils — não precisa declarar nada aqui nem criar um global.d.ts.
 SplashScreen.preventAutoHideAsync().catch(() => {});
 initHotUpdater(appStrings.hotUpdaterUrl);
 
@@ -23,7 +23,7 @@ function RootLayout() {
     //    SDKs de tracking, e define appIsReady ao final — então o app sempre renderiza
     //    (sem risco de tela travada esperando permissão).
     useEffect(() => {
-        globalThis.isAdsEnabled = !__DEV__;
+        global.isAdsEnabled = !__DEV__;
         Utils.prepare(setAppIsReady, appConfig, appStrings);
         const unsubscribe = AskForReviewEvents.onShowPopup(() => {
             setShowReviewOverlay(true);
@@ -63,7 +63,7 @@ function RootLayout() {
             <AskForReviewOverlay
                 visible={showReviewOverlay}
                 onClose={() => setShowReviewOverlay(false)}
-                delay={globalThis.remoteConfigUtils?.review_type_delay || 0}
+                delay={global.remoteConfigUtils?.review_type_delay || 0}
             />
         </>
     );
