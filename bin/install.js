@@ -761,6 +761,7 @@ function handleEasConfigFlag() {
 .easignore
 .gitignore
 .DS_Store
+fingerprint.config.js
 package-lock.json
 rc-config-screens.json
 rc-config-utils.json
@@ -830,6 +831,7 @@ function handleGitignoreFlag() {
     const linesToAdd = [
         "package-lock.json",
         "policy.lock.json",
+        "fingerprint.config.js",
         "bun.lock",
         ".idea/",
         ".vscode/",
