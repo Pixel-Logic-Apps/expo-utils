@@ -24,9 +24,10 @@ function RootLayout() {
     const pathname = usePathname();
     const {visible: showPromo, show: showPromoModal, hide: hidePromoModal} = usePromotional(pathname);
 
-    // 1) Boot: trabalho NÃO-tracking (remote config, hot updater, RevenueCat, push, etc.).
-    //    Passamos false: NENHUM SDK de tracking inicializa aqui e o boot NÃO espera o ATT,
-    //    então o app sempre renderiza (não há risco de tela travada).
+    // 1) Boot: só trabalho que NÃO depende de consentimento (remote config, hot updater,
+    //    RevenueCat, configs, token FCM e tópicos). prepare() não pede ATT/push nem inicia
+    //    SDKs de tracking, e define appIsReady ao final — então o app sempre renderiza
+    //    (sem risco de tela travada esperando permissão).
     useEffect(() => {
         global.isAdsEnabled = !__DEV__;
         Utils.prepare(setAppIsReady, appConfig, appStrings);
@@ -36,11 +37,12 @@ function RootLayout() {
         return unsubscribe;
     }, []);
 
-    // 2) Só DEPOIS do primeiro frame (splash escondido, app em foreground) pedimos o ATT.
+    // 2) Só DEPOIS do primeiro frame (splash escondido, app em foreground) chamamos o ATT.
     //    Pedir durante o splash/launch é o que fazia o prompt sumir de forma intermitente em
-    //    devices físicos. Aqui o prompt aparece de forma confiável (iPhone/iPad) e, só após o
-    //    consentimento, inicializamos os SDKs de tracking — garantindo que nenhum dado de
-    //    rastreamento (IDFA/advertiser) seja coletado antes do "Permitir".
+    //    devices físicos. requestTrackingWhenActive() orquestra, nesta ordem: prompt ATT (iOS) →
+    //    permissão de push (iOS/Android) → SDKs de tracking (FB/TikTok/atribuição) já com o
+    //    resultado do consentimento, garantindo que nenhum IDFA/advertiser seja coletado antes
+    //    do "Permitir".
     useEffect(() => {
         if (!appIsReady) return;
         SplashScreen.hideAsync().catch(() => {});

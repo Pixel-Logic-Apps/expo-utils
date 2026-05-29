@@ -210,6 +210,12 @@ const Utils = {
         } catch {}
     },
 
+    /**
+     * Garante que o token de push (APNs → FCM) esteja disponível ANTES de inscrever em tópicos.
+     * NÃO pede permissão de notificação (não dispara prompt) — apenas registra o device e aguarda
+     * o token, evitando a janela de fresh install em que subscribeToTopic falharia por token ainda
+     * inexistente. No iOS o auto-register (default true) já cobre o registro; o `if` é só fallback.
+     */
     requestFCMToken: async () =>{
         const messaging = getMessaging(getApp());
         // iOS: garante registro pra remote messages (no-op se auto-register já fez — default true)
@@ -347,8 +353,10 @@ const Utils = {
     },
 
     /**
-     * Solicita a permissão de Push Notifications (NÃO chama ATT).
-     * O ATT é solicitado ANTES de prepare(), no RootLayout, com gate de AppState.
+     * Solicita a permissão de Push Notifications (Android: POST_NOTIFICATIONS; iOS: Firebase
+     * messaging). NÃO chama ATT — é permissão separada. É invocada por requestTrackingWhenActive
+     * (depois do prompt ATT, em ambas as plataformas). Não é pré-requisito para inscrição em
+     * tópicos: a permissão só controla a EXIBIÇÃO da notificação, não a inscrição/recebimento.
      */
     requestPushPermission: async () => {
         try {
@@ -363,12 +371,15 @@ const Utils = {
     },
 
     /**
-     * @param trackingAllowed Resultado do prompt ATT (granted) resolvido ANTES de prepare.
-     *   - true  => usuário autorizou: inicializa SDKs de tracking e coleta de identificadores.
-     *   - false => usuário negou OU consentimento ainda não foi dado: SDKs de tracking NÃO são
-     *              inicializados e nenhum identificador de rastreamento (IDFA/advertiser) é coletado.
-     *   prepare() NUNCA chama requestTrackingPermissionsAsync() — isso é responsabilidade do
-     *   RootLayout (chamada única, com gate de AppState.active, e aguardada antes de prepare).
+     * Boot do app — roda APENAS trabalho que NÃO depende de consentimento de tracking:
+     * Remote Config, Hot Updater, diálogo de update obrigatório, RevenueCat, configs globais,
+     * Clarity, token FCM e inscrição em tópicos de messaging. Define appIsReady ao final (no
+     * finally), então o app SEMPRE renderiza — o boot nunca espera por ATT/push.
+     *
+     * prepare() NÃO chama ATT, push, nem inicializa SDKs de tracking (FB/TikTok/atribuição).
+     * Tudo isso é feito DEPOIS do primeiro frame por Utils.requestTrackingWhenActive(), chamado
+     * no RootLayout — garantindo que o prompt ATT apareça de forma confiável e que nenhum dado
+     * de tracking seja coletado antes do consentimento.
      */
     prepare: async (setAppIsReady: (ready: boolean) => void, appConfig?: any, appStrings?: AppStrings) => {
         LogBox.ignoreAllLogs(true);
@@ -390,7 +401,7 @@ const Utils = {
             (async () => {
                 try { await Utils.setupClarity(remoteConfigs); }                        catch (e) { expoUtilsWarn("setupClarity:", e); }
                 try { await Utils.requestFCMToken(); }                                  catch (e) { expoUtilsWarn("requestFCMToken:", e); }
-                try { await Utils.setupMessagingTopics(appConfig, rckey); }             catch (e) { expoUtilsWarn("setupPushNotifications:", e); }
+                try { await Utils.setupMessagingTopics(appConfig, rckey); }             catch (e) { expoUtilsWarn("setupMessagingTopics:", e); }
             })();
 
 
@@ -412,11 +423,22 @@ const Utils = {
     },
 
     /**
-     * Solicita o prompt ATT de forma confiável: garante que o app esteja em foreground/active
-     * antes de chamar requestTrackingAuthorization (requisito do iOS 15+, senão o prompt é
-     * silenciosamente ignorado). Pré-checa o status e só pede quando ainda está 'undetermined'.
-     * Aguarda o resultado e retorna se foi concedido (granted). Chamada ÚNICA (sem duplicação).
-     * NÃO trava: a espera por foreground tem timeout de fallback.
+     * Orquestra, DEPOIS do primeiro frame, toda a etapa que depende de consentimento. Deve ser
+     * chamada uma única vez pelo RootLayout (no effect de appIsReady), nunca durante o boot.
+     *
+     * Ordem de execução:
+     *   1. ATT (somente iOS): garante app em foreground/active antes de requestTrackingAuthorization
+     *      — requisito do iOS 15+, senão o prompt é descartado silenciosamente. Pré-checa o status
+     *      e só pede quando 'undetermined'. A espera por foreground tem timeout (NÃO trava o app).
+     *   2. Push permission (iOS + Android), se fcmTrackingAllowed.
+     *   3. SDKs de tracking (FB, TikTok, link-in-bio, atribuição) — rodam APÓS o prompt. O
+     *      advertiser/IDFA do FB recebe o resultado REAL do ATT (granted); sem consentimento o
+     *      IDFA fica zerado/desligado.
+     *
+     * @param appConfig   app.json (para FB App ID, bundle/package, etc.)
+     * @param appStrings  Strings do app (de onde sai o rckey)
+     * @param fcmTrackingAllowed  se false, pula a permissão de push (default true)
+     * @returns true se o tracking (ATT) foi concedido. No Android/web retorna true.
      */
     requestTrackingWhenActive: async (appConfig?: any, appStrings?: AppStrings, fcmTrackingAllowed: boolean = true): Promise<boolean> => {
         let granted = true;
