@@ -9,6 +9,32 @@ import {useSafeAreaInsets} from "react-native-safe-area-context";
 import type {PromotionalConfig, PromotionalShadow} from "./types";
 export type {PromotionalShadow};
 
+// expo-video é OPCIONAL (não é peerDep nem vem instalado): carregado dinamicamente só quando
+// há videoUrl no promo. Import estático quebraria o bundle de apps sem expo-video.
+let ExpoVideo: any = null;
+try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    ExpoVideo = require("expo-video");
+} catch {}
+
+// Componente próprio por causa das regras de hooks (useVideoPlayer precisa ser chamado
+// incondicionalmente). Só é renderizado quando ExpoVideo está disponível.
+function PromoVideo({uri}: {uri: string}) {
+    const player = ExpoVideo.useVideoPlayer(uri, (p: any) => {
+        p.loop = true;
+        p.muted = false;
+        p.play();
+    });
+    return (
+        <ExpoVideo.VideoView
+            style={StyleSheet.absoluteFillObject}
+            player={player}
+            contentFit="cover"
+            nativeControls={false}
+        />
+    );
+}
+
 const STORAGE_KEY_NAO_MOSTRAR = "@nao_mostrar_app_promocionals";
 const STORAGE_KEY_VISIT_COUNT = "@promo_visit_count";
 
@@ -605,28 +631,11 @@ function FullscreenContent({visible, onClose, colors: colorsProp, t, config}: Pr
 
     // Full-media mode: video or image covers entire screen, tap to open store
     if (config.videoUrl || config.imageUrl) {
-        let VideoComponent: any = null;
-        if (config.videoUrl) {
-            try {
-                // expo-av é OPCIONAL (não é peerDep nem vem instalado): carregado dinamicamente
-                // só quando há videoUrl. Import estático quebraria o bundle de apps sem expo-av.
-                // eslint-disable-next-line @typescript-eslint/no-var-requires
-                VideoComponent = require("expo-av").Video;
-            } catch {}
-        }
-
         return (
             <Modal visible={visible} animationType="fade" onRequestClose={canClose ? onClose : undefined}>
                 <Pressable style={{flex: 1}} onPress={handleBaixar}>
-                    {VideoComponent && config.videoUrl ? (
-                        <VideoComponent
-                            source={{uri: config.videoUrl}}
-                            style={StyleSheet.absoluteFillObject}
-                            resizeMode="cover"
-                            shouldPlay={visible}
-                            isLooping
-                            isMuted={false}
-                        />
+                    {ExpoVideo && config.videoUrl ? (
+                        <PromoVideo uri={config.videoUrl} />
                     ) : config.imageUrl ? (
                         <Image source={{uri: config.imageUrl}} style={StyleSheet.absoluteFillObject} resizeMode="cover" />
                     ) : null}
