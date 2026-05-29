@@ -1,3 +1,4 @@
+/// <reference path="./images.d.ts" />
 import React, {useEffect, useRef} from "react";
 import DEFAULT_REVIEW_IMAGE from "../assets/banner-star.jpg";
 import {

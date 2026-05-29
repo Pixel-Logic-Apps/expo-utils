@@ -1,3 +1,4 @@
+/// <reference path="./images.d.ts" />
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import DEFAULT_NOTIFICATION_BG from "../assets/notification-bg-terrazzo.jpg";
 import {LinearGradient} from "expo-linear-gradient";
@@ -20,7 +21,7 @@ function PromoVideo({uri}: {uri: string}) {
     });
     return (
         <VideoView
-            style={StyleSheet.absoluteFillObject}
+            style={StyleSheet.absoluteFill}
             player={player}
             contentFit="cover"
             nativeControls={false}
@@ -487,14 +488,14 @@ function CardBannerBottomContent({visible, onClose, colors: colorsProp, t, confi
                     <>
                         <Image
                             source={{uri: config.imageUrl}}
-                            style={[StyleSheet.absoluteFillObject, {borderRadius: 16}]}
+                            style={[StyleSheet.absoluteFill, {borderRadius: 16}]}
                             resizeMode="cover"
                         />
                         <LinearGradient
                             colors={["transparent", "rgba(255,255,255,0.85)"]}
                             start={{x: 0, y: 0.3}}
                             end={{x: 0, y: 1}}
-                            style={[StyleSheet.absoluteFillObject, {borderRadius: 16}]}
+                            style={[StyleSheet.absoluteFill, {borderRadius: 16}]}
                         />
                         <Pressable style={styles.cardCloseBtn} onPress={handleClose} hitSlop={8}>
                             <Text style={styles.cardCloseBtnText}>✕</Text>
@@ -528,7 +529,7 @@ function CardBannerBottomContent({visible, onClose, colors: colorsProp, t, confi
                             colors={gradientColors}
                             start={{x: 0, y: 0}}
                             end={{x: 1, y: 1}}
-                            style={[StyleSheet.absoluteFillObject, {borderRadius: 16}]}
+                            style={[StyleSheet.absoluteFill, {borderRadius: 16}]}
                         />
                         <View style={styles.cardInner}>
                             <Pressable style={styles.cardCloseBtn} onPress={handleClose} hitSlop={8}>
@@ -630,7 +631,7 @@ function FullscreenContent({visible, onClose, colors: colorsProp, t, config}: Pr
                     {config.videoUrl ? (
                         <PromoVideo uri={config.videoUrl} />
                     ) : config.imageUrl ? (
-                        <Image source={{uri: config.imageUrl}} style={StyleSheet.absoluteFillObject} resizeMode="cover" />
+                        <Image source={{uri: config.imageUrl}} style={StyleSheet.absoluteFill} resizeMode="cover" />
                     ) : null}
                 </Pressable>
                 <View style={[styles.fullscreenTimerArea, {top: insets.top + 12}]}>
@@ -668,7 +669,7 @@ function FullscreenContent({visible, onClose, colors: colorsProp, t, config}: Pr
                         colors={["transparent", c.modalBackground]}
                         start={{x: 0, y: 0.6}}
                         end={{x: 0, y: 1}}
-                        style={StyleSheet.absoluteFillObject}
+                        style={StyleSheet.absoluteFill}
                     />
                 </LinearGradient>
 
@@ -845,12 +846,12 @@ function NotificationCardContent({visible, onClose, colors: colorsProp, t, confi
 
                 {/* ── Body (image background + content) ── */}
                 <Animated.View style={[styles.notifBody, {height: animatedBodyHeight}]}>
-                    <Image source={bgSource} style={[StyleSheet.absoluteFillObject]} resizeMode="cover" />
+                    <Image source={bgSource} style={[StyleSheet.absoluteFill]} resizeMode="cover" />
                     <LinearGradient
                         colors={["transparent", "rgba(255,255,255,0.85)"]}
                         start={{x: 0, y: 0.15}}
                         end={{x: 0, y: 1}}
-                        style={[StyleSheet.absoluteFillObject]}
+                        style={[StyleSheet.absoluteFill]}
                     />
                     <View style={styles.notifBodyInner}>
                         <View style={styles.notifBodyTextArea}>
@@ -929,20 +930,20 @@ export function PromotionalBanner({colors: colorsProp, t, style, size = "small",
         return (
             <View style={[styles.bannerLargeWrapper, shadowStyle, {height: height ?? config.bannerHeight ?? 200}, style]}>
                 {hasBannerImg ? (
-                    <Image source={{uri: config.imageUrl}} style={[StyleSheet.absoluteFillObject, {borderRadius: 16}]} resizeMode="cover" />
+                    <Image source={{uri: config.imageUrl}} style={[StyleSheet.absoluteFill, {borderRadius: 16}]} resizeMode="cover" />
                 ) : (
                     <LinearGradient
                         colors={config.gradientColors || ["#22C55E", "#16A34A"]}
                         start={{x: 0, y: 0}}
                         end={{x: 1, y: 1}}
-                        style={[StyleSheet.absoluteFillObject, {borderRadius: 16}]}
+                        style={[StyleSheet.absoluteFill, {borderRadius: 16}]}
                     />
                 )}
                 <LinearGradient
                     colors={["transparent", "rgba(255,255,255,0.9)"]}
                     start={{x: 0, y: 0.25}}
                     end={{x: 0, y: 1}}
-                    style={[StyleSheet.absoluteFillObject, {borderRadius: 16}]}
+                    style={[StyleSheet.absoluteFill, {borderRadius: 16}]}
                 />
                 {showClose && (
                     <Pressable style={styles.bannerLargeCloseBtn} onPress={handleDismiss} hitSlop={8}>
@@ -1106,7 +1107,7 @@ const styles = StyleSheet.create({
         justifyContent: "flex-end",
     },
     overlay: {
-        ...StyleSheet.absoluteFillObject,
+        ...StyleSheet.absoluteFill,
     },
     overlayPressable: {
         flex: 1,
@@ -1139,7 +1140,7 @@ const styles = StyleSheet.create({
         position: "absolute",
     },
     circlesContainer: {
-        ...StyleSheet.absoluteFillObject,
+        ...StyleSheet.absoluteFill,
         alignItems: "center",
         justifyContent: "center",
     },
@@ -1241,7 +1242,7 @@ const styles = StyleSheet.create({
 
     // Card banner bottom styles
     cardOverlay: {
-        ...StyleSheet.absoluteFillObject,
+        ...StyleSheet.absoluteFill,
         backgroundColor: "rgba(0,0,0,0.2)",
     },
     cardContainer: {
