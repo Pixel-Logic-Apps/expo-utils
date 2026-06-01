@@ -21,6 +21,8 @@
     "expo-utils": {
         "disableWarnings": false,
         "disableLogs": false,
-        "skipDevMenuOnboarding": true
+        "skipDevMenuOnboarding": true,
+        "analyticsAdSupport": true,
+        "analyticsOnDeviceConversion": true
     }
 }
