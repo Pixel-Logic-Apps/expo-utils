@@ -176,6 +176,12 @@ Templates in `/templates` can use placeholders:
 - The package uses Firebase v23+ modular API (getRemoteConfig, getAnalytics, etc.)
 - Placeholder files work for development but must be replaced with real configs for production
 
+#### APNS / FCM gate (`Utils.ensureApnsReady`)
+
+iOS push only works once the **APNS token** arrives (a native async callback). All FCM call sites (`requestFCMToken`, `setupMessagingTopics`, `updateRCStatusMessagingTopic`, `setupAttribution`) gate on `Utils.ensureApnsReady()` before calling `getToken`/`subscribeToTopic`, so they never throw "No APNS token specified" / `[messaging/unregistered]`. The gate:
+1. **Simulator/emulator skip** — if `expo-device` is installed and `Device.isDevice === false`, it returns `false` immediately **without calling `getAPNSToken`**, so the native DLog spam (`getAPNSToken - Simulator without APNS support`, ~8 lines) drops to ~0 and boot isn't blocked 10s. `expo-device` is an **optional** peer dep (guarded `require` in try/catch → Metro treats it as optional; without it, behaves as a physical device).
+2. **Physical device** — polls `getAPNSToken` with backoff (300→2000ms) until the token appears or a 10s timeout. Memoized once per session via `apnsReadyPromise`.
+
 ### Premium User Detection
 
 Premium status is checked in two ways:

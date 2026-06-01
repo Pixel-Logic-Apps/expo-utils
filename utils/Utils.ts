@@ -245,16 +245,29 @@ const Utils = {
         if (apnsReadyPromise) return apnsReadyPromise; // pollamos só 1x por sessão
         apnsReadyPromise = (async () => {
             try {
+                // Em simulador/emulador o APNS NUNCA chega — pulamos o poll INTEIRO. Isso zera o
+                // spam nativo "getAPNSToken - Simulator without APNS support" (cada getAPNSToken
+                // que chamaríamos viraria 1 linha no console DEBUG) e não trava 10s no boot.
+                // expo-device é peer OPCIONAL: o require em try/catch faz o Metro tratá-lo como
+                // dependência opcional (não quebra o bundle de quem não instalou). Sem ele, assume
+                // device físico e mantém o backoff (comportamento anterior, ~7-8 linhas).
+                let isSimulator = false;
+                try {
+                    const Device = require("expo-device");
+                    isSimulator = Device?.isDevice === false; // false só em simulador/emulador
+                } catch {}
+                if (isSimulator) {
+                    expoUtilsWarn("Simulador/emulador sem APNS — pulando FCM token/tópicos.");
+                    return false;
+                }
                 const messaging = getMessaging(getApp());
                 // no-op se auto-register (default true) já registrou
                 if (!isDeviceRegisteredForRemoteMessages(messaging)) {
                     await registerDeviceForRemoteMessages(messaging);
                 }
-                // Poll com BACKOFF (300→600→1200→…→2000ms) em vez de 300ms fixo.
-                // No device real o APNS chega em <1-2s e é capturado nas 1ªs tentativas;
-                // no simulador (APNS nunca vem) isso troca ~33 chamadas por ~7-8 — cada
-                // chamada de getAPNSToken loga "Simulator without APNS support" no nativo (debug),
-                // então menos chamadas = muito menos ruído no console, sem tocar em código nativo.
+                // Poll com BACKOFF (300→600→1200→…→2000ms): em DEVICE FÍSICO o APNS chega em <1-2s
+                // e é capturado nas 1ªs tentativas. (No simulador nem chega aqui — saiu acima.)
+                // É o fallback p/ quem não tem expo-device ou device com APNS lento.
                 const start = Date.now();
                 let apnsToken = await getAPNSToken(messaging);
                 let pollDelay = 300;

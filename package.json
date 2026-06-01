@@ -57,6 +57,7 @@
     "eas-build-cache-provider": ">=20.0.0",
     "expo": ">=55.0.24",
     "expo-application": ">=55.0.15",
+    "expo-device": ">=55.0.0",
     "expo-dev-client": ">=55.0.14",
     "expo-blur": ">=55.0.14",
     "expo-build-properties": ">=55.0.14",
@@ -135,6 +136,9 @@
       "optional": true
     },
     "expo-application": {
+      "optional": true
+    },
+    "expo-device": {
       "optional": true
     },
     "expo-blur": {
