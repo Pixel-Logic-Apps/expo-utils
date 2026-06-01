@@ -217,7 +217,7 @@ const Utils = {
     setupClarity: async (remoteConfigs: RemoteConfigUtilsType) => {
         const clarityProjectId = remoteConfigs?.clarity_id;
         if (!clarityProjectId) {
-            expoUtilsWarn("Clarity project ID not provided, skipping initialization.");
+            // Sem clarity_id é config normal (Clarity opcional) — não é problema, então não polui o console.
             return;
         }
         try {
@@ -250,10 +250,17 @@ const Utils = {
                 if (!isDeviceRegisteredForRemoteMessages(messaging)) {
                     await registerDeviceForRemoteMessages(messaging);
                 }
+                // Poll com BACKOFF (300→600→1200→…→2000ms) em vez de 300ms fixo.
+                // No device real o APNS chega em <1-2s e é capturado nas 1ªs tentativas;
+                // no simulador (APNS nunca vem) isso troca ~33 chamadas por ~7-8 — cada
+                // chamada de getAPNSToken loga "Simulator without APNS support" no nativo (debug),
+                // então menos chamadas = muito menos ruído no console, sem tocar em código nativo.
                 const start = Date.now();
                 let apnsToken = await getAPNSToken(messaging);
+                let pollDelay = 300;
                 while (!apnsToken && Date.now() - start < timeoutMs) {
-                    await new Promise((resolve) => setTimeout(resolve, 300));
+                    await new Promise((resolve) => setTimeout(resolve, pollDelay));
+                    pollDelay = Math.min(pollDelay * 2, 2000);
                     apnsToken = await getAPNSToken(messaging);
                 }
                 if (!apnsToken) {
