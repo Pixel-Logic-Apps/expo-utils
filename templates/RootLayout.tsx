@@ -22,7 +22,6 @@ function RootLayout() {
     const {visible: showPromo, show: showPromoModal, hide: hidePromoModal} = usePromotional(pathname);
 
     useEffect(() => {
-        global.isAdsEnabled = !__DEV__;
         (async () => {
             await Utils.prepare(setAppIsReady, appConfig, appStrings);
             await SplashScreen.hideAsync().catch(() => {});

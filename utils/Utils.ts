@@ -138,6 +138,8 @@ const Utils = {
 
     getRemoteConfigUtils: async (): Promise<RemoteConfigUtilsType> => {
         const app = getApp();
+        // Default de ads: ON em produção, OFF. O Remote Config ainda pode
+        // desligar explicitamente (is_ads_enabled:false) — isso é só o fallback quando não há valor.
         const DEFAULT = {is_ads_enabled: false, min_version: 1.0} as any;
         if (!app) {
             expoUtilsWarn("Firebase not configured, using default settings");
@@ -457,8 +459,23 @@ const Utils = {
      */
     prepare: async (setAppIsReady: (ready: boolean) => void, appConfig?: any, appStrings?: AppStrings) => {
         LogBox.ignoreAllLogs(true);
+        global.isAdsEnabled = !__DEV__;
         if (__DEV__) {
-            registerDevMenuItems([{name: "Clear Storage And Reload", callback: async () => { await AsyncStorage.clear(); DevSettings.reload(); }}]);
+            // Dev menu: limpar storage + toggles de Premium e Ads + reload manual.
+            // Premium persiste (@isPremium). Ads flipa global.isAdsEnabled em RUNTIME (não persiste —
+            // volta ao Remote Config no próximo reload). Os toggles só setam; use "Reload" pra reaplicar a UI.
+            const isPrem = (await AsyncStorage.getItem("@isPremium")) === "true";
+            const adsLabel = global.isAdsEnabled === false ? "OFF" : "ON";
+            registerDevMenuItems([
+                {name: "Clear Storage And Reload", callback: async () => { await AsyncStorage.clear(); DevSettings.reload(); }},
+                {name: `Premium: ${isPrem ? "ON" : "OFF"} → toggle`, callback: async () => {
+                    await AsyncStorage.setItem("@isPremium", JSON.stringify(!isPrem));
+                }},
+                {name: `Ads: ${adsLabel} → toggle`, callback: async () => {
+                    global.isAdsEnabled = global.isAdsEnabled === false;
+                }},
+                {name: "Reload", callback: async () => { DevSettings.reload(); }},
+            ]);
         }
         const rckey = appStrings?.rckey;
         const adUnits = appStrings?.adUnits;
