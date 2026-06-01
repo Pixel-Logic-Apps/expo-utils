@@ -133,6 +133,8 @@ These flags suppress console output from expo-utils in production (read at **run
 
 The same config plugin (`app.plugin.js`) also injects all SKAdNetwork IDs (`data/skadnetwork_ids.json`) into the iOS `Info.plist` at **prebuild** via `withInfoPlist`, so the ~160 IDs no longer need to live in `app.json`. The merge is case-insensitive and preserves any custom `SKAdNetworkItems` already present. The plugin is wrapped in `createRunOncePlugin` to avoid double-application. Just keep `["expo-utils", { ... }]` in the `plugins` array.
 
+By default the same plugin also hides the `expo-dev-menu` onboarding overlay **and** the floating action button (FAB) in **DEBUG** dev builds, by injecting flags into native boot at **prebuild** (tag `skip-devmenu-onboarding`, via `mergeContents`): iOS `AppDelegate.swift` (`#if DEBUG` → `UserDefaults.standard.set(true, "EXDevMenuIsOnboardingFinished")` + `set(false, "EXDevMenuShowFloatingActionButton")`) with `withAppDelegate`; Android `MainApplication.kt` (`if (BuildConfig.DEBUG)` → SharedPreferences `expo.modules.devmenu.sharedpreferences`, `isOnboardingFinished=true` / `showFab=false`) with `withMainApplication`. It runs before the first frame, so neither overlay nor FAB ever appears; inert in release (compiled out). The FAB only shows once onboarding is finished, so both flags are set together. Opt out with `["expo-utils", { "skipDevMenuOnboarding": false }]` — this option is read at **prebuild** (unlike `disableWarnings`/`disableLogs`, read at runtime).
+
 ## Common Patterns
 
 ### Adding a New CLI Flag

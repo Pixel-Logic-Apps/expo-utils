@@ -1,7 +1,15 @@
-const {withInfoPlist, createRunOncePlugin} = require("@expo/config-plugins");
+const {
+    withInfoPlist,
+    withAppDelegate,
+    withMainApplication,
+    createRunOncePlugin,
+} = require("@expo/config-plugins");
+const {mergeContents} = require("@expo/config-plugins/build/utils/generateCode");
 
 const pkg = require("./package.json");
 const SKADNETWORK_IDS = require("./data/skadnetwork_ids.json");
+
+const DEVMENU_TAG = "skip-devmenu-onboarding";
 
 /**
  * Injeta TODOS os SKAdNetworkItems no Info.plist durante o prebuild.
@@ -40,14 +48,74 @@ function withSkAdNetworkItems(config) {
 }
 
 /**
+ * Em DEBUG, marca o onboarding do dev-menu (expo-dev-client) como "ja visto" e
+ * desliga o botao flutuante (FAB), logo no boot — antes do 1o frame —, pra que
+ * nem o overlay ("This is the developer menu… Continue") nem o FAB aparecam no
+ * dev build. Inerte em release (envolto em #if DEBUG / BuildConfig.DEBUG).
+ *
+ * O FAB so aparece quando o onboarding esta concluido (gate em
+ * DevMenuManager.updateFABVisibility, default true), entao marcar o onboarding
+ * como visto "acende" o FAB — por isso setamos as duas flags de uma vez.
+ */
+function withIosSkipDevMenu(config) {
+    return withAppDelegate(config, (cfg) => {
+        if (cfg.modResults.language !== "swift") {
+            throw new Error(
+                `[${DEVMENU_TAG}] expected a Swift AppDelegate, got "${cfg.modResults.language}"`,
+            );
+        }
+        cfg.modResults.contents = mergeContents({
+            src: cfg.modResults.contents,
+            newSrc: [
+                "#if DEBUG",
+                `    UserDefaults.standard.set(true, forKey: "EXDevMenuIsOnboardingFinished")`,
+                `    UserDefaults.standard.set(false, forKey: "EXDevMenuShowFloatingActionButton")`,
+                "#endif",
+            ].join("\n"),
+            // Primeira instrucao do didFinishLaunchingWithOptions no template Expo.
+            anchor: /let delegate = ReactNativeDelegate\(\)/,
+            offset: 0,
+            comment: "//",
+            tag: DEVMENU_TAG,
+        }).contents;
+        return cfg;
+    });
+}
+
+function withAndroidSkipDevMenu(config) {
+    return withMainApplication(config, (cfg) => {
+        cfg.modResults.contents = mergeContents({
+            src: cfg.modResults.contents,
+            newSrc: [
+                "    if (BuildConfig.DEBUG) {",
+                `      getSharedPreferences("expo.modules.devmenu.sharedpreferences", android.content.Context.MODE_PRIVATE)`,
+                `        .edit().putBoolean("isOnboardingFinished", true).putBoolean("showFab", false).apply()`,
+                "    }",
+            ].join("\n"),
+            anchor: /super\.onCreate\(\)/,
+            offset: 1,
+            comment: "//",
+            tag: DEVMENU_TAG,
+        }).contents;
+        return cfg;
+    });
+}
+
+/**
  * Config plugin do expo-utils.
  *
- * `options` (disableWarnings/disableLogs) são lidos em RUNTIME diretamente do app.json
- * (Utils.ts lê `plugin[1]?.disableWarnings`), então não precisam de ação aqui — basta
- * manter `["expo-utils", { ... }]` no array de plugins do app.json.
+ * `options.disableWarnings`/`disableLogs` são lidos em RUNTIME do app.json
+ * (Utils.ts lê `plugin[1]?.disableWarnings`), então não precisam de ação aqui.
+ *
+ * `options.skipDevMenuOnboarding` é lido aqui no PREBUILD: ligado por padrão,
+ * desligue com `["expo-utils", { skipDevMenuOnboarding: false }]`.
  */
-function withExpoUtils(config, _options = {}) {
-    return withSkAdNetworkItems(config);
+function withExpoUtils(config, options = {}) {
+    let result = withSkAdNetworkItems(config);
+    if (options?.skipDevMenuOnboarding !== false) {
+        result = withAndroidSkipDevMenu(withIosSkipDevMenu(result));
+    }
+    return result;
 }
 
 module.exports = createRunOncePlugin(withExpoUtils, pkg.name, pkg.version);
