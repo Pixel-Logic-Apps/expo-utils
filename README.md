@@ -1239,7 +1239,8 @@ Para suprimir warnings e/ou logs do expo-utils, adicione a configuração no seu
                 {
                     "disableWarnings": true, // Suprime warnings
                     "disableLogs": true, // Suprime console.log (opcional)
-                    "firebaseLogLevel": "error" // Cala o log nativo do Firebase iOS (opcional)
+                    "firebaseLogLevel": "error", // Cala o log nativo do Firebase iOS (opcional)
+                    "analyticsAdSupport": false // Desliga IDFA/AdSupport no Analytics iOS (default: true)
                 }
             ]
         ]
@@ -1252,6 +1253,7 @@ Para suprimir warnings e/ou logs do expo-utils, adicione a configuração no seu
 - `disableWarnings: true` - Suprime todos os warnings (`console.warn`) do expo-utils (runtime)
 - `disableLogs: true` - Suprime todos os console.log do expo-utils (útil em produção, runtime)
 - `firebaseLogLevel: "error"` - **Opt-in.** Cala o log **nativo** do Firebase SDK no iOS (ex.: `[FirebaseAnalytics][I-ACS...]`). No **prebuild** o plugin gera/mergeia `react-native.app_log_level` num `firebase.json` na raiz do projeto — você **não precisa criar esse arquivo na mão**. Valores: `"error" | "warn" | "info" | "debug"` (ou `true` = `"error"`). Preserva outras chaves do `firebase.json` e não sobrescreve um `app_log_level` definido manualmente. _Não_ silencia os logs `RNFB...[Line N]` (esses são debug-only e somem em release).
+- `analyticsAdSupport` - **Ligado por padrão** (apps ads-first). No **prebuild** injeta `$RNFirebaseAnalyticsEnableAdSupport = true` no `Podfile` iOS → linka `AdSupport.framework`, dando ao Firebase Analytics acesso ao IDFA (demografia/interesses no iOS, como no Android). ⚠️ Coleta IDFA em **produção**: precisa de ATT (expo-utils já pede) + IDFA declarado no privacy manifest/App Store. Inócuo em apps com AdMob (IDFA já coletado). **Desligue num app sem ads** com `"analyticsAdSupport": false`. Precisa `prebuild --clean` + rebuild.
 
 **Nota**: O plugin expo-utils é completamente opcional. O projeto funciona normalmente sem ele.
 

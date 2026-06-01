@@ -144,6 +144,48 @@ function withFirebaseLogLevel(config, level) {
     ]);
 }
 
+const RNFB_ADSUPPORT_TAG = "rnfirebase-analytics-adsupport";
+
+/**
+ * Habilita AdSupport.framework p/ o @react-native-firebase/analytics setando a variável
+ * global do Podfile `$RNFirebaseAnalyticsEnableAdSupport`, que o RNFBAnalytics.podspec lê no
+ * pod install (linka `AdSupport`). Dá ao Firebase Analytics acesso ao IDFA → métricas de
+ * audiência (demografia/interesses) no iOS, como já acontece no Android.
+ *
+ * O config plugin oficial do RNFirebase NÃO expõe opção pra isso (só `withoutAdIdSupport` e
+ * `googleAppMeasurementOnDeviceConversion`), então num projeto CNG injetamos a linha no Podfile
+ * via withDangerousMod (idempotente via tag + skip se já presente; try/catch p/ não quebrar o
+ * prebuild se o anchor mudar num Expo futuro).
+ *
+ * ⚠️ Coleta IDFA em PRODUÇÃO: requer ATT (expo-utils já pede) + declaração de IDFA no privacy
+ * manifest / App Store. Inócuo em apps que já usam AdMob (IDFA já coletado/declarado); num app
+ * SEM ads, desligue com `["expo-utils", { analyticsAdSupport: false }]`.
+ */
+function withAnalyticsAdSupport(config) {
+    return withDangerousMod(config, [
+        "ios",
+        (cfg) => {
+            const podfile = path.join(cfg.modRequest.platformProjectRoot, "Podfile");
+            try {
+                const src = fs.readFileSync(podfile, "utf8");
+                if (src.includes("$RNFirebaseAnalyticsEnableAdSupport")) return cfg; // já setado
+                const merged = mergeContents({
+                    src,
+                    newSrc: "$RNFirebaseAnalyticsEnableAdSupport = true",
+                    anchor: /require 'json'/, // linha estável no topo do Podfile do Expo
+                    offset: 1,
+                    comment: "#",
+                    tag: RNFB_ADSUPPORT_TAG,
+                });
+                if (merged.didMerge) fs.writeFileSync(podfile, merged.contents);
+            } catch (e) {
+                console.warn(`[expo-utils] não consegui setar $RNFirebaseAnalyticsEnableAdSupport no Podfile: ${e.message}`);
+            }
+            return cfg;
+        },
+    ]);
+}
+
 /**
  * Config plugin do expo-utils.
  *
@@ -156,6 +198,10 @@ function withFirebaseLogLevel(config, level) {
  * `options.firebaseLogLevel` ("error"|"warn"|"info"|"debug", ou `true` = "error")
  * é opt-in: gera/mergeia `app_log_level` no firebase.json no PREBUILD pra calar o
  * log nativo do Firebase SDK no iOS, sem você precisar criar o firebase.json na mão.
+ *
+ * `options.analyticsAdSupport` LIGADO por padrão (apps ads-first): injeta
+ * `$RNFirebaseAnalyticsEnableAdSupport = true` no Podfile no PREBUILD → IDFA/audiência no
+ * Analytics iOS. Desligue num app sem ads com `{ analyticsAdSupport: false }` (ver ⚠️ acima).
  */
 function withExpoUtils(config, options = {}) {
     let result = withSkAdNetworkItems(config);
@@ -166,6 +212,9 @@ function withExpoUtils(config, options = {}) {
     if (level === true) level = "error";
     if (typeof level === "string" && FIREBASE_LOG_LEVELS.includes(level)) {
         result = withFirebaseLogLevel(result, level);
+    }
+    if (options?.analyticsAdSupport !== false) {
+        result = withAnalyticsAdSupport(result);
     }
     return result;
 }
