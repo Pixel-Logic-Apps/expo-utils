@@ -629,7 +629,15 @@ PluginError: Failed to resolve plugin for module "@hot-updater/react-native" rel
       "ios": {
         "useFrameworks": "static",
         "useModularHeaders": true,
-        "forceStaticLinking": ["RNFBApp", "RNFBAuth", "RNFBFirestore"]
+        "forceStaticLinking": [
+            "RNFBApp",
+            "RNFBAuth",
+            "RNFBFirestore",
+            "RNFBMessaging",
+            "RNFBCrashlytics",
+            "RNFBAnalytics",
+            "RNFBRemoteConfig"
+        ]
       }
     }]
   ]

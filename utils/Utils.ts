@@ -46,7 +46,7 @@ import {
     fetchAndActivate,
     getValue,
 } from "@react-native-firebase/remote-config";
-import {getMessaging, requestPermission, onMessage, subscribeToTopic, getToken, setBackgroundMessageHandler, experimentalSetDeliveryMetricsExportedToBigQueryEnabled, registerDeviceForRemoteMessages, getAPNSToken} from "@react-native-firebase/messaging";
+import {getMessaging, requestPermission, onMessage, subscribeToTopic, unsubscribeFromTopic, getToken, setBackgroundMessageHandler, experimentalSetDeliveryMetricsExportedToBigQueryEnabled, registerDeviceForRemoteMessages, isDeviceRegisteredForRemoteMessages, getAPNSToken} from "@react-native-firebase/messaging";
 import {getAnalytics, getAppInstanceId, logEvent} from "@react-native-firebase/analytics";
 import {getApp} from "@react-native-firebase/app";
 import TiktokAdsEvents, {TikTokStandardEvents, TikTokWaitForConfig} from "expo-tiktok-ads-events";
@@ -247,7 +247,7 @@ const Utils = {
             try {
                 const messaging = getMessaging(getApp());
                 // no-op se auto-register (default true) já registrou
-                if (!messaging.isDeviceRegisteredForRemoteMessages) {
+                if (!isDeviceRegisteredForRemoteMessages(messaging)) {
                     await registerDeviceForRemoteMessages(messaging);
                 }
                 const start = Date.now();
@@ -552,7 +552,7 @@ const Utils = {
         try { await Utils.initTikTokSDK(remoteConfigs, rckey); }             catch (e) { expoUtilsWarn("initTikTokSDK:", e); }
         try { await Utils.initLinkInBioTracking(remoteConfigs, appConfig); } catch (e) { expoUtilsWarn("initLinkInBioTracking:", e); }
         try { await Utils.setupAttribution(rckey, granted); }                catch (e) { expoUtilsWarn("setupAttribution:", e); }
-        try { await Utils.checkForRequiredUpdateDialog(); }                  catch (e) { expoUtilsWarn("setupAttribution:", e); }
+        try { await Utils.checkForRequiredUpdateDialog(); }                  catch (e) { expoUtilsWarn("checkForRequiredUpdateDialog:", e); }
 
         return granted;
     },
@@ -679,13 +679,13 @@ const Utils = {
 
             // Se o topic mudou, desinscreve do anterior e inscreve no novo
             if (previousTopic && previousTopic !== newTopic) {
-                await messaging.unsubscribeFromTopic(previousTopic);
+                await unsubscribeFromTopic(messaging, previousTopic);
                 logEvent(getAnalytics(getApp()), "fcm_topic_unsubscribe", {topic: previousTopic});
                 console.log("Unsubscribed from topic:", previousTopic);
             }
 
             if (previousTopic !== newTopic) {
-                await messaging.subscribeToTopic(newTopic);
+                await subscribeToTopic(messaging, newTopic);
                 await AsyncStorage.setItem("FCM_CURRENT_TOPIC", newTopic);
                 logEvent(getAnalytics(getApp()), "fcm_topic_subscribe", {topic: newTopic, status});
                 console.log("Subscribed to topic:", newTopic);
@@ -703,7 +703,11 @@ const Utils = {
             await Purchases.collectDeviceIdentifiers();
         }
         await Purchases.setFBAnonymousID(await AppEventsLogger.getAnonymousID());
-        await Purchases.setPushToken(await getToken(getMessaging(getApp())));
+        // Push token exige APNS no iOS — pula só esta linha se indisponível (ex.: simulador),
+        // mantendo o restante da atribuição (AdServices/FB/Firebase instance id/TikTok) rodando.
+        if (await Utils.ensureApnsReady()) {
+            await Purchases.setPushToken(await getToken(getMessaging(getApp())));
+        }
         await Purchases.setFirebaseAppInstanceID(await getAppInstanceId(getAnalytics(getApp())));
         await Purchases.setAttributes({TikTokGetAnonymousID: await TiktokAdsEvents.getAnonymousID()});
     },
