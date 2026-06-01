@@ -464,14 +464,13 @@ const Utils = {
             // Dev menu: limpar storage + toggles de Premium e Ads + reload manual.
             // Premium persiste (@isPremium). Ads flipa global.isAdsEnabled em RUNTIME (não persiste —
             // volta ao Remote Config no próximo reload). Os toggles só setam; use "Reload" pra reaplicar a UI.
-            const isPrem = (await AsyncStorage.getItem("@isPremium")) === "true";
-            const adsLabel = global.isAdsEnabled === false ? "OFF" : "ON";
             registerDevMenuItems([
                 {name: "Clear Storage And Reload", callback: async () => { await AsyncStorage.clear(); DevSettings.reload(); }},
-                {name: `Premium: ${isPrem ? "ON" : "OFF"} → toggle`, callback: async () => {
+                {name: `Premium → toggle`, callback: async () => {
+                    const isPrem = (await AsyncStorage.getItem("@isPremium")) === "true";
                     await AsyncStorage.setItem("@isPremium", JSON.stringify(!isPrem));
                 }},
-                {name: `Ads: ${adsLabel} → toggle`, callback: async () => {
+                {name: `Ads → toggle`, callback: async () => {
                     global.isAdsEnabled = global.isAdsEnabled === false;
                 }},
                 {name: "Reload", callback: async () => { DevSettings.reload(); }},
