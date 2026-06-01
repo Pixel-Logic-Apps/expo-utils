@@ -18,11 +18,6 @@
             "enforceNavigationBarContrast": false
         }
     },
-    "@react-native-firebase/analytics": {
-        "ios": {
-            "googleAppMeasurementOnDeviceConversion": true
-        }
-    },
     "expo-utils": {
         "disableWarnings": false,
         "disableLogs": false,
