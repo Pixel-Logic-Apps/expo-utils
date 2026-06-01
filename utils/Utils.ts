@@ -458,23 +458,32 @@ const Utils = {
      * de tracking seja coletado antes do consentimento.
      */
     prepare: async (setAppIsReady: (ready: boolean) => void, appConfig?: any, appStrings?: AppStrings) => {
-        LogBox.ignoreAllLogs(true);
-        global.isAdsEnabled = !__DEV__;
-        if (__DEV__) {
-            // Dev menu: limpar storage + toggles de Premium e Ads + reload manual.
-            // Premium persiste (@isPremium). Ads flipa global.isAdsEnabled em RUNTIME (não persiste —
-            // volta ao Remote Config no próximo reload). Os toggles só setam; use "Reload" pra reaplicar a UI.
-            registerDevMenuItems([
-                {name: "Clear Storage And Reload", callback: async () => { await AsyncStorage.clear(); DevSettings.reload(); }},
-                {name: `Premium → toggle`, callback: async () => {
-                    const isPrem = (await AsyncStorage.getItem("@isPremium")) === "true";
-                    await AsyncStorage.setItem("@isPremium", JSON.stringify(!isPrem));
-                }},
-                {name: `Ads → toggle`, callback: async () => {
-                    global.isAdsEnabled = global.isAdsEnabled === false;
-                }},
-                {name: "Reload", callback: async () => { DevSettings.reload(); }},
-            ]);
+        try {
+            LogBox.ignoreAllLogs(true);
+            global.isAdsEnabled = !__DEV__;
+        } catch (e) {
+            expoUtilsWarn("ignoreAllLogs:", e);
+        }
+
+        try {
+            if (__DEV__) {
+                // Dev menu: limpar storage + toggles de Premium e Ads + reload manual.
+                // Premium persiste (@isPremium). Ads flipa global.isAdsEnabled em RUNTIME (não persiste —
+                // volta ao Remote Config no próximo reload). Os toggles só setam; use "Reload" pra reaplicar a UI.
+                registerDevMenuItems([
+                    {name: "Clear Storage And Reload", callback: async () => { await AsyncStorage.clear(); DevSettings.reload(); }},
+                    {name: `Premium → toggle`, callback: async () => {
+                        const isPrem = (await AsyncStorage.getItem("@isPremium")) === "true";
+                        await AsyncStorage.setItem("@isPremium", JSON.stringify(!isPrem));
+                    }},
+                    {name: `Ads → toggle`, callback: async () => {
+                        global.isAdsEnabled = global.isAdsEnabled === false;
+                    }},
+                    {name: "Reload", callback: async () => { DevSettings.reload(); }},
+                ]);
+            }
+        } catch (e) {
+            expoUtilsWarn("registerDevMenuItems:", e);
         }
         const rckey = appStrings?.rckey;
         const adUnits = appStrings?.adUnits;
