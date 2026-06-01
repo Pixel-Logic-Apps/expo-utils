@@ -2,14 +2,18 @@ const {
     withInfoPlist,
     withAppDelegate,
     withMainApplication,
+    withDangerousMod,
     createRunOncePlugin,
 } = require("@expo/config-plugins");
 const {mergeContents} = require("@expo/config-plugins/build/utils/generateCode");
+const fs = require("fs");
+const path = require("path");
 
 const pkg = require("./package.json");
 const SKADNETWORK_IDS = require("./data/skadnetwork_ids.json");
 
 const DEVMENU_TAG = "skip-devmenu-onboarding";
+const FIREBASE_LOG_LEVELS = ["error", "warn", "info", "debug"];
 
 /**
  * Injeta TODOS os SKAdNetworkItems no Info.plist durante o prebuild.
@@ -102,6 +106,45 @@ function withAndroidSkipDevMenu(config) {
 }
 
 /**
+ * Seta `react-native.app_log_level` no firebase.json da RAIZ do projeto no prebuild.
+ *
+ * O RNFirebase lê esse arquivo no build iOS (o ios_config.sh sobe a árvore a partir de
+ * ios/ procurando firebase.json) e aplica via `[FIRConfiguration setLoggerLevel:]`,
+ * reduzindo o ruído de log NATIVO do Firebase SDK em DEBUG (ex.: "[FirebaseAnalytics]
+ * [I-ACS...]"). É iOS-only (a chave só vale no iOS), por isso roda no mod de iOS.
+ *
+ * Faz MERGE: preserva qualquer outra chave do firebase.json e NÃO sobrescreve um
+ * app_log_level que o dev já tenha definido manualmente (idempotente em re-prebuilds).
+ *
+ * Obs.: NÃO silencia os logs `RNFB...[Line N]` (getAPNSToken, CrashlyticsInit) — esses
+ * usam o macro DLog (#ifdef DEBUG NSLog) e somem sozinhos em release.
+ */
+function withFirebaseLogLevel(config, level) {
+    return withDangerousMod(config, [
+        "ios",
+        (cfg) => {
+            const fbPath = path.join(cfg.modRequest.projectRoot, "firebase.json");
+            let json = {};
+            if (fs.existsSync(fbPath)) {
+                try {
+                    json = JSON.parse(fs.readFileSync(fbPath, "utf8")) || {};
+                } catch (e) {
+                    // firebase.json com sintaxe inválida — não arrisca sobrescrever.
+                    console.warn(`[expo-utils] firebase.json inválido, pulando app_log_level: ${e.message}`);
+                    return cfg;
+                }
+            }
+            const rn = (json["react-native"] = json["react-native"] || {});
+            if (rn.app_log_level === undefined) {
+                rn.app_log_level = level;
+                fs.writeFileSync(fbPath, JSON.stringify(json, null, 2) + "\n");
+            }
+            return cfg;
+        },
+    ]);
+}
+
+/**
  * Config plugin do expo-utils.
  *
  * `options.disableWarnings`/`disableLogs` são lidos em RUNTIME do app.json
@@ -109,11 +152,20 @@ function withAndroidSkipDevMenu(config) {
  *
  * `options.skipDevMenuOnboarding` é lido aqui no PREBUILD: ligado por padrão,
  * desligue com `["expo-utils", { skipDevMenuOnboarding: false }]`.
+ *
+ * `options.firebaseLogLevel` ("error"|"warn"|"info"|"debug", ou `true` = "error")
+ * é opt-in: gera/mergeia `app_log_level` no firebase.json no PREBUILD pra calar o
+ * log nativo do Firebase SDK no iOS, sem você precisar criar o firebase.json na mão.
  */
 function withExpoUtils(config, options = {}) {
     let result = withSkAdNetworkItems(config);
     if (options?.skipDevMenuOnboarding !== false) {
         result = withAndroidSkipDevMenu(withIosSkipDevMenu(result));
+    }
+    let level = options?.firebaseLogLevel;
+    if (level === true) level = "error";
+    if (typeof level === "string" && FIREBASE_LOG_LEVELS.includes(level)) {
+        result = withFirebaseLogLevel(result, level);
     }
     return result;
 }
