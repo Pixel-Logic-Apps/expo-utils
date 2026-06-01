@@ -26,6 +26,10 @@ Os ~160 identificadores de SKAdNetwork **não ficam mais no `app.json`**. O conf
 - `npx expo-utils-install --skadnetwork` **migra** apps existentes (remove os IDs do `app.json` e mantém qualquer ID customizado seu).
 - Lista de IDs **corrigida e deduplicada** → **162 networks** únicas (incl. `com.apple.ads`).
 
+### 🧹 Dev-menu limpo no dev build (v1.1.2)
+
+Em **dev build** (DEBUG), o expo-utils agora esconde automaticamente o overlay de onboarding do dev-menu ("This is the developer menu… Continue") **e** o botão flutuante (FAB), injetando flags no boot nativo durante o **prebuild**. Nada atrapalhando testes/screenshots; **inerte em release**. Ligado por padrão; desligue com `["expo-utils", { "skipDevMenuOnboarding": false }]`.
+
 ### 📲 Push (FCM) mais confiável no iOS
 
 Corrigido o erro `No APNS token specified before fetching FCM Token`. O expo-utils agora **espera o APNS token chegar** antes de buscar o token FCM e inscrever em tópicos. Em ambientes sem APNS (ex.: simulador) ele pula com segurança, sem floodar erro.
