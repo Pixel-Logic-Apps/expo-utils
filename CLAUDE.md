@@ -39,7 +39,7 @@ The detected PM controls both the install command (`bun add`, `yarn add`, etc.) 
     - `--config`: Add standard plugins to app.json
     - `--layout`: Replace root \_layout.tsx with template
     - `--srcapp`: Move app/ to src/app/
-    - `--languages`: Setup i18n with pt/en/es translations
+    - `--languages`: Setup i18n with pt/en/es translations. Also writes localized iOS purpose strings (`NSUserTracking`/`NSPhotoLibrary`/`NSPhotoLibraryAdd`/`NSCamera` usage descriptions) into each `languages/<locale>.json` for `expo.locales` → `InfoPlist.strings`, **merging** into existing files (adds only missing keys, preserves your translations). The Info.plist base keys themselves are injected by the config plugin (see Configuration System).
     - `--firebase-placeholders`: Create placeholder Firebase config files
     - `--skadnetwork`: Remove SKAdNetworkItems from app.json (the IDs are now injected into Info.plist by the expo-utils config plugin at prebuild — see `app.plugin.js`). Keeps any custom IDs not in the plugin list.
     - `--constants`: Create constants folder with Strings.ts template
@@ -144,6 +144,8 @@ The plugin also injects two **RNFirebase Analytics Podfile globals** at **prebui
 - `analyticsOnDeviceConversion` → `$RNFirebaseAnalyticsGoogleAppMeasurementOnDeviceConversion = true` → podspec adds the `GoogleAdsOnDeviceConversion` pod, resolving the `[FirebaseAnalytics] Failed to initiate on-device conversion measurement... dependency does not support this feature` log. Opt-out with `{ "analyticsOnDeviceConversion": false }`.
 
 **Why the Podfile (not the analytics config plugin):** `@react-native-firebase/analytics` only ships a config plugin in newer RNFirebase — in **v24** (the supported peer range here) it has **no** `app.plugin.js`, so referencing `["@react-native-firebase/analytics", { ... }]` in `app.json` **crashes `expo prebuild`**. The Podfile globals (read by `RNFBAnalytics.podspec`) work on any version. Needs `prebuild --clean` + rebuild to take effect.
+
+The plugin also injects **iOS privacy purpose strings** into the Info.plist at **prebuild** (`withInfoPlist` → `withIosUsageDescriptions`), **on by default**. Common SDKs reference sensitive APIs even when your app never uses them — `expo-image`/`expo-video`/`expo-file-system` and `FBSDKShareKit` reference the Photo Library — so Apple rejects the build with **ITMS-90683** ("Missing purpose string") unless the key is present in the Info.plist (localized `InfoPlist.strings` alone aren't enough for Apple's static check). It adds `NSPhotoLibraryUsageDescription`, `NSPhotoLibraryAddUsageDescription` and `NSCameraUsageDescription` **only if the dev hasn't already set them** (preserves anything in `app.json` `ios.infoPlist`). Per-language translation comes from `expo.locales` (the `languages/*.json` written by `--languages`, mirroring the same three keys, with pt/en/es). Base default text is **English** (neutral fallback for locales without an `.lproj`). Opt out entirely with `{ "usageDescriptions": false }`, or per key: `{ "usageDescriptions": { "NSCameraUsageDescription": false } }` (pass a string to override the default text). **Android has no equivalent** — ITMS-90683 is iOS-only; the Play Store doesn't require purpose strings.
 
 ## Common Patterns
 

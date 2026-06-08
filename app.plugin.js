@@ -15,6 +15,17 @@ const SKADNETWORK_IDS = require("./data/skadnetwork_ids.json");
 const DEVMENU_TAG = "skip-devmenu-onboarding";
 const FIREBASE_LOG_LEVELS = ["error", "warn", "info", "debug"];
 
+// Purpose strings (NS*UsageDescription) que SDKs comuns referenciam mesmo quando o app NÃO
+// usa a feature: ExpoImage / ExpoVideo / ExpoFileSystem e o FBSDKShareKit acessam a Photo
+// Library; a câmera é comum no compartilhamento. A Apple rejeita o build (ITMS-90683) se a
+// chave faltar no Info.plist. Injetamos um default no Info.plist BASE só quando o dev não
+// definiu; a tradução por idioma vem do expo.locales (languages/*.json do CLI --languages).
+const IOS_USAGE_DESCRIPTIONS = {
+    NSPhotoLibraryUsageDescription: "This app may access your photos so you can select and share images.",
+    NSPhotoLibraryAddUsageDescription: "This app may save images to your photo library.",
+    NSCameraUsageDescription: "This app may use the camera to capture and share photos.",
+};
+
 /**
  * Injeta TODOS os SKAdNetworkItems no Info.plist durante o prebuild.
  *
@@ -48,6 +59,28 @@ function withSkAdNetworkItems(config) {
             a.SKAdNetworkIdentifier.localeCompare(b.SKAdNetworkIdentifier),
         );
         return config;
+    });
+}
+
+/**
+ * Garante que as purpose strings exigidas por SDKs comuns existam no Info.plist.
+ * Adiciona cada NS*UsageDescription só se ainda não estiver definida (preserva o que o dev
+ * colocou no app.json ios.infoPlist). Resolve o ITMS-90683 ("Missing purpose string") que o
+ * Facebook SDK / expo-image / expo-video / expo-file-system disparam mesmo quando o app não
+ * abre a galeria/câmera. A localização por idioma é feita pelo expo.locales (languages/*.json).
+ *
+ * Opt-out global: ["expo-utils", { usageDescriptions: false }].
+ * Override/desligar por chave: { usageDescriptions: { NSCameraUsageDescription: "texto" | false } }.
+ */
+function withIosUsageDescriptions(config, overrides = {}) {
+    return withInfoPlist(config, (cfg) => {
+        for (const [key, def] of Object.entries(IOS_USAGE_DESCRIPTIONS)) {
+            const override = overrides[key];
+            if (override === false) continue; // desliga essa chave
+            if (cfg.modResults[key]) continue; // dev já definiu no app.json → preserva
+            cfg.modResults[key] = typeof override === "string" ? override : def;
+        }
+        return cfg;
     });
 }
 
@@ -205,9 +238,17 @@ function withAnalyticsPodfileGlobals(config, vars) {
  * (apps ads-first): no PREBUILD injetam as globais do RNFirebase Analytics no Podfile iOS
  * (`$RNFirebaseAnalyticsEnableAdSupport` / `...GoogleAppMeasurementOnDeviceConversion`).
  * Desligue cada uma com `{ analyticsAdSupport: false }` / `{ analyticsOnDeviceConversion: false }`.
+ *
+ * `options.usageDescriptions` LIGADO por padrão: injeta NS*UsageDescription (Photo Library
+ * read/add + Camera) no Info.plist se faltarem, resolvendo o ITMS-90683 disparado por SDKs
+ * (FBSDK, expo-image/video/file-system). Desligue com `{ usageDescriptions: false }` ou ajuste
+ * por chave: `{ usageDescriptions: { NSCameraUsageDescription: false } }`.
  */
 function withExpoUtils(config, options = {}) {
     let result = withSkAdNetworkItems(config);
+    if (options?.usageDescriptions !== false) {
+        result = withIosUsageDescriptions(result, options?.usageDescriptions || {});
+    }
     if (options?.skipDevMenuOnboarding !== false) {
         result = withAndroidSkipDevMenu(withIosSkipDevMenu(result));
     }

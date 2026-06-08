@@ -330,37 +330,74 @@ function handleLanguagesFlag() {
             file: "pt.json",
             tracking:
                 "Precisamos da sua permissão para personalizar sua experiência com anúncios e conteúdos relevantes. Seus dados nos ajudam a melhorar as recomendações e garantir que você veja o que é mais interessante para você.",
+            photo: "Este app pode acessar suas fotos para você selecionar e compartilhar imagens.",
+            photoAdd: "Este app pode salvar imagens na sua galeria de fotos.",
+            camera: "Este app pode usar a câmera para capturar e compartilhar fotos.",
         },
         en: {
             name: `${baseAppName}`,
             file: "en.json",
             tracking:
                 "We need your permission to personalize your experience with relevant ads and content. Your data helps us improve recommendations and ensure you see what's most interesting to you.",
+            photo: "This app may access your photos so you can select and share images.",
+            photoAdd: "This app may save images to your photo library.",
+            camera: "This app may use the camera to capture and share photos.",
         },
         es: {
             name: `${baseAppName}`,
             file: "es.json",
             tracking:
                 "Necesitamos tu permiso para personalizar tu experiencia con anuncios y contenido relevantes. Tus datos nos ayudan a mejorar las recomendaciones y garantizar que veas lo que más te interesa.",
+            photo: "Esta app puede acceder a tus fotos para que selecciones y compartas imágenes.",
+            photoAdd: "Esta app puede guardar imágenes en tu galería de fotos.",
+            camera: "Esta app puede usar la cámara para capturar y compartir fotos.",
         },
     };
 
     Object.keys(languages).forEach((langCode) => {
         const langInfo = languages[langCode];
         const filePath = path.join(langDir, langInfo.file);
+        // Chaves do Info.plist localizadas (viram InfoPlist.strings por idioma via expo.locales).
+        // As NS*UsageDescription espelham os defaults injetados no Info.plist base por app.plugin.js.
+        const iosStrings = {
+            CFBundleDisplayName: langInfo.name,
+            NSUserTrackingUsageDescription: langInfo.tracking,
+            NSPhotoLibraryUsageDescription: langInfo.photo,
+            NSPhotoLibraryAddUsageDescription: langInfo.photoAdd,
+            NSCameraUsageDescription: langInfo.camera,
+        };
 
         if (!fs.existsSync(filePath)) {
             const localizedConfig = {
-                ios:{
-                    CFBundleDisplayName: langInfo.name,
-                    NSUserTrackingUsageDescription: langInfo.tracking
-                },
-                android:{
-                    app_name: langInfo.name
-                }
+                ios: iosStrings,
+                android: {app_name: langInfo.name},
             };
             fs.writeFileSync(filePath, JSON.stringify(localizedConfig, null, 2));
-            console.log(chalk.green(`  -> Created ${filePath} with localized names.`));
+            console.log(chalk.green(`  -> Created ${filePath} with localized names + purpose strings.`));
+        } else {
+            // Arquivo já existe: mescla só as chaves que faltam (ex.: novas purpose strings),
+            // sem sobrescrever o que o dev já traduziu (nome, tracking, etc.).
+            try {
+                const existing = JSON.parse(fs.readFileSync(filePath, "utf-8")) || {};
+                existing.ios = existing.ios || {};
+                existing.android = existing.android || {};
+                let added = 0;
+                for (const [k, v] of Object.entries(iosStrings)) {
+                    if (existing.ios[k] === undefined) {
+                        existing.ios[k] = v;
+                        added++;
+                    }
+                }
+                if (existing.android.app_name === undefined) existing.android.app_name = langInfo.name;
+                if (added > 0) {
+                    fs.writeFileSync(filePath, JSON.stringify(existing, null, 2));
+                    console.log(chalk.green(`  -> Updated ${filePath} (+${added} chave(s) que faltavam).`));
+                } else {
+                    console.log(chalk.gray(`  -> ${filePath} já completo. Skipping.`));
+                }
+            } catch (e) {
+                console.warn(chalk.yellow(`  -> Não consegui mesclar ${filePath}: ${e.message}`));
+            }
         }
     });
 
@@ -1268,5 +1305,5 @@ if (require.main === module) {
     });
 } else {
     // Exporta helpers para testes/uso programático sem disparar o CLI.
-    module.exports = {fixBrokenIosIcon, dedupeInfoPlistArrays};
+    module.exports = {fixBrokenIosIcon, dedupeInfoPlistArrays, handleLanguagesFlag};
 }
