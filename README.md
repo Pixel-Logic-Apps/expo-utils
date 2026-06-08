@@ -255,7 +255,8 @@ npx expo-utils-install --new
 | `--constants`             | Cria pasta constants com Strings.ts template    |
 | `--eas-config`            | Configura eas.json, EAS build cache, remove updates block |
 | `--tracking-permission`   | Adiciona permissão de rastreamento iOS          |
-| `--fix-ios-build`         | Aplica fixes de build iOS (static frameworks)   |
+| `--fix-ios-build`         | Aplica fixes de build iOS (static frameworks); deduplica arrays do `infoPlist` (ex.: `UIBackgroundModes`) |
+| `--expo-icon`             | Remove `ios.icon` quebrado (ex.: `./assets/expo.icon` deletado) que derruba o `actool` no prebuild; só com `icon` raiz válido de fallback. Roda também no `--new` |
 | `--gitignore`             | Atualiza .gitignore com ios/, android/, bun.lock |
 | `--hot-updater`           | Configura Hot Updater (babel, .env, deps)       |
 | `--sort-plugins`          | Ordena os plugins do app.json (strings primeiro, depois os com config) |

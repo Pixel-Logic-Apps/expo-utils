@@ -45,7 +45,8 @@ The detected PM controls both the install command (`bun add`, `yarn add`, etc.) 
     - `--constants`: Create constants folder with Strings.ts template
     - `--eas-config`: Setup EAS Build, build cache, remove updates block
     - `--tracking-permission`: Add iOS tracking transparency permission
-    - `--fix-ios-build`: Apply iOS build fixes (expo-build-properties, static frameworks)
+    - `--fix-ios-build`: Apply iOS build fixes (expo-build-properties, static frameworks). Also dedupes string arrays in `infoPlist` (e.g. `UIBackgroundModes`), preserving order — object arrays like `SKAdNetworkItems` are left to `--skadnetwork`.
+    - `--expo-icon`: Removes a broken `ios.icon` — one pointing at a path that doesn't exist on disk (e.g. a deleted `./assets/expo.icon`), which makes `actool` fail at prebuild with `attempt to insert nil object from objects[0]`. The iOS then falls back to the valid root `icon`. Removed **only** when a valid root `icon` exists; otherwise it just warns (never leaves the app icon-less). Runs automatically in `--new`.
     - `--gitignore`: Update .gitignore with ios/, android/, etc.
     - `--hot-updater`: Setup Hot Updater (babel.config.js, .env files, dependencies)
     - `--sort-plugins`: Reorder app.json `plugins` so string plugins come first, then array (`[name, config]`) plugins (stable within each group). Also runs automatically at the end of `--config` and `--new`.

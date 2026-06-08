@@ -552,6 +552,90 @@ function handleFirebasePlaceholdersFlag() {
     console.log(chalk.green("✅ Firebase placeholder step complete."));
 }
 
+/**
+ * Remove um `ios.icon` que aponta para um arquivo/diretório inexistente (referência quebrada).
+ * Esse caso faz o `actool` falhar no prebuild com "attempt to insert nil object from objects[0]",
+ * porque o AppIcon.appiconset é gerado com um slot sem `filename`.
+ * Só remove se existir um `icon` raiz válido para servir de fallback; caso contrário, apenas avisa
+ * (não deixa o app sem ícone nenhum).
+ * @returns {boolean} true se alterou o config.
+ */
+function fixBrokenIosIcon(config) {
+    const ios = config.expo && config.expo.ios;
+    const iosIcon = ios && ios.icon;
+    if (typeof iosIcon !== "string" || iosIcon.trim() === "") return false;
+
+    const resolved = path.resolve(projectRoot, iosIcon);
+    if (fs.existsSync(resolved)) return false; // ícone custom existe → intenção legítima, não mexe.
+
+    // Referência quebrada: o iOS cai no `icon` raiz se ele existir e for válido.
+    const rootIcon = config.expo && config.expo.icon;
+    const rootResolved =
+        typeof rootIcon === "string" && rootIcon.trim() !== "" ? path.resolve(projectRoot, rootIcon) : null;
+
+    if (!rootResolved || !fs.existsSync(rootResolved)) {
+        console.log(
+            chalk.yellow(
+                `  -> ⚠️  'ios.icon' aponta para '${iosIcon}', que não existe, e não há 'icon' raiz válido como fallback.`,
+            ),
+        );
+        console.log(
+            chalk.yellow(
+                `     Defina um ícone válido (ex.: "icon": "./assets/images/icon.png") para evitar a falha do actool no build.`,
+            ),
+        );
+        return false;
+    }
+
+    delete ios.icon;
+    console.log(
+        chalk.green(
+            `  -> Removido 'ios.icon' ('${iosIcon}' não existe — quebraria o actool no prebuild). iOS usará o 'icon' raiz: ${rootIcon}.`,
+        ),
+    );
+    return true;
+}
+
+/**
+ * Remove entradas duplicadas de arrays de strings no infoPlist (ex.: UIBackgroundModes),
+ * preservando a ordem. Não toca em arrays de objetos como SKAdNetworkItems (ver --skadnetwork).
+ * @returns {boolean} true se alterou o config.
+ */
+function dedupeInfoPlistArrays(config) {
+    const infoPlist = config.expo && config.expo.ios && config.expo.ios.infoPlist;
+    if (!infoPlist || typeof infoPlist !== "object") return false;
+
+    let changed = false;
+    for (const key of Object.keys(infoPlist)) {
+        const value = infoPlist[key];
+        if (!Array.isArray(value) || value.length === 0) continue;
+        if (!value.every((v) => typeof v === "string")) continue; // só arrays de strings simples.
+
+        const deduped = [...new Set(value)];
+        if (deduped.length !== value.length) {
+            infoPlist[key] = deduped;
+            changed = true;
+            console.log(
+                chalk.green(
+                    `  -> Removida(s) ${value.length - deduped.length} entrada(s) duplicada(s) em infoPlist.${key}.`,
+                ),
+            );
+        }
+    }
+    return changed;
+}
+
+function handleExpoIconFlag() {
+    console.log(chalk.cyan("🎨 Verificando o ícone do iOS (ios.icon)..."));
+    const config = getAppConfig();
+    if (!config) return;
+
+    if (fixBrokenIosIcon(config)) {
+        writeAppConfig(config);
+    }
+    console.log(chalk.green("✅ Verificação do ícone iOS concluída."));
+}
+
 function handleIosBuildFixFlag() {
     console.log(chalk.cyan("🔧 Applying iOS build fixes and configurations..."));
     const config = getAppConfig();
@@ -616,6 +700,9 @@ function handleIosBuildFixFlag() {
         config.expo.ios.entitlements["aps-environment"] = "production";
         console.log(chalk.green('  -> Set "aps-environment" to "production" for Push Notifications.'));
     }
+
+    // --- Dedupe de arrays do infoPlist (ex.: UIBackgroundModes); o fix do ícone fica no --expo-icon ---
+    dedupeInfoPlistArrays(config);
 
     writeAppConfig(config);
     console.log(chalk.green("✅ iOS build configurations applied."));
@@ -1117,6 +1204,7 @@ async function main() {
         // Run all non-destructive steps first
         handleEasConfigFlag();
         handleIosBuildFixFlag();
+        handleExpoIconFlag();
         handleFirebasePlaceholdersFlag();
         handleConfigFlag();
         handleLanguagesFlag();
@@ -1163,6 +1251,7 @@ async function main() {
         if (args.includes("--sort-plugins")) handleSortPluginsFlag();
         if (args.includes("--firebase-placeholders")) handleFirebasePlaceholdersFlag();
         if (args.includes("--fix-ios-build")) handleIosBuildFixFlag();
+        if (args.includes("--expo-icon")) handleExpoIconFlag();
         if (args.includes("--tracking-permission")) handleTrackingPermissionFlag();
         if (args.includes("--eas-config")) handleEasConfigFlag();
         if (args.includes("--constants")) handleConstantsFlag();
@@ -1172,7 +1261,12 @@ async function main() {
     }
 }
 
-main().catch((err) => {
-    console.error(chalk.red.bold("\nA critical error occurred:"), err);
-    process.exit(1);
-});
+if (require.main === module) {
+    main().catch((err) => {
+        console.error(chalk.red.bold("\nA critical error occurred:"), err);
+        process.exit(1);
+    });
+} else {
+    // Exporta helpers para testes/uso programático sem disparar o CLI.
+    module.exports = {fixBrokenIosIcon, dedupeInfoPlistArrays};
+}
