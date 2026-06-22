@@ -1382,6 +1382,12 @@ async function main() {
                 } else {
                     await handleAppReset();
                     handleConstantsFlag(); // Execute after app reset
+                    // handleAppReset deletou assets/expo.icon — re-verifica o ios.icon, que
+                    // agora está quebrado. O handleExpoIconFlag() dos passos não-destrutivos
+                    // rodou ANTES do reset (quando a pasta ainda existia), então não pegou isso.
+                    // Aqui ele remove o ios.icon órfão e cai no icon raiz válido (evita o warning
+                    // "Liquid glass icon file not found" e a falha do actool no build iOS).
+                    handleExpoIconFlag();
                 }
                 rl.close();
                 console.log(chalk.bold.magenta("\n✨ All done! ✨"));
