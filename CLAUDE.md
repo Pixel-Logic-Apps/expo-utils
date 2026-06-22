@@ -35,8 +35,8 @@ The detected PM controls both the install command (`bun add`, `yarn add`, etc.) 
 
 - Test CLI installation: `node bin/install.js` (from within a test project that has expo-utils installed)
 - CLI flags:
-    - `--new`: Full setup for new projects (runs all scaffolding with confirmation prompts)
-    - `--config`: Add standard plugins to app.json
+    - `--new`: Full setup for new projects (runs all scaffolding with confirmation prompts). During the app-reset step (behind the `Y/n` prompt) it cleans `assets/images/` down to an **allowlist** — keeps only `icon.png`, `splash-icon.png`, `android-icon-background.png`, `android-icon-foreground.png`, `android-icon-monochrome.png`; removes every other loose file (`react-logo*`, `favicon`, `partial-react-logo`, `expo-badge*`, `expo-logo`, …) but **preserves subfolders** like `tabIcons/`. It also deletes the broken `assets/expo.icon/` Icon Composer folder (pairs with `--expo-icon`, which strips the matching `ios.icon` from app.json).
+    - `--config`: Add standard plugins to app.json, including the default `expo-splash-screen` config
     - `--layout`: Replace root \_layout.tsx with template
     - `--srcapp`: Move app/ to src/app/
     - `--languages`: Setup i18n with pt/en/es translations. Also writes localized iOS purpose strings (`NSUserTracking`/`NSPhotoLibrary`/`NSPhotoLibraryAdd`/`NSCamera` usage descriptions) into each `languages/<locale>.json` for `expo.locales` → `InfoPlist.strings`, **merging** into existing files (adds only missing keys, preserves your translations). The Info.plist base keys themselves are injected by the config plugin (see Configuration System).

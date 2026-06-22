@@ -222,6 +222,7 @@ function handleConfigFlag() {
     }
 
     // Add other plugins from the config file
+    const forceStandardConfigPlugins = new Set(["expo-splash-screen"]);
     Object.keys(pluginsWithConfig).forEach((pluginName) => {
         const existingPluginIndex = config.expo.plugins.findIndex((p) => (Array.isArray(p) ? p[0] : p) === pluginName);
 
@@ -238,6 +239,15 @@ function handleConfigFlag() {
                 // Plugin existe mas sem configuração, substituir por versão com configuração
                 config.expo.plugins[existingPluginIndex] = [pluginName, pluginsWithConfig[pluginName]];
                 console.log(chalk.green(`  -> Updated ${pluginName} plugin with configuration.`));
+            } else if (forceStandardConfigPlugins.has(pluginName)) {
+                // Para projetos novos, o template do Expo pode vir com expo-splash-screen
+                // já configurado com outros defaults. Mantemos o splash padronizado.
+                if (JSON.stringify(existingPlugin[1]) === JSON.stringify(pluginsWithConfig[pluginName])) {
+                    console.log(chalk.yellow(`  -> Plugin ${pluginName} already configured.`));
+                } else {
+                    config.expo.plugins[existingPluginIndex] = [pluginName, pluginsWithConfig[pluginName]];
+                    console.log(chalk.green(`  -> Updated ${pluginName} plugin with standard configuration.`));
+                }
             } else {
                 console.log(chalk.yellow(`  -> Plugin ${pluginName} already configured.`));
             }
@@ -1189,21 +1199,35 @@ async function handleAppReset() {
         }
     });
 
-    // Remove specific image files
-    const imagesToRemove = [
-        path.join("assets", "images", "favicon.png"),
-        path.join("assets", "images", "react-logo.png"),
-        path.join("assets", "images", "react-logo@2x.png"),
-        path.join("assets", "images", "react-logo@3x.png"),
-        path.join("assets", "images", "partial-react-logo.png"),
-    ];
-    imagesToRemove.forEach((imagePath) => {
-        const fullPath = path.join(projectRoot, imagePath);
-        if (fs.existsSync(fullPath)) {
-            fs.rmSync(fullPath, {force: true});
-            console.log(chalk.yellow(`  -> Removed '${imagePath}'.`));
-        }
-    });
+    // Clean assets/images: keep ONLY the allowlisted icon files; remove every
+    // other loose file (template leftovers like react-logo*, partial-react-logo,
+    // favicon, expo-badge*, expo-logo, etc.). Subdirectories (e.g. tabIcons/) are
+    // preserved, since the app may rely on them.
+    const imagesToKeep = new Set([
+        "icon.png",
+        "splash-icon.png",
+        "android-icon-background.png",
+        "android-icon-foreground.png",
+        "android-icon-monochrome.png",
+    ]);
+    const imagesDir = path.join(projectRoot, "assets", "images");
+    if (fs.existsSync(imagesDir)) {
+        fs.readdirSync(imagesDir, {withFileTypes: true}).forEach((entry) => {
+            if (!entry.isFile()) return; // preserve subfolders (tabIcons/) and anything non-file
+            if (imagesToKeep.has(entry.name)) return; // keep the allowlisted icons
+            fs.rmSync(path.join(imagesDir, entry.name), {force: true});
+            console.log(chalk.yellow(`  -> Removed 'assets/images/${entry.name}'.`));
+        });
+    }
+
+    // Remove the broken Apple Icon Composer folder (assets/expo.icon) bundled by the
+    // template: it makes actool fail at prebuild. Pairs with --expo-icon, which strips
+    // the matching ios.icon reference out of app.json.
+    const expoIconDir = path.join(projectRoot, "assets", "expo.icon");
+    if (fs.existsSync(expoIconDir)) {
+        fs.rmSync(expoIconDir, {recursive: true, force: true});
+        console.log(chalk.yellow(`  -> Removed 'assets/expo.icon' directory.`));
+    }
 
     // Create new structure
     ensureDirExists(newAppDir);

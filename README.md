@@ -239,14 +239,14 @@ npx expo-utils-install
 npx expo-utils-install --new
 ```
 
-**Executa configuração completa para novos projetos** (com confirmação para mudanças destrutivas)
+**Executa configuração completa para novos projetos** (com confirmação para mudanças destrutivas). No reset do app (atrás do prompt `Y/n`), limpa `assets/images/` por **allowlist** — mantém só `icon.png`, `splash-icon.png` e os `android-icon-{background,foreground,monochrome}.png`, remove o resto (`react-logo*`, `favicon`, `expo-badge*`, `expo-logo`…) e **preserva subpastas** como `tabIcons/`; também apaga a pasta quebrada `assets/expo.icon/`.
 
 ### Comandos Individuais
 
 | Comando                   | Descrição                                       |
 | ------------------------- | ----------------------------------------------- |
 | `npx expo-utils-install`  | Instala apenas dependências faltantes           |
-| `--config`                | Adiciona plugins AdMob e Facebook ao app.json   |
+| `--config`                | Adiciona plugins padrão ao app.json (AdMob, Facebook, splash screen, expo-utils) |
 | `--firebase-placeholders` | Cria arquivos Firebase placeholder              |
 | `--layout`                | Substitui \_layout.tsx por template configurado |
 | `--srcapp`                | Move pasta app para src/app                     |

@@ -1,19 +1,21 @@
-import React, {useEffect, useState} from "react";
-import {SplashScreen, usePathname} from "expo-router";
-import Utils from "./Utils";
+import React, {useEffect, useRef, useState} from "react";
+import {usePathname} from "expo-router";
+import {View} from "react-native";
+import * as SplashScreen from "expo-splash-screen";
+import Utils, {initHotUpdater} from "./Utils";
 import {setupAppOpenListener} from "./appopen-ads";
 import AskForReviewOverlay, {AskForReviewEvents} from "./ask-for-review";
 import PromotionalContent, {usePromotional} from "./modal-promotional-content";
 import type {AppStrings} from "./types";
 
 // Mantém o splash visível até o app estar pronto (roda no import, antes do mount).
+SplashScreen.setOptions({duration: 150, fade: true});
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
 type Props = {
     appConfig: any;
     appStrings: AppStrings;
     children: React.ReactNode;
-    /** Roda no fim do boot (depois de prepare + ATT + overlays), com global.remoteConfigUtils disponível. */
     onReady?: () => void | Promise<void>;
 };
 
@@ -29,17 +31,25 @@ export function ExpoUtilsLayout({appConfig, appStrings, children, onReady}: Prop
     const [appIsReady, setAppIsReady] = useState(false);
     const [showReviewOverlay, setShowReviewOverlay] = useState(false);
     const pathname = usePathname();
+    const boot = useRef(false);
     const {visible: showPromo, show: showPromoModal, hide: hidePromoModal} = usePromotional(pathname);
+    const handleReady = () => {
+        if (!boot.current) {
+            boot.current = true;
+            setTimeout(async () => {
+                await SplashScreen.hideAsync();
+                setTimeout(async () => 
+                    await Utils.requestTrackingWhenActive(appConfig, appStrings), 2000);
+            }, 3000);
+        }
+    };
 
     useEffect(() => {
-        global.isAdsEnabled = !__DEV__;
         (async () => {
+            await initHotUpdater(appStrings.hotUpdaterUrl);
             await Utils.prepare(setAppIsReady, appConfig, appStrings);
-            await SplashScreen.hideAsync().catch(() => {});
-            await Utils.requestTrackingWhenActive(appConfig, appStrings);
             setupAppOpenListener();
             showPromoModal();
-            await onReady?.(); // seu código pós-prepare (config disponível)
         })();
         return AskForReviewEvents.onShowPopup(() => setShowReviewOverlay(true));
     }, []);
@@ -55,6 +65,7 @@ export function ExpoUtilsLayout({appConfig, appStrings, children, onReady}: Prop
                 onClose={() => setShowReviewOverlay(false)}
                 delay={global.remoteConfigUtils?.review_type_delay || 0}
             />
+            <View onLayout={handleReady} />
         </>
     );
 }

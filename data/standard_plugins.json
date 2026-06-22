@@ -18,6 +18,23 @@
             "enforceNavigationBarContrast": false
         }
     },
+    "expo-splash-screen": {
+        "backgroundColor": "#FFFFFF",
+        "image": "./assets/images/splash-icon.png",
+        "imageWidth": 76,
+        "dark": {
+            "backgroundColor": "#000000"
+        },
+        "ios": {
+            "backgroundColor": "#FFFFFF",
+            "image": "./assets/images/splash-icon.png",
+            "imageWidth": 76
+        },
+        "android": {
+            "image": "./assets/images/splash-icon.png",
+            "imageWidth": 76
+        }
+    },
     "expo-utils": {
         "disableWarnings": false,
         "disableLogs": false,

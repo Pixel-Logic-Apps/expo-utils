@@ -138,9 +138,9 @@ const Utils = {
 
     getRemoteConfigUtils: async (): Promise<RemoteConfigUtilsType> => {
         const app = getApp();
-        // Default de ads: ON em produção, OFF. O Remote Config ainda pode
+        // Default de ads: ON em produção, OFF em dev. O Remote Config ainda pode
         // desligar explicitamente (is_ads_enabled:false) — isso é só o fallback quando não há valor.
-        const DEFAULT = {is_ads_enabled: false, min_version: 1.0} as any;
+        const DEFAULT = {is_ads_enabled: !__DEV__, min_version: 1.0} as any;
         if (!app) {
             expoUtilsWarn("Firebase not configured, using default settings");
             return DEFAULT;
@@ -150,13 +150,15 @@ const Utils = {
                 const remoteConfig = getRemoteConfig(app);
                 await setConfigSettings(remoteConfig, {minimumFetchIntervalMillis: 0});
                 await setDefaults(remoteConfig, {
-                    utils: JSON.stringify({is_ads_enabled: false}),
+                    utils: JSON.stringify({is_ads_enabled: !__DEV__}),
                     screens: JSON.stringify({}),
                 });
                 try {
                     await fetchAndActivate(remoteConfig);
                 } catch {}
-                return JSON.parse(getValue(remoteConfig, "utils").asString());
+                // Coalesce com DEFAULT: se o param `utils` existir mas vier sem is_ads_enabled,
+                // não cai em undefined (que apagaria o banner) — herda o default (ON em prod).
+                return {...DEFAULT, ...JSON.parse(getValue(remoteConfig, "utils").asString())};
             } catch {
                 return DEFAULT;
             }
