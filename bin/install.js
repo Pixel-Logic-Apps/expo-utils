@@ -1289,10 +1289,12 @@ async function handleAppReset() {
         }
     });
 
-    // Clean assets/images: keep ONLY the allowlisted icon files; remove every
-    // other loose file (template leftovers like react-logo*, partial-react-logo,
-    // favicon, expo-badge*, expo-logo, etc.). Subdirectories (e.g. tabIcons/) are
-    // preserved, since the app may rely on them.
+    // Clean assets/images down to an allowlist: keep ONLY the allowlisted icon
+    // files; remove EVERYTHING else — loose template leftovers (react-logo*,
+    // partial-react-logo, favicon, expo-badge*, expo-logo, …) AND subfolders
+    // (e.g. the template's tabIcons/ with the example explore/home icons).
+    // --new is for new projects, so any subfolder here is template junk, not your
+    // asset — directories are removed recursively.
     const imagesToKeep = new Set([
         "icon.png",
         "splash-icon.png",
@@ -1303,10 +1305,10 @@ async function handleAppReset() {
     const imagesDir = path.join(projectRoot, "assets", "images");
     if (fs.existsSync(imagesDir)) {
         fs.readdirSync(imagesDir, {withFileTypes: true}).forEach((entry) => {
-            if (!entry.isFile()) return; // preserve subfolders (tabIcons/) and anything non-file
             if (imagesToKeep.has(entry.name)) return; // keep the allowlisted icons
-            fs.rmSync(path.join(imagesDir, entry.name), {force: true});
-            console.log(chalk.yellow(`  -> Removed 'assets/images/${entry.name}'.`));
+            const isDir = entry.isDirectory();
+            fs.rmSync(path.join(imagesDir, entry.name), {recursive: true, force: true});
+            console.log(chalk.yellow(`  -> Removed 'assets/images/${entry.name}${isDir ? "/" : ""}'.`));
         });
     }
 
