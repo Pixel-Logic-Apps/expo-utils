@@ -1172,6 +1172,96 @@ function handleHotUpdaterFlag() {
     console.log(chalk.cyan(`   📝 Then run: ${installCmd[hotUpdaterPm]}`));
 }
 
+// Fixa (pin) TODA dependência do projeto numa versão EXATA, para o install ficar
+// idêntico em todas as máquinas. Remove os operadores de range (^, ~, >=, >, <=, <, =)
+// e, sempre que o pacote está instalado, grava a versão realmente presente em
+// node_modules (a versão resolvida — o que "depois de atualizado" de fato significa).
+// Specs que NÃO são versão de registry — git/github (inclusive shorthand owner/repo),
+// file:/link:/workspace:/npm: e URLs/paths (.tgz) — são preservados intactos, pois não
+// podem ser expressos como um semver fixo (ex.: o próprio `expo-utils` via GitHub).
+function handlePinDepsFlag() {
+    console.log(chalk.cyan("📌 Fixando versões das dependências (remove ^, ~, >= para ficar igual em todas as máquinas)..."));
+
+    const projectPkgPath = path.join(projectRoot, "package.json");
+    if (!fs.existsSync(projectPkgPath)) {
+        console.error(chalk.red("❌ package.json não encontrado no projeto."));
+        return;
+    }
+    const projectPkg = JSON.parse(fs.readFileSync(projectPkgPath, "utf-8"));
+
+    // Uma versão exata de semver: 1.2.3, 56.0.18, 1.0.0-beta.1, 1.0.0+build...
+    const EXACT_VERSION = /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)*$/;
+
+    // Specs que devem ficar intactos — não mapeiam para uma versão fixa de registry.
+    // `:` cobre workspace:/file:/link:/npm:/git:/github:/catalog:; `/` cobre o shorthand
+    // de GitHub (owner/repo), paths e tarballs/URLs (ex.: o .tgz local ou link do GitHub).
+    const shouldSkipSpec = (spec) =>
+        typeof spec !== "string" ||
+        spec.trim() === "" ||
+        spec.includes(":") ||
+        spec.includes("/") ||
+        spec === "*" ||
+        spec === "x" ||
+        spec.toLowerCase() === "latest";
+
+    // Versão realmente instalada em node_modules (a resolvida). Suporta pacote com escopo
+    // (@scope/name) porque path.join monta node_modules/@scope/name/package.json certinho.
+    const installedVersion = (name) => {
+        try {
+            const pkgJson = path.join(projectRoot, "node_modules", name, "package.json");
+            if (fs.existsSync(pkgJson)) {
+                const v = JSON.parse(fs.readFileSync(pkgJson, "utf-8")).version;
+                if (typeof v === "string" && EXACT_VERSION.test(v)) return v;
+            }
+        } catch {}
+        return null;
+    };
+
+    // Fallback quando o pacote não está instalado: remove o operador inicial do range e só
+    // aceita o resultado se sobrar uma única versão concreta (ranges compostos viram null).
+    const stripToExact = (spec) => {
+        const stripped = spec.trim().replace(/^[\^~>=<\sv]+/, "");
+        return EXACT_VERSION.test(stripped) ? stripped : null;
+    };
+
+    const fields = ["dependencies", "devDependencies", "optionalDependencies"];
+    let pinned = 0;
+    const skipped = [];
+
+    for (const field of fields) {
+        const deps = projectPkg[field];
+        if (!deps || typeof deps !== "object") continue;
+
+        for (const name of Object.keys(deps)) {
+            const spec = deps[name];
+            if (shouldSkipSpec(spec)) continue;
+            if (EXACT_VERSION.test(spec)) continue; // já está fixado, nada a fazer
+
+            const target = installedVersion(name) || stripToExact(spec);
+            if (!target) {
+                skipped.push(`${name}@${spec}`); // range composto / não instalado
+                continue;
+            }
+            if (target !== spec) {
+                deps[name] = target;
+                console.log(chalk.green(`  -> ${name}: ${spec} → ${target}`));
+                pinned++;
+            }
+        }
+    }
+
+    if (pinned === 0) {
+        console.log(chalk.yellow("  -> Nenhuma dependência para fixar (já estão todas em versão exata)."));
+    } else {
+        fs.writeFileSync(projectPkgPath, JSON.stringify(projectPkg, null, 2) + "\n");
+        console.log(chalk.green.bold(`✅ ${pinned} dependência(s) fixada(s) em package.json.`));
+    }
+
+    if (skipped.length > 0) {
+        console.log(chalk.gray(`  -> Preservadas (range composto / não instalado): ${skipped.join(", ")}`));
+    }
+}
+
 async function handleAppReset() {
     console.log(chalk.cyan("♻️ Resetting app structure..."));
 
@@ -1273,6 +1363,7 @@ async function main() {
         handleTrackingPermissionFlag();
         handleGitignoreFlag(); // Nova chamada para atualizar .gitignore
         handleHotUpdaterFlag(); // Setup hot-updater
+        handlePinDepsFlag(); // Fixa as versões das deps (após todos os handlers que mexem em package.json)
         handleClaudeMdFlag();
         handleSortPluginsFlag(); // Ordena os plugins por último (após todos os handlers que adicionam plugins)
 
@@ -1318,6 +1409,7 @@ async function main() {
         if (args.includes("--constants")) handleConstantsFlag();
         if (args.includes("--gitignore")) handleGitignoreFlag(); // Nova flag para atualizar .gitignore
         if (args.includes("--hot-updater")) handleHotUpdaterFlag(); // Setup hot-updater
+        if (args.includes("--pin-deps")) handlePinDepsFlag(); // Fixa versões das deps (remove ^, ~, >=)
         console.log(chalk.bold.magenta("\n✨ All done! ✨"));
     }
 }
@@ -1329,5 +1421,5 @@ if (require.main === module) {
     });
 } else {
     // Exporta helpers para testes/uso programático sem disparar o CLI.
-    module.exports = {fixBrokenIosIcon, dedupeInfoPlistArrays, handleLanguagesFlag};
+    module.exports = {fixBrokenIosIcon, dedupeInfoPlistArrays, handleLanguagesFlag, handlePinDepsFlag};
 }

@@ -50,6 +50,7 @@ The detected PM controls both the install command (`bun add`, `yarn add`, etc.) 
     - `--gitignore`: Update .gitignore with ios/, android/, etc.
     - `--hot-updater`: Setup Hot Updater (babel.config.js, .env files, dependencies)
     - `--sort-plugins`: Reorder app.json `plugins` so string plugins come first, then array (`[name, config]`) plugins (stable within each group). Also runs automatically at the end of `--config` and `--new`.
+    - `--pin-deps`: Pin every project dependency in `package.json` to an **exact** version so installs are identical across machines. Strips range operators (`^`, `~`, `>=`, `>`, `<=`, `<`, `=`) from `dependencies`/`devDependencies`/`optionalDependencies` and, whenever the package is installed, rewrites the spec to the version actually resolved in `node_modules` (otherwise falls back to the range's floor). Non-registry specs are **preserved untouched** — git/GitHub (incl. shorthand `owner/repo`), `file:`/`link:`/`workspace:`/`npm:` and tarball/URL/path specs (anything containing `:` or `/`), so e.g. `expo-utils` installed via a GitHub link is never overwritten. Composite ranges (`>=1 <2`) on not-installed packages are left as-is. Runs automatically near the end of `--new` (after all handlers that modify `package.json`).
 
 ## Architecture
 

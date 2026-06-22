@@ -260,6 +260,7 @@ npx expo-utils-install --new
 | `--gitignore`             | Atualiza .gitignore com ios/, android/, bun.lock |
 | `--hot-updater`           | Configura Hot Updater (babel, .env, deps)       |
 | `--sort-plugins`          | Ordena os plugins do app.json (strings primeiro, depois os com config) |
+| `--pin-deps`              | Fixa todas as deps do `package.json` em versão exata (remove `^`/`~`/`>=`, usa a versão instalada). Preserva git/GitHub/`file:`/tarball. Roda também no `--new` |
 
 ## 📱 Configuração do Projeto
 
