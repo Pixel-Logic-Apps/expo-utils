@@ -1,6 +1,6 @@
 import {Stack, usePathname} from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
-import {useEffect, useRef, useState} from "react";
+import {useEffect, useState} from "react";
 import {View} from "react-native";
 import Utils, {initHotUpdater} from "expo-utils/utils/Utils";
 import {setupAppOpenListener} from "expo-utils/utils/appopen-ads";
@@ -16,18 +16,7 @@ export default function RootLayout() {
     const [appIsReady, setAppIsReady] = useState(false);
     const [showReviewOverlay, setShowReviewOverlay] = useState(false);
     const pathname = usePathname();
-    const boot = useRef(false);
     const {visible: showPromo, show: showPromoModal, hide: hidePromoModal} = usePromotional(pathname);
-    const handleReady = () => {
-        if (!boot.current) {
-            boot.current = true;
-            setTimeout(async () => {
-                await SplashScreen.hideAsync();
-                setTimeout(async () => 
-                    await Utils.requestTrackingWhenActive(appConfig, appStrings), 2000);
-            }, 3000);
-        }
-    };
 
     useEffect(() => {
         (async () => {
@@ -52,7 +41,7 @@ export default function RootLayout() {
                 onClose={() => setShowReviewOverlay(false)}
                 delay={global.remoteConfigUtils?.review_type_delay || 0}
             />
-            <View onLayout={handleReady} />
+            <View onLayout={Utils.handleReady} />
         </>
     );
 }

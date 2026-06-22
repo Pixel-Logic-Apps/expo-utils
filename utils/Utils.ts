@@ -28,6 +28,7 @@ const safeGetLocales = (): Array<{languageCode?: string | null; regionCode?: str
 // Static imports for runtime dependencies
 import {requestTrackingPermissionsAsync, getTrackingPermissionsAsync} from "expo-tracking-transparency";
 import * as Application from "expo-application";
+import * as SplashScreen from "expo-splash-screen";
 import * as Clarity from "@microsoft/react-native-clarity";
 import {AppEventsLogger, Settings as FbsdkSettings} from "react-native-fbsdk-next";
 import Purchases, {LOG_LEVEL} from "react-native-purchases";
@@ -101,6 +102,13 @@ export async function initHotUpdater(baseURL?: string) {
 // Memoiza o portão de APNs: o token (ou a ausência dele) não muda dentro de uma sessão,
 // então pollamos uma única vez e reusamos o resultado em requestFCMToken/setupMessagingTopics/etc.
 let apnsReadyPromise: Promise<boolean> | null = null;
+
+// Boot: appConfig/appStrings capturados no prepare() e usados pelo Utils.handleReady
+// (chamado via <View onLayout={Utils.handleReady} />). bootDone garante que rode 1x.
+let bootAppConfig: any;
+let bootAppStrings: AppStrings | undefined;
+let bootFcmTrackingAllowed = true;
+let bootDone = false;
 
 const Utils = {
     // Função para buscar App ID iOS a partir do bundle ID
@@ -459,7 +467,10 @@ const Utils = {
      * no RootLayout — garantindo que o prompt ATT apareça de forma confiável e que nenhum dado
      * de tracking seja coletado antes do consentimento.
      */
-    prepare: async (setAppIsReady: (ready: boolean) => void, appConfig?: any, appStrings?: AppStrings) => {
+    prepare: async (setAppIsReady: (ready: boolean) => void, appConfig?: any, appStrings?: AppStrings, fcmTrackingAllowed: boolean = true) => {
+        bootAppConfig = appConfig;
+        bootAppStrings = appStrings;
+        bootFcmTrackingAllowed = fcmTrackingAllowed;
         try {
             LogBox.ignoreAllLogs(true);
             global.isAdsEnabled = !__DEV__;
@@ -522,6 +533,20 @@ const Utils = {
         } finally {
             setAppIsReady(true);
         }
+    },
+
+    /**
+     * Chamado via <View onLayout={Utils.handleReady} /> no layout, logo após o primeiro frame.
+     * Mantém o splash por 3s, esconde, e 2s depois dispara o ATT (timing confiável do prompt).
+     * Roda uma única vez; usa o appConfig/appStrings capturados no prepare().
+     */
+    handleReady: () => {
+        if (bootDone) return;
+        bootDone = true;
+        setTimeout(async () => {
+            await SplashScreen.hideAsync();
+            setTimeout(async () => await Utils.requestTrackingWhenActive(bootAppConfig, bootAppStrings, bootFcmTrackingAllowed), 2000);
+        }, 3000);
     },
 
     /**

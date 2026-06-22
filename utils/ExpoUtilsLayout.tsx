@@ -1,4 +1,4 @@
-import React, {useEffect, useRef, useState} from "react";
+import React, {useEffect, useState} from "react";
 import {usePathname} from "expo-router";
 import {View} from "react-native";
 import * as SplashScreen from "expo-splash-screen";
@@ -17,6 +17,7 @@ type Props = {
     appStrings: AppStrings;
     children: React.ReactNode;
     onReady?: () => void | Promise<void>;
+    fcmTrackingAllowed?: boolean;
 };
 
 /**
@@ -27,27 +28,16 @@ type Props = {
  * O _layout.tsx do projeto só precisa envolver suas telas (Stack) com este componente,
  * passando appConfig (app.json) e appStrings (constants/Strings).
  */
-export function ExpoUtilsLayout({appConfig, appStrings, children, onReady}: Props) {
+export function ExpoUtilsLayout({appConfig, appStrings, children, onReady, fcmTrackingAllowed = true}: Props) {
     const [appIsReady, setAppIsReady] = useState(false);
     const [showReviewOverlay, setShowReviewOverlay] = useState(false);
     const pathname = usePathname();
-    const boot = useRef(false);
     const {visible: showPromo, show: showPromoModal, hide: hidePromoModal} = usePromotional(pathname);
-    const handleReady = () => {
-        if (!boot.current) {
-            boot.current = true;
-            setTimeout(async () => {
-                await SplashScreen.hideAsync();
-                setTimeout(async () => 
-                    await Utils.requestTrackingWhenActive(appConfig, appStrings), 2000);
-            }, 3000);
-        }
-    };
 
     useEffect(() => {
         (async () => {
             await initHotUpdater(appStrings.hotUpdaterUrl);
-            await Utils.prepare(setAppIsReady, appConfig, appStrings);
+            await Utils.prepare(setAppIsReady, appConfig, appStrings, fcmTrackingAllowed);
             setupAppOpenListener();
             showPromoModal();
         })();
@@ -65,7 +55,7 @@ export function ExpoUtilsLayout({appConfig, appStrings, children, onReady}: Prop
                 onClose={() => setShowReviewOverlay(false)}
                 delay={global.remoteConfigUtils?.review_type_delay || 0}
             />
-            <View onLayout={handleReady} />
+            <View onLayout={Utils.handleReady} />
         </>
     );
 }
