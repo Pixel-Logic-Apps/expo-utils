@@ -45,3 +45,32 @@ export default function RootLayout() {
         </>
     );
 }
+
+/*
+───────────────────────────────────────────────────────────────────────────
+ALTERNATIVA ENXUTA: <ExpoUtilsLayout>
+───────────────────────────────────────────────────────────────────────────
+Não quer cuidar de cada fase do boot? Apague TUDO acima e use isto. O
+<ExpoUtilsLayout> encapsula todo o boot — prepare (Remote Config / RevenueCat /
+push), hot updater, app-open ads, ATT pós-primeiro-frame, promo, ask-for-review
+e os overlays. Você só envolve suas telas (Stack). Nada mais é necessário:
+
+import {Stack} from "expo-router";
+import {ExpoUtilsLayout} from "expo-utils/utils/ExpoUtilsLayout";
+import appConfig from "../../app.json";
+import appStrings from "../constants/Strings";
+
+export default function RootLayout() {
+    return (
+        <ExpoUtilsLayout appConfig={appConfig} appStrings={appStrings}>
+            <Stack screenOptions={{headerShown: false}}>
+                <Stack.Screen name="index" />
+            </Stack>
+        </ExpoUtilsLayout>
+    );
+}
+
+Prop opcional do <ExpoUtilsLayout>: fcmTrackingAllowed (default true) — passe
+false p/ pular a permissão de push (notificações).
+───────────────────────────────────────────────────────────────────────────
+*/
