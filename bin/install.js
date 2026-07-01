@@ -266,6 +266,15 @@ function handleConfigFlag() {
         console.log(chalk.yellow(`  -> Android permission ${adIdPermission} already configured.`));
     }
 
+    // Configure iOS tablet support (iPad)
+    config.expo.ios = config.expo.ios || {};
+    if (config.expo.ios.supportsTablet !== true) {
+        config.expo.ios.supportsTablet = true;
+        console.log(chalk.green(`  -> Set 'supportsTablet' to true in ios.`));
+    } else {
+        console.log(chalk.yellow(`  -> 'supportsTablet' already enabled in ios.`));
+    }
+
     // Deixa o array de plugins ordenado: strings primeiro, depois os com config.
     sortPlugins(config);
 
