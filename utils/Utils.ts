@@ -128,6 +128,22 @@ let bootAppStrings: AppStrings | undefined;
 let bootFcmTrackingAllowed = true;
 let bootDone = false;
 
+// O template (templates/Strings.ts) ships rckey como "appl_YOUR_REVENUECAT_IOS_KEY"/
+// "goog_YOUR_REVENUECAT_ANDROID_KEY". Chave placeholder é o mesmo que não ter chave:
+// sem este guard o Purchases.configure roda com key inválida (401 SILENCIOSO — o
+// logHandler é no-op) e toda a cadeia dependente de RC (atribuição, tópicos de status,
+// TikTok identify) gira à toa contra um app RC inexistente.
+let warnedPlaceholderRcKey = false;
+export const usableRcKey = (rckey?: string): string | undefined => {
+    if (!rckey) return undefined;
+    if (!rckey.includes("YOUR_REVENUECAT")) return rckey;
+    if (!warnedPlaceholderRcKey) {
+        warnedPlaceholderRcKey = true;
+        expoUtilsWarn("rckey é o placeholder do template (YOUR_REVENUECAT_…) — RevenueCat e atribuição desativados até configurar a key real em Strings.ts.");
+    }
+    return undefined;
+};
+
 // Compara versões "a.b.c": >0 se current > store, 0 se iguais, <0 se current < store.
 const compareVersions = (current: string, store: string): number => {
     const currentParts = current.split(".").map((part) => Number(part) || 0);
@@ -326,11 +342,12 @@ const Utils = {
 
     setupRevenueCat: async (rckey?: string) => {
         try {
-            if (!rckey) {
-                expoUtilsWarn("RevenueCat key not provided, skipping configuration");
+            const key = usableRcKey(rckey);
+            if (!key) {
+                if (!rckey) expoUtilsWarn("RevenueCat key not provided, skipping configuration");
                 return;
             }
-            Purchases.configure({apiKey: rckey});
+            Purchases.configure({apiKey: key});
             Purchases.setLogLevel(LOG_LEVEL.ERROR);
             Purchases.setLogHandler(() => {}); //Erro de js quando n usa.
         } catch (error) {
@@ -632,7 +649,7 @@ const Utils = {
         } catch (e) {
             expoUtilsWarn("registerDevMenuItems:", e);
         }
-        const rckey = appStrings?.rckey;
+        const rckey = usableRcKey(appStrings?.rckey);
         const adUnits = appStrings?.adUnits;
         try {
             //Setup do remoteconfig (Precisa de internet). Trabalho NÃO-tracking — sempre roda.
@@ -763,13 +780,16 @@ const Utils = {
         // SDKs de tracking rodam DEPOIS do prompt. FB advertiser/IDFA e a coleta de IDFA do
         // RevenueCat (collectDeviceIdentifiers) seguem o resultado real do ATT (granted). TikTok/
         // link-in-bio inicializam para SKAdNetwork/atribuição agregada (não recebem IDFA do nosso código).
-        const rckey = appStrings?.rckey;
+        const rckey = usableRcKey(appStrings?.rckey);
         const remoteConfigs = (global as any).remoteConfigUtils as RemoteConfigUtilsType;
         try { await Utils.initFBSDK(appConfig, granted); }                   catch (e) { expoUtilsWarn("initFBSDK:", e); }
         try { await Utils.initTikTokSDK(remoteConfigs, rckey); }             catch (e) { expoUtilsWarn("initTikTokSDK:", e); }
         try { await Utils.initLinkInBioTracking(remoteConfigs, appConfig); } catch (e) { expoUtilsWarn("initLinkInBioTracking:", e); }
-        try { await Utils.setupAttribution(rckey, granted); }                catch (e) { expoUtilsWarn("setupAttribution:", e); }
+        // O diálogo de update obrigatório é crítico e roda ANTES da atribuição: a setupAttribution
+        // é best-effort e pode pendurar numa promise nativa de terceiro que nunca resolve
+        // (try/catch não captura hang) — o diálogo não pode ficar atrás dela.
         try { await Utils.checkForRequiredUpdateDialog(); }                  catch (e) { expoUtilsWarn("checkForRequiredUpdateDialog:", e); }
+        try { await Utils.setupAttribution(rckey, granted); }                catch (e) { expoUtilsWarn("setupAttribution:", e); }
 
         return granted;
     },
@@ -912,21 +932,28 @@ const Utils = {
         }
     },
 
+    /**
+     * Cada set é isolado em try/catch próprio: a rejeição de UM SDK de terceiro não pode
+     * derrubar os sets seguintes (antes, a 1ª falha abortava a cadeia inteira e o customer
+     * ficava sem NENHUM atributo no RevenueCat). Ordem: do mais confiável/rápido (RevenueCat/
+     * Firebase, sempre presentes) para o mais frágil/lento (FB SDK, APNS até 10s, TikTok).
+     */
     setupAttribution: async (rckey?: string, attGranted: boolean = false) => {
         if (!rckey) return;
-        await Purchases.enableAdServicesAttributionTokenCollection(); // Apple AdServices: permitido sem ATT
+        try { await Purchases.enableAdServicesAttributionTokenCollection(); } catch (e) { expoUtilsWarn("setupAttribution/adServices:", e); } // Apple AdServices: permitido sem ATT
         if (attGranted) {
             // collectDeviceIdentifiers lê o IDFA — só coletamos com consentimento ATT concedido.
-            await Purchases.collectDeviceIdentifiers();
+            try { await Purchases.collectDeviceIdentifiers(); } catch (e) { expoUtilsWarn("setupAttribution/deviceIdentifiers:", e); }
         }
-        await Purchases.setFBAnonymousID(await AppEventsLogger.getAnonymousID());
-        // Push token exige APNS no iOS — pula só esta linha se indisponível (ex.: simulador),
-        // mantendo o restante da atribuição (AdServices/FB/Firebase instance id/TikTok) rodando.
-        if (await Utils.ensureApnsReady()) {
-            await Purchases.setPushToken(await getToken(getMessaging(getApp())));
-        }
-        await Purchases.setFirebaseAppInstanceID(await getAppInstanceId(getAnalytics(getApp())));
-        await Purchases.setAttributes({TikTokGetAnonymousID: await TiktokAdsEvents.getAnonymousID()});
+        try { await Purchases.setFirebaseAppInstanceID(await getAppInstanceId(getAnalytics(getApp()))); } catch (e) { expoUtilsWarn("setupAttribution/firebaseInstanceId:", e); }
+        try { await Purchases.setFBAnonymousID(await AppEventsLogger.getAnonymousID()); } catch (e) { expoUtilsWarn("setupAttribution/fbAnonymousId:", e); }
+        // Push token exige APNS no iOS — pula só esta etapa se indisponível (ex.: simulador).
+        try {
+            if (await Utils.ensureApnsReady()) {
+                await Purchases.setPushToken(await getToken(getMessaging(getApp())));
+            }
+        } catch (e) { expoUtilsWarn("setupAttribution/pushToken:", e); }
+        try { await Purchases.setAttributes({TikTokGetAnonymousID: await TiktokAdsEvents.getAnonymousID()}); } catch (e) { expoUtilsWarn("setupAttribution/tiktok:", e); }
     },
 
     setupGlobalConfigs: async (appConfig?: any, remoteConfigs?: RemoteConfigUtilsType, adUnits?: object) => {

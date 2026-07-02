@@ -1,6 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {useCallback, useEffect, useMemo, useRef, useState} from "react";
 import Purchases from "react-native-purchases";
+import {expoUtilsWarn, usableRcKey} from "./Utils";
 
 type PurchasesModule = any;
 
@@ -339,8 +340,15 @@ export class PaywallUtils {
         const isConfigured = typeof Purchases.isConfigured === "function" ? await Purchases.isConfigured() : false;
 
         if (!isConfigured) {
-            if (!apiKey) throw new Error("RevenueCat is not configured and no apiKey was provided");
-            Purchases.configure({apiKey});
+            // Key vazia ou placeholder do template (YOUR_REVENUECAT_…) = sem key. Não
+            // configura com key inválida (401 silencioso) e NÃO quebra o app: avisa e sai
+            // sem marcar ready — uma chamada futura com key real ainda configura.
+            const key = usableRcKey(apiKey);
+            if (!key) {
+                expoUtilsWarn("ensureRevenueCat: sem apiKey utilizável (vazia ou placeholder do template) — RevenueCat não configurado, paywall sem produtos.");
+                return;
+            }
+            Purchases.configure({apiKey: key});
         }
 
         purchasesReady = true;
