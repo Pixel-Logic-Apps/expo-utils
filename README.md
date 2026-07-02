@@ -693,6 +693,30 @@ https://itunes.apple.com/lookup?bundleId=SEU_BUNDLE_ID
 
 - `Promise<boolean>` - `true` se abriu com sucesso, `false` se houve erro
 
+## 🚦 Ads Somente Após o Release na Loja
+
+### Função disableAdsIfBuildIsNewerThanStore()
+
+Desliga os anúncios quando a versão **instalada** é mais nova que a **publicada na loja** — ou seja, um build que ainda não foi lançado (App Review, TestFlight, teste interno).
+
+```typescript
+import Utils from "expo-utils/utils/Utils";
+
+// Chamar DEPOIS do Utils.prepare() (que popula os remote configs globais)
+await Utils.disableAdsIfBuildIsNewerThanStore();
+```
+
+### Como Funciona
+
+1. Lê a versão instalada de `Application.nativeApplicationVersion`.
+2. Busca a versão publicada na loja:
+    - **🍎 iOS**: iTunes lookup (`https://itunes.apple.com/lookup?bundleId=...&country=br`)
+    - **🤖 Android**: página do app no Play Store (`hl=pt_BR&gl=BR`)
+    - **Fallback**: `ios_store_version` / `android_store_version` do Remote Config (key `utils`) quando o lookup falha ou o app ainda não está publicado
+3. Se a versão instalada for maior que a da loja, seta `global.isAdsEnabled = false` e `is_ads_enabled: false` nos remote configs globais — `LoadAdsManager` e `BannerAdComponent` param de exibir ads.
+
+> ⚠️ **Não** é chamada automaticamente pelo `prepare()` — chame no seu app depois do boot. Se nenhuma versão da loja for encontrada (app novo sem fallback no Remote Config), nada muda e os ads seguem a configuração normal.
+
 ## 🎁 Conteúdo Promocional
 
 O expo-utils inclui um sistema completo de conteúdo promocional para promover outros apps ou conteúdos. Suporta 5 tipos de exibição, todos configuráveis via key `utils` do Firebase Remote Config.

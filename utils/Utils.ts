@@ -110,6 +110,60 @@ let bootAppStrings: AppStrings | undefined;
 let bootFcmTrackingAllowed = true;
 let bootDone = false;
 
+// Compara versões "a.b.c": >0 se current > store, 0 se iguais, <0 se current < store.
+const compareVersions = (current: string, store: string): number => {
+    const currentParts = current.split(".").map((part) => Number(part) || 0);
+    const storeParts = store.split(".").map((part) => Number(part) || 0);
+    const length = Math.max(currentParts.length, storeParts.length);
+
+    for (let index = 0; index < length; index += 1) {
+        const diff = (currentParts[index] ?? 0) - (storeParts[index] ?? 0);
+        if (diff !== 0) return diff;
+    }
+
+    return 0;
+};
+
+// Fallback: versão da loja informada via Remote Config (ios_store_version/android_store_version e aliases).
+const getRemoteStoreVersion = (): string | null => {
+    const remote: Record<string, any> = (global as any).remoteConfigs ?? (global as any).remoteConfigUtils ?? {};
+    const keys =
+        Platform.OS === "android"
+            ? ["android_store_version", "store_version_android", "storeVersionAndroid"]
+            : ["ios_store_version", "store_version_ios", "storeVersionIos"];
+
+    for (const key of keys) {
+        const value = remote[key];
+        if (typeof value === "string" && value.trim()) return value.trim();
+    }
+
+    return null;
+};
+
+// Versão publicada na loja: iTunes lookup (iOS) / página do Play Store (Android),
+// com fallback para o Remote Config quando a consulta falha ou o app não é encontrado.
+const getStoreVersion = async (): Promise<string | null> => {
+    if (!Application.applicationId) return getRemoteStoreVersion();
+
+    if (Platform.OS === "ios") {
+        const response = await fetch(
+            `https://itunes.apple.com/lookup?bundleId=${Application.applicationId}&country=br`,
+        );
+        const data = await response.json();
+        return data?.results?.[0]?.version || getRemoteStoreVersion();
+    }
+
+    if (Platform.OS === "android") {
+        const response = await fetch(
+            `https://play.google.com/store/apps/details?id=${Application.applicationId}&hl=pt_BR&gl=BR`,
+        );
+        const html = await response.text();
+        return html.match(/"141":\[\[\["([^"]+)"/)?.[1] || getRemoteStoreVersion();
+    }
+
+    return getRemoteStoreVersion();
+};
+
 const Utils = {
     // Função para buscar App ID iOS a partir do bundle ID
     getIOSAppId: async (): Promise<string | null> => {
@@ -801,6 +855,29 @@ const Utils = {
         try { (global as any).remoteConfigScreens = await Utils.getRemoteConfigScreens(); } catch {}
         if (remoteConfigs?.ad_blocklist) {
             setBlocklist(remoteConfigs.ad_blocklist);
+        }
+    },
+
+    /**
+     * Desliga os anúncios quando a versão INSTALADA é mais NOVA que a publicada na loja —
+     * ou seja, build ainda não lançado (App Review, TestFlight, teste interno). Compara
+     * Application.nativeApplicationVersion com a versão da loja (getStoreVersion: iTunes
+     * lookup/página do Play Store, fallback Remote Config) e, se for maior, zera
+     * global.isAdsEnabled e is_ads_enabled nos remote configs globais.
+     * NÃO é chamada automaticamente — chame DEPOIS do prepare() (que popula os globals
+     * em setupGlobalConfigs), senão setupGlobalConfigs sobrescreve o que ela setou.
+     */
+    disableAdsIfBuildIsNewerThanStore: async () => {
+        if (!Application.nativeApplicationVersion) return;
+        try {
+            const storeVersion = await getStoreVersion();
+            if (storeVersion && compareVersions(Application.nativeApplicationVersion, storeVersion) > 0) {
+                global.isAdsEnabled = false;
+                (global as any).remoteConfigUtils = {...((global as any).remoteConfigUtils ?? {}), is_ads_enabled: false};
+                (global as any).remoteConfigs = {...((global as any).remoteConfigs ?? {}), is_ads_enabled: false};
+            }
+        } catch (error) {
+            console.log("Erro ao comparar versão da loja para anúncios:", error);
         }
     },
 

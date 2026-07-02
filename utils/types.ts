@@ -85,6 +85,10 @@ export interface RemoteConfigUtilsType {
     clarity_id?: string;
     trends_tracking_url?: string;
     is_opted_out_trial_enabled?: boolean;
+    // Fallback de versão da loja para Utils.disableAdsIfBuildIsNewerThanStore
+    // (usado quando o lookup na loja falha ou o app ainda não é encontrado).
+    ios_store_version?: string;
+    android_store_version?: string;
 }
 
 /**
