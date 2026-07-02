@@ -820,7 +820,6 @@ function handleEasConfigFlag() {
     // --- Rebuild expo object to control property order ---
     const oldExpo = config.expo;
     const newExpo = {};
-    const projectId = "df0dc510-fafe-4076-9ea7-6926d54cb2ab";
     let runtimeVersionInjected = false;
 
     // Rebuild the object, injecting runtimeVersion after version
@@ -847,10 +846,18 @@ function handleEasConfigFlag() {
         console.log(chalk.green(`  -> Set "extra.router.origin" to false.`));
     }
 
-    newExpo.extra.eas = newExpo.extra.eas || {};
-    if (newExpo.extra.eas.projectId !== projectId) {
-        newExpo.extra.eas.projectId = projectId;
-        console.log(chalk.green(`  -> Set placeholder "extra.eas.projectId".`));
+    // NÃO preenchemos extra.eas.projectId com um placeholder: o projectId é POR PROJETO no
+    // EAS (1:1 com um projeto real na conta do dev) — usar um valor fixo/compartilhado faz
+    // apps novos apontarem para o projeto EAS de OUTRO app (builds/updates cruzados entre
+    // apps diferentes). Deixe o `eas init`/primeiro `eas build` popular isso (junto com
+    // `extra.owner`) quando o dev de fato linkar o app a um projeto EAS real.
+    // Limpa apenas o placeholder ANTIGO (versões anteriores do expo-utils injetavam esse
+    // valor fixo) — um projectId real já presente (de um `eas init` anterior) não é tocado.
+    const STALE_PLACEHOLDER_PROJECT_ID = "df0dc510-fafe-4076-9ea7-6926d54cb2ab";
+    if (newExpo.extra.eas?.projectId === STALE_PLACEHOLDER_PROJECT_ID) {
+        delete newExpo.extra.eas.projectId;
+        if (Object.keys(newExpo.extra.eas).length === 0) delete newExpo.extra.eas;
+        console.log(chalk.yellow(`  -> Removed stale placeholder "extra.eas.projectId" (each app needs its own — run 'eas init' or 'eas build').`));
     }
 
     if (newExpo.updates) {

@@ -1264,6 +1264,7 @@ declare global {
 - `eas.json` - Configuração básica EAS Build
 - `app.json` - Plugins pré-configurados
 - `experiments.buildCacheProvider` - EAS Build cache
+- **`extra.eas.projectId` NÃO é preenchido** — é por-projeto no EAS; um valor fixo faria um app novo apontar pro projeto EAS de outro app. Rode `eas init` (ou o primeiro `eas build`) pra linkar o app a um projeto real.
 - `eas-build-cache-provider` - Adicionado às devDependencies
 - `.easignore` - Ignora ios/, android/, bun.lock, etc.
 - `.gitignore` - Atualizado com ios/, android/, bun.lock
