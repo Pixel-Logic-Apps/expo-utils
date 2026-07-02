@@ -699,10 +699,27 @@ https://itunes.apple.com/lookup?bundleId=SEU_BUNDLE_ID
 
 Desliga os anúncios quando a versão **instalada** é mais nova que a **publicada na loja** — ou seja, um build que ainda não foi lançado (App Review, TestFlight, teste interno).
 
+### Ativação via app.json (default: desativado)
+
+A checagem **não roda por padrão**. Para ativar a execução automática no boot (dentro do `prepare()`, logo após os remote configs globais serem populados), adicione a flag no plugin do expo-utils:
+
+```json
+{
+    "expo": {
+        "plugins": [["expo-utils", {"disableAdsIfBuildIsNewerThanStore": true}]]
+    }
+}
+```
+
+A flag é lida em **runtime** (como `disableWarnings`/`disableLogs`) e a chamada é fire-and-forget — a consulta à loja não atrasa o boot. Sem a flag (ou com `false`), nada acontece automaticamente.
+
+### Chamada Manual
+
+Também dá para chamar direto, **depois** do `Utils.prepare()` (que popula os remote configs globais — se chamar antes, o `setupGlobalConfigs` sobrescreve o resultado):
+
 ```typescript
 import Utils from "expo-utils/utils/Utils";
 
-// Chamar DEPOIS do Utils.prepare() (que popula os remote configs globais)
 await Utils.disableAdsIfBuildIsNewerThanStore();
 ```
 
@@ -715,7 +732,7 @@ await Utils.disableAdsIfBuildIsNewerThanStore();
     - **Fallback**: `ios_store_version` / `android_store_version` do Remote Config (key `utils`) quando o lookup falha ou o app ainda não está publicado
 3. Se a versão instalada for maior que a da loja, seta `global.isAdsEnabled = false` e `is_ads_enabled: false` nos remote configs globais — `LoadAdsManager` e `BannerAdComponent` param de exibir ads.
 
-> ⚠️ **Não** é chamada automaticamente pelo `prepare()` — chame no seu app depois do boot. Se nenhuma versão da loja for encontrada (app novo sem fallback no Remote Config), nada muda e os ads seguem a configuração normal.
+> ⚠️ Se nenhuma versão da loja for encontrada (app novo sem fallback no Remote Config), nada muda e os ads seguem a configuração normal.
 
 ## 🎁 Conteúdo Promocional
 

@@ -83,6 +83,19 @@ function getExpoUtilsDisableLogs(appConfig?: any): boolean {
     return false;
 }
 
+// Opt-in (default DESATIVADO): ["expo-utils", {"disableAdsIfBuildIsNewerThanStore": true}]
+// liga a checagem automática de versão da loja no prepare() (lida em RUNTIME, como disableWarnings/disableLogs).
+function getExpoUtilsDisableAdsIfBuildIsNewerThanStore(appConfig?: any): boolean {
+    if (!appConfig?.expo?.plugins) return false;
+    const plugins = appConfig.expo.plugins;
+    for (const plugin of plugins) {
+        if (Array.isArray(plugin) && plugin[0] === "expo-utils" && plugin[1]?.disableAdsIfBuildIsNewerThanStore === true) {
+            return true;
+        }
+    }
+    return false;
+}
+
 export async function initHotUpdater(baseURL?: string) {
     if (!baseURL) return;
     try {
@@ -564,6 +577,14 @@ const Utils = {
             try { await Utils.setupGlobalConfigs(appConfig, remoteConfigs, adUnits); } catch (e) { expoUtilsWarn("setupGlobalConfigs:", e); }
             try { await reportConfigIntegrity(remoteConfigs, appConfig); }             catch (e) { expoUtilsWarn("reportConfigIntegrity:", e); }
 
+            // Opt-in via app.json (["expo-utils", {"disableAdsIfBuildIsNewerThanStore": true}], default
+            // DESATIVADO): desliga os ads se o build instalado for mais novo que o da loja. Precisa rodar
+            // DEPOIS do setupGlobalConfigs (que popula os globals que ela lê/sobrescreve). Fire-and-forget:
+            // consulta a loja pela rede e não pode segurar o boot (a função nunca rejeita — try/catch interno).
+            if (getExpoUtilsDisableAdsIfBuildIsNewerThanStore(appConfig)) {
+                Utils.disableAdsIfBuildIsNewerThanStore();
+            }
+
             //Trabalho NÃO-tracking que pode rodar sem consentimento (push topics + clarity).
             (async () => {
                 try { await Utils.setupClarity(remoteConfigs); }                        catch (e) { expoUtilsWarn("setupClarity:", e); }
@@ -864,8 +885,11 @@ const Utils = {
      * Application.nativeApplicationVersion com a versão da loja (getStoreVersion: iTunes
      * lookup/página do Play Store, fallback Remote Config) e, se for maior, zera
      * global.isAdsEnabled e is_ads_enabled nos remote configs globais.
-     * NÃO é chamada automaticamente — chame DEPOIS do prepare() (que popula os globals
-     * em setupGlobalConfigs), senão setupGlobalConfigs sobrescreve o que ela setou.
+     * DESATIVADA por padrão. Para rodar automaticamente no boot (dentro do prepare(),
+     * após o setupGlobalConfigs), ative no app.json:
+     * ["expo-utils", {"disableAdsIfBuildIsNewerThanStore": true}].
+     * Também pode ser chamada manualmente — sempre DEPOIS do prepare(), senão
+     * setupGlobalConfigs sobrescreve o que ela setou.
      */
     disableAdsIfBuildIsNewerThanStore: async () => {
         if (!Application.nativeApplicationVersion) return;
