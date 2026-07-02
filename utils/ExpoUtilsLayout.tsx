@@ -1,8 +1,8 @@
-import React, {useEffect, useState} from "react";
+import React, {useEffect, useRef, useState} from "react";
 import {usePathname} from "expo-router";
 import {View} from "react-native";
 import * as SplashScreen from "expo-splash-screen";
-import Utils, {initHotUpdater} from "./Utils";
+import Utils, {initHotUpdater, expoUtilsWarn} from "./Utils";
 import {setupAppOpenListener} from "./appopen-ads";
 import AskForReviewOverlay, {AskForReviewEvents} from "./ask-for-review";
 import PromotionalContent, {usePromotional} from "./modal-promotional-content";
@@ -27,17 +27,31 @@ type Props = {
  *
  * O _layout.tsx do projeto só precisa envolver suas telas (Stack) com este componente,
  * passando appConfig (app.json) e appStrings (constants/Strings).
+ *
+ * `onReady` (opcional): chamado UMA vez, logo após o prepare() — Remote Config, RevenueCat e
+ * globals de ads já prontos — e ANTES do setupAppOpenListener(), então o callback ainda
+ * consegue influenciar o 1º app-open ad. Erro no callback não trava o boot (warn isolado).
  */
 export function ExpoUtilsLayout({appConfig, appStrings, children, onReady, fcmTrackingAllowed = true}: Props) {
     const [appIsReady, setAppIsReady] = useState(false);
     const [showReviewOverlay, setShowReviewOverlay] = useState(false);
     const pathname = usePathname();
     const {visible: showPromo, show: showPromoModal, hide: hidePromoModal} = usePromotional(pathname);
+    // onReady roda 1x mesmo com StrictMode (dev) rodando o effect 2x — o ref sobrevive ao double-effect.
+    const onReadyRan = useRef(false);
 
     useEffect(() => {
         (async () => {
             await initHotUpdater(appStrings.hotUpdaterUrl);
             await Utils.prepare(setAppIsReady, appConfig, appStrings, fcmTrackingAllowed);
+            if (!onReadyRan.current) {
+                onReadyRan.current = true;
+                try {
+                    await onReady?.();
+                } catch (e) {
+                    expoUtilsWarn("onReady:", e);
+                }
+            }
             setupAppOpenListener();
             showPromoModal();
         })();

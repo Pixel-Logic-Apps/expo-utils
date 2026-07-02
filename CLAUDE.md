@@ -133,7 +133,7 @@ The package can be configured via the Expo config plugin in app.json:
 
 These flags suppress console output from expo-utils in production (read at **runtime** from app.json via `plugin[1]?.disableWarnings`/`disableLogs` in `Utils.ts`).
 
-Another **runtime** flag (opt-in, default **off**): `disableAdsIfBuildIsNewerThanStore: true` makes `prepare()` auto-run `Utils.disableAdsIfBuildIsNewerThanStore()` right after `setupGlobalConfigs` (fire-and-forget — the store lookup never blocks boot). It disables ads (`global.isAdsEnabled` + `is_ads_enabled` in the global remote configs) when the **installed** build version is newer than the **store** version — i.e., a build not yet released (App Review, TestFlight, internal testing). Store version comes from the iTunes lookup (iOS) / Play Store page (Android), with `ios_store_version`/`android_store_version` from Remote Config as fallback. The method can also be called manually, always **after** `prepare()`.
+Another **runtime** flag (opt-in, default **off**): `disableAdsIfBuildIsNewerThanStore: true` makes `prepare()` run the store-version ads gate. **Fail-closed**: ads stay on only with a CONFIRMED store version and local build <= store — a build newer than the store (App Review/TestFlight), an app not yet published (first-version review: iTunes lookup returns `resultCount: 0`), network errors and the 5s timeout all turn ads OFF (`global.isAdsEnabled = false`, `is_ads_enabled: false` in the global remote configs, plus the gate-owned `global.adsDisabledByStoreGate = true`, which `prepare()` never touches). Store version: iTunes lookup (user's storefront via `regionCode` first, then global/US — without `country` the lookup hits the US storefront and an app published only elsewhere would look unpublished) / Play Store page (Android), with `ios_store_version`/`android_store_version` from Remote Config as the post-launch override valve (`getStoreVersion` never rejects, so the valve works even when the lookup is down). The gate is **awaited** inside `prepare()` — after `setupGlobalConfigs` (which resets/overwrites the ad globals, so an app-side gate racing the boot gets clobbered) and before `setAppIsReady(true)` — because `banner-ad.tsx` reads `global.isAdsEnabled` **once on mount** and `ExpoUtilsLayout` children mount as soon as `appIsReady` flips; awaiting guarantees banners mount after the verdict. Memoized (once per session, StrictMode-safe); returns `Promise<boolean>` (true = ads blocked). Also callable manually, always **after** `prepare()`.
 
 The same config plugin (`app.plugin.js`) also injects all SKAdNetwork IDs (`data/skadnetwork_ids.json`) into the iOS `Info.plist` at **prebuild** via `withInfoPlist`, so the ~160 IDs no longer need to live in `app.json`. The merge is case-insensitive and preserves any custom `SKAdNetworkItems` already present. The plugin is wrapped in `createRunOncePlugin` to avoid double-application. Just keep `["expo-utils", { ... }]` in the `plugins` array.
 
@@ -216,6 +216,18 @@ Both LoadAdsManager and BannerAdComponent respect these checks.
 ### Language/Localization System
 
 The CLI creates `languages/` folder with JSON files per locale that override app.json values (app name, etc.) for each language. This integrates with Expo's built-in localization system.
+
+### Runtime Debugging Gotchas
+
+Hard-won lessons from debugging consumer apps — they affect anyone integrating with the lib's boot:
+
+- **`prepare()` resets/overwrites the ad globals** (`global.isAdsEnabled = !__DEV__` at the start; `setupGlobalConfigs` replaces the whole `global.remoteConfigUtils` object). App-side code that flips ad flags concurrently with boot gets clobbered — such logic is only reliable AFTER `prepare()` (inside the lib's boot, or in a child of `ExpoUtilsLayout`, which mounts children only when `appIsReady` is true).
+- **`banner-ad.tsx` snapshots `global.isAdsEnabled` once, on mount**, and never reacts to later changes. Interstitial/app-open ads re-check per load/show (`LoadAdsManager.ts`), banners don't — anything that disables ads at runtime must land before banners mount.
+- **`initHotUpdater` is a no-op in `__DEV__`**: dev bundles come from Metro, but a previously downloaded OTA bundle (`Documents/bundle-store/...`) loads on cold launch instead of the embedded bundle — and its `isolation_key` (`hotupdater_<version>_<channel>_`) doesn't change when you rebuild the SAME version, so a stale OTA silently "eats" freshly rebuilt code ("my fix didn't work"). Deleting the bundle only helps until the next download; re-deploy the OTA or bump the version.
+- **`JSON.stringify(error)` of an `Error` is always `"{}"`** (non-enumerable props) — use `String(error)` in debug catches.
+- **React StrictMode (dev) runs mount effects twice** — boot callbacks fire twice in dev unless guarded (module-level `bootDone` pattern in `Utils.handleReady`; ref guard for `onReady` in `ExpoUtilsLayout`).
+- **iOS drops overlapping `alert()`s silently** (RN doesn't queue `UIAlertController`) — two back-to-back alerts show only the first, which reads as "code stopped in the middle". One alert per event, or chain via button callback.
+- **Expo dev lazy bundling**: grepping Metro's `entry.bundle` for app code is a false negative — app modules aren't in the initial bundle.
 
 ## Testing Strategy
 

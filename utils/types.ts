@@ -105,5 +105,9 @@ declare global {
     var remoteConfigUtils: RemoteConfigUtilsType;
     var remoteConfigScreens: any;
     var isAdsEnabled: boolean;
+    // Setada (true) pelo gate fail-closed de versão da loja (Utils.disableAdsIfBuildIsNewerThanStore)
+    // quando ele bloqueia os ads. Flag própria do gate — o prepare() não encosta nela; apps podem
+    // ler p/ ex. esconder o espaço reservado do banner.
+    var adsDisabledByStoreGate: boolean | undefined;
     var adUnits: any;
 }

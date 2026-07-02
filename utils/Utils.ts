@@ -97,6 +97,11 @@ function getExpoUtilsDisableAdsIfBuildIsNewerThanStore(appConfig?: any): boolean
 }
 
 export async function initHotUpdater(baseURL?: string) {
+    // Em dev o bundle vem do Metro — baixar OTA aqui só arma a armadilha do cold launch:
+    // o bundle OTA em Documents/bundle-store carrega no lugar do embutido e "engole" código
+    // novo de rebuild (o isolation_key hotupdater_<versão>_<channel> NÃO muda em rebuild da
+    // mesma versão, então o OTA velho continua válido). OTA só faz sentido em release.
+    if (__DEV__) return;
     if (!baseURL) return;
     try {
         HotUpdater.init({baseURL});
@@ -153,28 +158,90 @@ const getRemoteStoreVersion = (): string | null => {
     return null;
 };
 
-// Versão publicada na loja: iTunes lookup (iOS) / página do Play Store (Android),
-// com fallback para o Remote Config quando a consulta falha ou o app não é encontrado.
+// Aborta consultas de loja penduradas. O gate é AGUARDADO no boot (ver prepare), então o
+// pior caso precisa ser limitado — sem isso um lookup pendurado seguraria o app no splash.
+const fetchWithTimeout = (url: string, ms = 5000): Promise<Response> => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), ms);
+    return fetch(url, {signal: controller.signal}).finally(() => clearTimeout(timer));
+};
+
+// Versão publicada na loja: iTunes lookup (iOS) / página do Play Store (Android).
+// NUNCA rejeita — qualquer falha cai no fallback do Remote Config, para a válvula
+// pós-lançamento (ios_store_version/android_store_version) valer até com o lookup fora do ar.
 const getStoreVersion = async (): Promise<string | null> => {
-    if (!Application.applicationId) return getRemoteStoreVersion();
+    try {
+        if (!Application.applicationId) return getRemoteStoreVersion();
 
-    if (Platform.OS === "ios") {
-        const response = await fetch(
-            `https://itunes.apple.com/lookup?bundleId=${Application.applicationId}&country=br`,
-        );
-        const data = await response.json();
-        return data?.results?.[0]?.version || getRemoteStoreVersion();
+        if (Platform.OS === "ios") {
+            // Sem `country` o lookup consulta a storefront US — um app publicado SÓ em outras
+            // storefronts viria vazio (e o gate FAIL-CLOSED desligaria ads de app já lançado).
+            // A storefront do usuário (regionCode) certamente tem o app (foi de onde ele
+            // instalou), então tentamos ela primeiro e caímos para a US/global depois.
+            const region = safeGetLocales()[0]?.regionCode?.toLowerCase();
+            const base = `https://itunes.apple.com/lookup?bundleId=${Application.applicationId}`;
+            const urls = region ? [`${base}&country=${region}`, base] : [base];
+            for (const url of urls) {
+                try {
+                    const response = await fetchWithTimeout(url);
+                    const data = await response.json();
+                    const version = data?.results?.[0]?.version;
+                    if (version) return version;
+                } catch {}
+            }
+        }
+
+        if (Platform.OS === "android") {
+            const response = await fetchWithTimeout(
+                `https://play.google.com/store/apps/details?id=${Application.applicationId}`,
+            );
+            const html = await response.text();
+            const version = html.match(/"141":\[\[\["([^"]+)"/)?.[1];
+            if (version) return version;
+        }
+    } catch (error) {
+        expoUtilsWarn("getStoreVersion:", error);
     }
-
-    if (Platform.OS === "android") {
-        const response = await fetch(
-            `https://play.google.com/store/apps/details?id=${Application.applicationId}&hl=pt_BR&gl=BR`,
-        );
-        const html = await response.text();
-        return html.match(/"141":\[\[\["([^"]+)"/)?.[1] || getRemoteStoreVersion();
-    }
-
     return getRemoteStoreVersion();
+};
+
+// Desliga os ads da sessão. adsDisabledByStoreGate é flag PRÓPRIA do gate (prepare()/
+// setupGlobalConfigs não encostam nela) — apps podem ler p/ ex. esconder o espaço do banner.
+const disableAdsByStoreGate = () => {
+    global.adsDisabledByStoreGate = true;
+    global.isAdsEnabled = false;
+    (global as any).remoteConfigUtils = {...((global as any).remoteConfigUtils ?? {}), is_ads_enabled: false};
+    (global as any).remoteConfigs = {...((global as any).remoteConfigs ?? {}), is_ads_enabled: false};
+};
+
+// Memo: 1x por sessão (a versão da loja não muda durante a sessão; idempotente sob
+// StrictMode/chamada dupla — mesmo padrão do apnsReadyPromise).
+let storeGatePromise: Promise<boolean> | null = null;
+
+// FAIL-CLOSED: ads só permanecem ligados com versão da loja CONFIRMADA e build local <= loja.
+// App não publicado (review da 1ª versão!), lookup vazio, erro de rede ou timeout → ads OFF.
+// Fail-open não cobre justamente a 1ª submissão: app sem versão na loja mostraria ads durante
+// o review. Custo real do fail-closed: zero — sem rede o AdMob não serviria mesmo, e
+// pós-lançamento o Remote Config é a válvula para forçar ON. Resolve true = ads bloqueados.
+const runStoreGate = async (): Promise<boolean> => {
+    const localVersion = Application.nativeApplicationVersion;
+    if (!localVersion) {
+        disableAdsByStoreGate();
+        return true;
+    }
+    let storeVersion: string | null = null;
+    try {
+        storeVersion = await getStoreVersion();
+    } catch (error) {
+        expoUtilsWarn("disableAdsIfBuildIsNewerThanStore:", error);
+    }
+    if (!storeVersion || compareVersions(localVersion, storeVersion) > 0) {
+        disableAdsByStoreGate();
+        expoUtilsLog("Store gate: ads OFF — loja:", storeVersion, "local:", localVersion);
+        return true;
+    }
+    expoUtilsLog("Store gate: ads ON — loja:", storeVersion, "local:", localVersion);
+    return false;
 };
 
 const Utils = {
@@ -578,11 +645,14 @@ const Utils = {
             try { await reportConfigIntegrity(remoteConfigs, appConfig); }             catch (e) { expoUtilsWarn("reportConfigIntegrity:", e); }
 
             // Opt-in via app.json (["expo-utils", {"disableAdsIfBuildIsNewerThanStore": true}], default
-            // DESATIVADO): desliga os ads se o build instalado for mais novo que o da loja. Precisa rodar
-            // DEPOIS do setupGlobalConfigs (que popula os globals que ela lê/sobrescreve). Fire-and-forget:
-            // consulta a loja pela rede e não pode segurar o boot (a função nunca rejeita — try/catch interno).
+            // DESATIVADO): gate FAIL-CLOSED de ads por versão da loja. AGUARDADO de propósito — o
+            // veredito precisa chegar ANTES do setAppIsReady(true) (finally), porque banner-ad lê
+            // global.isAdsEnabled UMA vez no mount e os filhos do ExpoUtilsLayout montam assim que
+            // appIsReady vira true. Também precisa rodar DEPOIS do setupGlobalConfigs (que reseta/
+            // sobrescreve os globals que o gate lê/escreve). Não pendura o boot: fetch com timeout
+            // de 5s e runStoreGate nunca rejeita.
             if (getExpoUtilsDisableAdsIfBuildIsNewerThanStore(appConfig)) {
-                Utils.disableAdsIfBuildIsNewerThanStore();
+                try { await Utils.disableAdsIfBuildIsNewerThanStore(); } catch (e) { expoUtilsWarn("disableAdsIfBuildIsNewerThanStore:", e); }
             }
 
             //Trabalho NÃO-tracking que pode rodar sem consentimento (push topics + clarity).
@@ -880,29 +950,23 @@ const Utils = {
     },
 
     /**
-     * Desliga os anúncios quando a versão INSTALADA é mais NOVA que a publicada na loja —
-     * ou seja, build ainda não lançado (App Review, TestFlight, teste interno). Compara
-     * Application.nativeApplicationVersion com a versão da loja (getStoreVersion: iTunes
-     * lookup/página do Play Store, fallback Remote Config) e, se for maior, zera
-     * global.isAdsEnabled e is_ads_enabled nos remote configs globais.
-     * DESATIVADA por padrão. Para rodar automaticamente no boot (dentro do prepare(),
-     * após o setupGlobalConfigs), ative no app.json:
-     * ["expo-utils", {"disableAdsIfBuildIsNewerThanStore": true}].
-     * Também pode ser chamada manualmente — sempre DEPOIS do prepare(), senão
-     * setupGlobalConfigs sobrescreve o que ela setou.
+     * Kill switch de ads por versão da loja — FAIL-CLOSED: ads só permanecem ligados com a
+     * versão da loja CONFIRMADA e build local <= loja. Desligam quando o build instalado é
+     * mais novo que a loja (App Review/TestFlight/teste interno), quando o app ainda NÃO foi
+     * publicado (review da 1ª versão — lookup vazio), e em erro de rede/timeout. Ao desligar,
+     * zera global.isAdsEnabled + is_ads_enabled nos remote configs globais e seta
+     * global.adsDisabledByStoreGate (flag própria, que o prepare() não sobrescreve).
+     * Versão da loja: iTunes lookup (storefront do usuário → US) / página do Play Store,
+     * com ios_store_version/android_store_version do Remote Config como válvula pós-lançamento.
+     * Memoizada — roda 1x por sessão. Resolve true = ads bloqueados.
+     * DESATIVADA por padrão. Ative no app.json (["expo-utils", {"disableAdsIfBuildIsNewerThanStore": true}])
+     * para rodar no boot: o prepare() AGUARDA o veredito antes do setAppIsReady(true), então os
+     * banners (que leem global.isAdsEnabled 1x no mount) já montam com o valor final.
+     * Chamada manual: sempre DEPOIS do prepare() (que reseta/sobrescreve os globals de ads).
      */
-    disableAdsIfBuildIsNewerThanStore: async () => {
-        if (!Application.nativeApplicationVersion) return;
-        try {
-            const storeVersion = await getStoreVersion();
-            if (storeVersion && compareVersions(Application.nativeApplicationVersion, storeVersion) > 0) {
-                global.isAdsEnabled = false;
-                (global as any).remoteConfigUtils = {...((global as any).remoteConfigUtils ?? {}), is_ads_enabled: false};
-                (global as any).remoteConfigs = {...((global as any).remoteConfigs ?? {}), is_ads_enabled: false};
-            }
-        } catch (error) {
-            console.log("Erro ao comparar versão da loja para anúncios:", error);
-        }
+    disableAdsIfBuildIsNewerThanStore: (): Promise<boolean> => {
+        if (!storeGatePromise) storeGatePromise = runStoreGate();
+        return storeGatePromise;
     },
 
     openReviewURL: async (preferNativeStore = true) => {

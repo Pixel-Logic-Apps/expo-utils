@@ -697,7 +697,7 @@ https://itunes.apple.com/lookup?bundleId=SEU_BUNDLE_ID
 
 ### Função disableAdsIfBuildIsNewerThanStore()
 
-Desliga os anúncios quando a versão **instalada** é mais nova que a **publicada na loja** — ou seja, um build que ainda não foi lançado (App Review, TestFlight, teste interno).
+Kill switch de ads por versão de loja, **fail-closed**: os anúncios só permanecem ligados com a versão da loja **confirmada** e o build local **menor ou igual** à da loja. Build mais novo que a loja (App Review, TestFlight, teste interno), app ainda **não publicado** (review da 1ª versão!), erro de rede ou timeout → ads **OFF**. Fail-open não cobriria justamente a 1ª submissão — app sem versão na loja mostraria ads durante o review.
 
 ### Ativação via app.json (default: desativado)
 
@@ -711,28 +711,39 @@ A checagem **não roda por padrão**. Para ativar a execução automática no bo
 }
 ```
 
-A flag é lida em **runtime** (como `disableWarnings`/`disableLogs`) e a chamada é fire-and-forget — a consulta à loja não atrasa o boot. Sem a flag (ou com `false`), nada acontece automaticamente.
+A flag é lida em **runtime** (como `disableWarnings`/`disableLogs`). O gate roda dentro do `prepare()`, **depois** do `setupGlobalConfigs` (que reseta os globals de ads — por isso um gate rodando por fora, em paralelo ao boot, é sobrescrito) e é **aguardado** antes do `setAppIsReady` — assim os banners (que leem `global.isAdsEnabled` uma única vez, no mount) já montam com o veredito final. Não pendura o boot: a consulta tem timeout de 5s e nunca rejeita. Sem a flag (ou com `false`), nada roda automaticamente.
 
 ### Chamada Manual
 
-Também dá para chamar direto, **depois** do `Utils.prepare()` (que popula os remote configs globais — se chamar antes, o `setupGlobalConfigs` sobrescreve o resultado):
+Também dá para chamar direto, **depois** do `Utils.prepare()` (que popula os remote configs globais — se chamar antes, o `setupGlobalConfigs` sobrescreve o resultado). É memoizada (roda 1x por sessão) e resolve `true` quando os ads foram bloqueados:
 
 ```typescript
 import Utils from "expo-utils/utils/Utils";
 
-await Utils.disableAdsIfBuildIsNewerThanStore();
+const adsBlocked = await Utils.disableAdsIfBuildIsNewerThanStore();
 ```
 
 ### Como Funciona
 
 1. Lê a versão instalada de `Application.nativeApplicationVersion`.
 2. Busca a versão publicada na loja:
-    - **🍎 iOS**: iTunes lookup (`https://itunes.apple.com/lookup?bundleId=...&country=br`)
-    - **🤖 Android**: página do app no Play Store (`hl=pt_BR&gl=BR`)
-    - **Fallback**: `ios_store_version` / `android_store_version` do Remote Config (key `utils`) quando o lookup falha ou o app ainda não está publicado
-3. Se a versão instalada for maior que a da loja, seta `global.isAdsEnabled = false` e `is_ads_enabled: false` nos remote configs globais — `LoadAdsManager` e `BannerAdComponent` param de exibir ads.
+    - **🍎 iOS**: iTunes lookup — tenta primeiro a storefront do usuário (`country=<regionCode>`, onde o app certamente existe, já que foi de onde ele instalou) e cai para a consulta global (storefront US)
+    - **🤖 Android**: página do app no Play Store
+    - **Fallback/válvula**: `ios_store_version` / `android_store_version` do Remote Config (key `utils`) — vale inclusive quando o lookup está fora do ar
+3. **Fail-closed**: sem versão da loja confirmada, ou com build local **maior** que a loja, desliga tudo — `global.isAdsEnabled = false`, `is_ads_enabled: false` nos remote configs globais e `global.adsDisabledByStoreGate = true`. `LoadAdsManager`, app-open e `BannerAdComponent` param de exibir ads.
 
-> ⚠️ Se nenhuma versão da loja for encontrada (app novo sem fallback no Remote Config), nada muda e os ads seguem a configuração normal.
+### Comportamento
+
+| Cenário | Resultado |
+|---|---|
+| Build 1.0.1, loja 1.0.0 (review/TestFlight de update) | ads OFF |
+| Build == loja (produção normal) | ads ON |
+| App **não publicado** (review da 1ª versão; lookup vazio, sem chave no RC) | ads OFF |
+| App não publicado, `ios_store_version: "1.0.0"` no Remote Config | ads ON (válvula de emergência/override) |
+| Sem rede / timeout / erro no lookup | ads OFF (sem rede o AdMob não serviria mesmo) |
+| Dev/simulador (app não publicado) | ads OFF — em dev os ads já vêm OFF por padrão; para ver ads use o toggle do dev menu ou a chave no RC |
+
+> 💡 `global.adsDisabledByStoreGate === true` indica que foi **o gate** que bloqueou os ads (flag própria — o `prepare()` não mexe nela). Útil, por exemplo, para esconder o espaço reservado do banner na UI.
 
 ## 🎁 Conteúdo Promocional
 
