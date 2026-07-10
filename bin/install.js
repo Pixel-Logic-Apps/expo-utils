@@ -1047,8 +1047,8 @@ function handleHotUpdaterFlag() {
 
     // Add hot-updater if not present
     if (!projectPkg.dependencies["hot-updater"]) {
-        projectPkg.dependencies["hot-updater"] = ">=0.31.3";
-        console.log(chalk.green(`  -> Added hot-updater@>=0.31.3 to dependencies.`));
+        projectPkg.dependencies["hot-updater"] = ">=0.35.3";
+        console.log(chalk.green(`  -> Added hot-updater@>=0.35.3 to dependencies.`));
         pkgUpdated = true;
     } else {
         console.log(chalk.yellow(`  -> hot-updater already in dependencies.`));

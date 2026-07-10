@@ -186,7 +186,7 @@ Templates in `/templates` can use placeholders:
 ### Firebase Integration
 
 - Firebase is **optional** - all Firebase code has null checks
-- The package uses Firebase v23+ modular API (getRemoteConfig, getAnalytics, etc.)
+- The package uses Firebase v24+/v25 modular API (getRemoteConfig, getAnalytics, etc.). Remote Config dual-path supports RNFB v24 modular helpers and v25 instance `settings`/`defaultConfig`.
 - Placeholder files work for development but must be replaced with real configs for production
 
 #### APNS / FCM gate (`Utils.ensureApnsReady`)
@@ -233,7 +233,7 @@ Hard-won lessons from debugging consumer apps — they affect anyone integrating
 
 Since this is a library:
 
-1. Create a test Expo project: `bunx create-expo-app test-project --template default@sdk-55`
+1. Create a test Expo project: `bunx create-expo-app test-project --template default@sdk-57`
 2. Build .tgz: `cd /path/to/expo-utils && npm pack`
 3. Install in test project: `cd test-project && bun add ../expo-utils/expo-utils-X.X.X.tgz`
 4. Run CLI: `bunx expo-utils-install --new`

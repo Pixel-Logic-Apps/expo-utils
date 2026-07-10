@@ -13,7 +13,7 @@
 ✅ **Tela de Avaliação**: Abertura automática da loja para reviews (iOS/Android)  
 ✅ **Estrutura do Projeto**: Templates pré-configurados com melhores práticas  
 ✅ **TypeScript Completo**: Tipagem completa e interfaces bem definidas  
-✅ **Compatibilidade Moderna**: Expo SDK 55 e 56, Firebase v23+, React Native 0.83+
+✅ **Compatibilidade Moderna**: Expo SDK 57, Firebase v24+/v25, React Native 0.86+
 
 ## 🆕 Novidades da v1.1.0
 
@@ -53,15 +53,15 @@ Novo flag `--sort-plugins` ordena o array `plugins` do `app.json` (plugins simpl
 - **Android**: solicita `POST_NOTIFICATIONS` junto com o request de push.
 - **Zero `require()` em runtime** (imports estáticos) + tipos globais (`global.remoteConfigUtils`, etc.) vindos do próprio pacote.
 
-> **✅ Validado de ponta a ponta** nesta versão: projeto novo (SDK 56) → install → `--new` → bundle (Metro/Hermes) → prebuild iOS, com telas de teste exercitando promotional modal, image, video, banners (AdMob + promo), screen-size, premium e paywall. `Info.plist` gerado com as 162 SKAdNetwork, ATT, push e frameworks estáticos.
+> **Target**: Expo SDK 57 / React Native 0.86. `Info.plist` injeta SKAdNetwork, ATT, push e frameworks estáticos via config plugin.
 
 ## 📦 Instalação Rápida
 
 ### Novo Projeto (Recomendado)
 
 ```bash
-# 1. Criar projeto Expo (SDK 55)
-bunx create-expo-app@latest MeuApp --template default@sdk-55
+# 1. Criar projeto Expo (SDK 57)
+bunx create-expo-app@latest MeuApp --template default@sdk-57
 cd MeuApp
 
 # 2. Instalar expo-utils
@@ -74,7 +74,7 @@ bunx expo-utils-install --new
 > **Outros package managers**: O CLI detecta automaticamente o package manager do projeto via lockfile (bun.lock, yarn.lock, pnpm-lock.yaml, package-lock.json). Se nenhum lockfile for encontrado, o default é **bun**. Exemplo com npm:
 >
 > ```bash
-> npx create-expo-app@latest MeuApp --template default@sdk-55 && cd MeuApp
+> npx create-expo-app@latest MeuApp --template default@sdk-57 && cd MeuApp
 > npm install github:Pixel-Logic-Apps/expo-utils
 > npx expo-utils-install --new
 > ```
@@ -1073,7 +1073,7 @@ Configuração na key `utils` do Firebase Remote Config:
 
 ### Dependências Principais Incluídas
 
-**🔥 Firebase (v23+ API Modular)**
+**🔥 Firebase (v24+/v25 API Modular + Remote Config dual-path)**
 
 - `@react-native-firebase/app` - Core Firebase
 - `@react-native-firebase/analytics` - Analytics e eventos
@@ -1370,9 +1370,9 @@ Se você chamar múltiplas permissões em sequência rápida, o diálogo ATT pod
 
 O Facebook SDK **DEVE** ser inicializado antes do RevenueCat para que `getAnonymousID()` funcione corretamente. O expo-utils já gerencia essa ordem automaticamente.
 
-## 🔄 Compatibilidade Firebase v23+
+## 🔄 Compatibilidade Firebase v24+ / v25
 
-Totalmente compatível com a **API modular** do React Native Firebase v23+:
+Compatível com a **API modular** do React Native Firebase v24+ e com a API de instância do **v25** (Remote Config sem `setConfigSettings`/`setDefaults` modulares):
 
 ✅ Não usa métodos deprecated  
 ✅ Imports modulares otimizados  
