@@ -92,6 +92,7 @@ Após criar seu projeto no Firebase Console, vá em **Remote Config** e adicione
   "ios_app_id": "",
   "review_type": "popup",
   "review_type_delay": 0,
+  "review_show_delay": 0,
   "repeat_ads_count": 3,
   "ad_blocklist": [],
   "promotional": {
@@ -216,7 +217,8 @@ Para uso sem hook, use `new PaywallController({t})` ou os métodos estáticos de
 | `min_version` | number | Versão mínima obrigatória (ex: 100 = 1.0.0) |
 | `ios_app_id` | string | App ID do iOS (fallback se busca automática falhar) |
 | `review_type` | string | Modo de review: `"store-review"`, `"popup"` ou `"dialog"` |
-| `review_type_delay` | number | Milissegundos antes de habilitar botão "Agora não" no popup de review (ex: 3000 = 3s) |
+| `review_type_delay` | number | ms até habilitar botão "Agora não" no popup de review (ex: 3000 = 3s) |
+| `review_show_delay` | number | ms antes do review **aparecer** (usado por `askForReview` se `showDelay` não for passado) |
 | `repeat_ads_count` | number | Quantidade de ações antes de mostrar anúncio |
 | `ad_blocklist` | string[] | Lista de placement IDs bloqueados |
 | `promotional` | object | Configuração de conteúdo promocional (veja seção dedicada) |
@@ -629,6 +631,35 @@ admin.messaging().send({
 > O FCM permite até **5 condições** combinadas com `&&` e `||`. Com tópicos por idioma, 12 idiomas = 12 envios (em vez de dezenas por país).
 
 ## ⭐ Sistema de Avaliações
+
+### Função `askForReview()`
+
+Dispara o pedido de review conforme `review_type` do Remote Config (`store-review` | `popup` | `dialog`). Não mostra de novo se `@user_rated` já estiver setado.
+
+```typescript
+import {askForReview} from "expo-utils/utils/ask-for-review";
+
+// Usa RC `review_show_delay` (ou 0 se ausente)
+await askForReview();
+
+// Override local: espera 3s (ignora o RC neste call)
+await askForReview(undefined, undefined, 3000);
+
+// Com textos/imagem custom + delay
+await askForReview(
+    {title: "...", message: "...", notNow: "...", rateNow: "..."},
+    require("./assets/review.png"),
+    5000,
+);
+```
+
+| Parâmetro   | Tipo                 | Padrão | Descrição |
+| ----------- | -------------------- | ------ | --------- |
+| `texts`     | `AskForReviewTexts?` | —      | Textos do dialog (modo `dialog`) |
+| `image`     | `any?`               | —      | Imagem do popup (modo `popup`) |
+| `showDelay` | `number?`            | RC / `0` | **ms antes do review aparecer**. Se omitido → `remoteConfigUtils.review_show_delay` → `0` |
+
+> **Não confundir** com `delay` do `AskForReviewOverlay` / `review_type_delay` do RC — esses controlam só o tempo até habilitar o botão **"Agora não"** no popup, não quando o card abre.
 
 ### Função openReviewURL()
 
@@ -1194,7 +1225,8 @@ interface RemoteConfigUtilsType {
     min_version: number;            // Versão mínima obrigatória
     ios_app_id: string;             // Fallback App ID iOS
     review_type?: string;           // "store-review" | "popup" | "dialog"
-    review_type_delay?: number;     // Delay em ms do botão "Agora não" no review
+    review_type_delay?: number;     // ms até habilitar "Agora não" no popup
+    review_show_delay?: number;     // ms antes do review aparecer (askForReview; override: showDelay)
     repeat_ads_count?: number;      // Ações antes de mostrar anúncio
     ad_blocklist?: string[];        // Placement IDs bloqueados
     promotional?: PromotionalConfig; // Config de conteúdo promocional

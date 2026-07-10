@@ -55,7 +55,12 @@ interface AskForReviewTexts {
     rateNow: string;
 }
 
-export async function askForReview(texts?: AskForReviewTexts, image?: any) {
+/**
+ * Dispara o pedido de review (store-review / popup / dialog via RC `review_type`).
+ * @param showDelay ms antes de aparecer. Se omitido, usa RC `review_show_delay` (default 0).
+ * Não confundir com o `delay` do overlay / `review_type_delay` (botão "Agora não").
+ */
+export async function askForReview(texts?: AskForReviewTexts, image?: any, showDelay?: number) {
     try {
         const hasRated = await AsyncStorage.getItem("@user_rated");
         if (hasRated) return; // já avaliou, não mostra de novo
@@ -63,6 +68,11 @@ export async function askForReview(texts?: AskForReviewTexts, image?: any) {
         // Store image globally if provided
         if (image) {
             AskForReviewEvents.setImage(image);
+        }
+
+        const delayMs = showDelay ?? global.remoteConfigUtils?.review_show_delay ?? 0;
+        if (delayMs > 0) {
+            await new Promise((r) => setTimeout(r, delayMs));
         }
 
         const reviewType = global.remoteConfigUtils?.review_type || "store-review";

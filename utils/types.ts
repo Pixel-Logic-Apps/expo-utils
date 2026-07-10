@@ -76,8 +76,11 @@ export interface RemoteConfigUtilsType {
     is_ads_enabled: boolean;
     min_version: number;
     ios_app_id: string;
-    review_type?: string;
+    review_type?: string; // "store-review" | "popup" | "dialog"
+    /** ms até habilitar "Agora não" no AskForReviewOverlay (prop `delay`). */
     review_type_delay?: number;
+    /** ms antes do review aparecer (askForReview). Override local: 3º arg `showDelay`. */
+    review_show_delay?: number;
     repeat_ads_count?: number;
     ad_blocklist?: string[];
     promotional?: PromotionalConfig;
