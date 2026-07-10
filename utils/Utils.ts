@@ -306,11 +306,24 @@ const Utils = {
         const fetchConfigs = async (): Promise<RemoteConfigUtilsType> => {
             try {
                 const remoteConfig = getRemoteConfig(app);
-                await setConfigSettings(remoteConfig, {minimumFetchIntervalMillis: 0});
-                await setDefaults(remoteConfig, {
+                // RNFB v24: setConfigSettings/setDefaults modulares.
+                // RNFB v25: removidos do modular → settings/defaultConfig (ou setDefaults na instância).
+                const defaults = {
                     utils: JSON.stringify({is_ads_enabled: !__DEV__}),
                     screens: JSON.stringify({}),
-                });
+                };
+                if (typeof setConfigSettings === "function") {
+                    await setConfigSettings(remoteConfig, {minimumFetchIntervalMillis: 0});
+                } else {
+                    (remoteConfig as any).settings = {minimumFetchIntervalMillis: 0};
+                }
+                if (typeof setDefaults === "function") {
+                    await setDefaults(remoteConfig, defaults);
+                } else if (typeof (remoteConfig as any).setDefaults === "function") {
+                    await (remoteConfig as any).setDefaults(defaults);
+                } else {
+                    (remoteConfig as any).defaultConfig = defaults;
+                }
                 try {
                     await fetchAndActivate(remoteConfig);
                 } catch {}
