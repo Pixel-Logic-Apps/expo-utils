@@ -40,27 +40,42 @@ import {reportConfigIntegrity} from "./config-integrity";
 import {setBlocklist} from "./AdPlacementTracker";
 
 // Importações modulares do Firebase
-// RNFB v25 removeu setConfigSettings/setDefaults do modular — lemos via namespace
-// e caímos pro path de instância quando não existirem (ver getRemoteConfigUtils).
 import {
     getRemoteConfig,
     fetchAndActivate,
     getValue,
 } from "@react-native-firebase/remote-config";
-import * as RemoteConfigModule from "@react-native-firebase/remote-config";
 import {getMessaging, requestPermission, onMessage, subscribeToTopic, unsubscribeFromTopic, getToken, setBackgroundMessageHandler, experimentalSetDeliveryMetricsExportedToBigQueryEnabled, registerDeviceForRemoteMessages, isDeviceRegisteredForRemoteMessages, getAPNSToken} from "@react-native-firebase/messaging";
 import {getAnalytics, getAppInstanceId, logEvent} from "@react-native-firebase/analytics";
 import {getApp} from "@react-native-firebase/app";
 import TiktokAdsEvents, {TikTokStandardEvents, TikTokWaitForConfig} from "expo-tiktok-ads-events";
 import {TrendingsTracker} from "./TrendingsTracker";
 
-// v24: funções no namespace; v25: undefined → fetchConfigs usa settings/defaultConfig na instância
-const setConfigSettings = (RemoteConfigModule as any).setConfigSettings as
-    | ((remoteConfig: any, settings: {minimumFetchIntervalMillis?: number}) => Promise<void>)
-    | undefined;
-const setDefaults = (RemoteConfigModule as any).setDefaults as
-    | ((remoteConfig: any, defaults: Record<string, string>) => Promise<void>)
-    | undefined;
+// RNFB v22+ marca a API namespaced como deprecated. No v25 sumiram setConfigSettings/
+// setDefaults do modular; a forma web-compatible é atribuir `settings` / `defaultConfig`.
+// Chamadas namespaced ainda funcionam se passarem o sentinel modular (mesmo token interno
+// do RNFB) — silencia o warn e filtra o arg antes de chegar no SDK nativo.
+const RNFB_MODULAR = "react-native-firebase-modular-method-call";
+
+/** Configura settings + defaults do Remote Config sem warn de API namespaced. */
+async function applyRemoteConfigDefaults(
+    remoteConfig: any,
+    defaults: Record<string, string>,
+    settings: {minimumFetchIntervalMillis: number},
+): Promise<void> {
+    // RNFB proxy: qualquer .setDefaults()/.setConfigSettings() namespaced avisa deprecation
+    // a menos que o call leve o sentinel modular (filtrado antes do nativo).
+    if (typeof remoteConfig?.setConfigSettings === "function") {
+        await remoteConfig.setConfigSettings(settings, RNFB_MODULAR);
+    } else {
+        remoteConfig.settings = settings;
+    }
+    if (typeof remoteConfig?.setDefaults === "function") {
+        await remoteConfig.setDefaults(defaults, RNFB_MODULAR);
+    } else {
+        remoteConfig.defaultConfig = defaults;
+    }
+}
 
 function getExpoUtilsDisableWarnings(appConfig?: any): boolean {
     if (!appConfig?.expo?.plugins) return false;
@@ -315,24 +330,13 @@ const Utils = {
         const fetchConfigs = async (): Promise<RemoteConfigUtilsType> => {
             try {
                 const remoteConfig = getRemoteConfig(app);
-                // RNFB v24: setConfigSettings/setDefaults modulares.
-                // RNFB v25: removidos do modular → settings/defaultConfig (ou setDefaults na instância).
                 const defaults = {
                     utils: JSON.stringify({is_ads_enabled: !__DEV__}),
                     screens: JSON.stringify({}),
                 };
-                if (typeof setConfigSettings === "function") {
-                    await setConfigSettings(remoteConfig, {minimumFetchIntervalMillis: 0});
-                } else {
-                    (remoteConfig as any).settings = {minimumFetchIntervalMillis: 0};
-                }
-                if (typeof setDefaults === "function") {
-                    await setDefaults(remoteConfig, defaults);
-                } else if (typeof (remoteConfig as any).setDefaults === "function") {
-                    await (remoteConfig as any).setDefaults(defaults);
-                } else {
-                    (remoteConfig as any).defaultConfig = defaults;
-                }
+                await applyRemoteConfigDefaults(remoteConfig, defaults, {
+                    minimumFetchIntervalMillis: 0,
+                });
                 try {
                     await fetchAndActivate(remoteConfig);
                 } catch {}
