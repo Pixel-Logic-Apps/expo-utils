@@ -8,3 +8,5 @@ export {default as RouteTracker} from "./utils/RouteTracker";
 export {generatePlacementId, isPlacementBlocked, setCurrentRoute, getCurrentRoute, setBlocklist} from "./utils/AdPlacementTracker";
 export {PaywallController, PaywallUtils, usePaywall} from "./utils/PaywallUtils";
 export type {PaywallConfig, PaywallItem, PaywallLoadResult, PaywallOptions, PaywallProductConfig, PaywallPurchaseResult, UsePaywallOptions, UsePaywallResult} from "./utils/PaywallUtils";
+export {CrossPromoCard} from "./utils/cross-promo-card";
+export type {CrossPromoConfig, CrossPromoColors} from "./utils/cross-promo-card";
