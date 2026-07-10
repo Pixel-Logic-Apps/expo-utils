@@ -3,6 +3,8 @@ const {
     withAppDelegate,
     withMainApplication,
     withDangerousMod,
+    withProjectBuildGradle,
+    withGradleProperties,
     createRunOncePlugin,
 } = require("@expo/config-plugins");
 const {mergeContents} = require("@expo/config-plugins/build/utils/generateCode");
@@ -13,7 +15,10 @@ const pkg = require("./package.json");
 const SKADNETWORK_IDS = require("./data/skadnetwork_ids.json");
 
 const DEVMENU_TAG = "skip-devmenu-onboarding";
+const KOTLIN_ADS_FIX_TAG = "expo-utils-android-kotlin-ads-fix";
 const FIREBASE_LOG_LEVELS = ["error", "warn", "info", "debug"];
+const ANDROID_GRADLE_JVMARGS = "-Xmx4096m -XX:MaxMetaspaceSize=1024m";
+const KOTLIN_SKIP_METADATA_FLAG = "-Xskip-metadata-version-check";
 
 // Purpose strings (NS*UsageDescription) que SDKs comuns referenciam mesmo quando o app NÃO
 // usa a feature: ExpoImage / ExpoVideo / ExpoFileSystem e o FBSDKShareKit acessam a Photo
@@ -222,6 +227,52 @@ function withAnalyticsPodfileGlobals(config, vars) {
 }
 
 /**
+ * play-services-ads (via react-native-google-mobile-ads) shipa Kotlin metadata 2.3.0,
+ * enquanto o Expo SDK 57 ainda compila com Kotlin ~2.1.x. Sem este flag o task
+ * `:react-native-google-mobile-ads:compile*Kotlin` falha com
+ * "metadata is 2.3.0, expected version is 2.1.0".
+ *
+ * Idempotente: se o flag já está no project build.gradle, não duplica.
+ * NÃO pinamos versão de Gradle (isso quebra o template do SDK 57).
+ */
+function withAndroidKotlinMetadataSkip(config) {
+    return withProjectBuildGradle(config, (cfg) => {
+        let contents = cfg.modResults.contents;
+        if (!contents.includes(KOTLIN_SKIP_METADATA_FLAG)) {
+            contents += `
+// [${KOTLIN_ADS_FIX_TAG}] play-services-ads Kotlin 2.3 metadata vs Expo Kotlin 2.1
+allprojects {
+    tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
+        compilerOptions {
+            freeCompilerArgs.add("${KOTLIN_SKIP_METADATA_FLAG}")
+        }
+    }
+}
+`;
+        }
+        cfg.modResults.contents = contents;
+        return cfg;
+    });
+}
+
+/**
+ * Apps do stack (Firebase + AdMob + FBSDK + …) estouram o heap padrão do daemon
+ * Gradle (~2G) no merge de dex em debug. Sobe pra 4G de forma idempotente.
+ */
+function withAndroidGradleHeap(config) {
+    return withGradleProperties(config, (cfg) => {
+        const key = "org.gradle.jvmargs";
+        const existing = cfg.modResults.find((i) => i.type === "property" && i.key === key);
+        if (existing) {
+            existing.value = ANDROID_GRADLE_JVMARGS;
+        } else {
+            cfg.modResults.push({type: "property", key, value: ANDROID_GRADLE_JVMARGS});
+        }
+        return cfg;
+    });
+}
+
+/**
  * Config plugin do expo-utils.
  *
  * `options.disableWarnings`/`disableLogs` são lidos em RUNTIME do app.json
@@ -243,6 +294,11 @@ function withAnalyticsPodfileGlobals(config, vars) {
  * read/add + Camera) no Info.plist se faltarem, resolvendo o ITMS-90683 disparado por SDKs
  * (FBSDK, expo-image/video/file-system). Desligue com `{ usageDescriptions: false }` ou ajuste
  * por chave: `{ usageDescriptions: { NSCameraUsageDescription: false } }`.
+ *
+ * `options.androidKotlinAdsFix` LIGADO por padrão: no PREBUILD Android injeta
+ * `-Xskip-metadata-version-check` no KotlinCompile (play-services-ads 2.3 vs Kotlin 2.1
+ * do Expo) e sobe o heap do Gradle daemon pra 4G. Evita plugin local nos apps.
+ * Desligue com `{ androidKotlinAdsFix: false }`.
  */
 function withExpoUtils(config, options = {}) {
     let result = withSkAdNetworkItems(config);
@@ -266,6 +322,9 @@ function withExpoUtils(config, options = {}) {
     }
     if (analyticsGlobals.length) {
         result = withAnalyticsPodfileGlobals(result, analyticsGlobals);
+    }
+    if (options?.androidKotlinAdsFix !== false) {
+        result = withAndroidGradleHeap(withAndroidKotlinMetadataSkip(result));
     }
     return result;
 }

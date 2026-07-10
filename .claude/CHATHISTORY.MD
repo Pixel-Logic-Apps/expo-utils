@@ -1166,3 +1166,143 @@ setRemainingTime(delaySec);
 ## 2026-06-23 — Onde está o token de publish do npm
 
 A senha/token de **publish** do npm (conta `developerpixellogicapps`, owner do `expo-utils`) está no **`~/.npmrc`** (chmod 600). `npm publish` usa ela direto — não precisa colar token nem OTP. O token NÃO fica em texto puro aqui.
+
+
+---
+
+## 2026-07-10 — CrossPromo, review_show_delay, RNFB v25 RC, Expo SDK 57 (1.1.21 → 1.2.1)
+
+### Contexto da sessão
+Trabalho no pacote `expo-utils` (lib + CLI). Releases publicadas no npm e push em `main`. Token npm em `~/.npmrc` (conta `developerpixellogicapps`).
+
+### 1. CrossPromoCard (npm **1.1.21**)
+**Pedido:** extrair cross-promo do app host como componente reutilizável; mínimo de código; cores sem import de `@/constants/colors`.
+
+**Implementação:**
+- Arquivo novo: `utils/cross-promo-card.tsx`
+- Lê `global.remoteConfigScreens?.cross_promo` (RC key `screens`)
+- Gate: `enabled && url && screens.includes(screen)` → senão `null`
+- Props: `screen: string`, `colors: CrossPromoColors | {light, dark}`, `style?`
+- `colors` aceita mapa light/dark (resolve com `useColorScheme`) **ou** theme resolvido / objeto item a item
+- Sem Ionicons; CTA só texto; `Linking.openURL`
+- Export em `index.ts` e `index.d.ts`
+
+**RC shape (`screens.cross_promo`):**
+```json
+{
+  "enabled": true,
+  "title": "...",
+  "app_name": "...",
+  "subtitle": "...",
+  "icon_url": "...",
+  "cta": "Ver",
+  "url": "...",
+  "ios_url": "...",
+  "android_url": "...",
+  "screens": ["home", "perfil"]
+}
+```
+
+**Commit:** `805f0b5` feat: add CrossPromoCard for RC-driven cross-promo
+
+### 2. askForReview `showDelay` + RC `review_show_delay` (npm **1.1.22**)
+**Pedido:** parâmetro de delay **antes do review aparecer** (não confundir com countdown do botão "Agora não"); também configurável via Remote Config; documentar.
+
+**Implementação:**
+- `askForReview(texts?, image?, showDelay?)` em `utils/ask-for-review.tsx`
+- Prioridade: **arg `showDelay` → `global.remoteConfigUtils.review_show_delay` → 0**
+- `RemoteConfigUtilsType.review_show_delay?: number` em `utils/types.ts`
+- README: seção `askForReview()` + tabela RC + distinção vs `review_type_delay` / prop `delay` do overlay
+
+| Campo / API | Função |
+|-------------|--------|
+| `showDelay` / `review_show_delay` | ms **antes do review aparecer** |
+| `delay` / `review_type_delay` | ms até habilitar **"Agora não"** no popup |
+
+**Commit:** `0799c8f` feat(review): add showDelay and RC review_show_delay
+
+### 3. Fix Remote Config RNFB v25 (npm **1.2.0**)
+**Causa raiz (app host):**
+```
+RC ERR: setConfigSettings is not a function (it is undefined)
+```
+Com `@react-native-firebase/remote-config@25`, `setConfigSettings` e `setDefaults` **sumiram do modular**. O throw em `getRemoteConfigUtils()` → catch → DEFAULT → `fetchAndActivate` nunca roda → `global.remoteConfigScreens === {}`.
+
+**Fix dual-path em `utils/Utils.ts` (`fetchConfigs`):**
+- v24: `setConfigSettings` / `setDefaults` se forem funções
+- v25: `remoteConfig.settings = …` + `setDefaults` na instância **ou** `defaultConfig = …`
+- `fetchAndActivate` / `getValue` inalterados
+- Peers Firebase permanecem `>=24.0.0` (compat dual)
+
+**Validação antes do commit (pedido do user):** script mock v24/v25/hybrid OK; sem commit até aprovação.
+
+**Commit:** `dbf2016` fix(remote-config): support RNFB v25 settings/defaults API
+
+### 4. Target Expo SDK 57 + deps (npm **1.2.1**)
+**Pedido:** atualizar **todas** as deps, não só Firebase; mirar **Expo 57** (última).
+
+**Peers / devDeps (resumo):**
+| | Floor |
+|--|--------|
+| expo / expo-* | **>=57.x** (latest patch) |
+| react-native | **>=0.86.0** |
+| react | **>=19.2.3** |
+| @expo/config-plugins | **>=57.0.3** |
+| hot-updater trio | **>=0.35.3** |
+| AdMob | **>=16.4.0** |
+| purchases | **>=10.4.2** |
+| clarity | **>=4.6.3** |
+| slider | **>=5.2.0** |
+| safe-area | **>=5.7.0** (bundled Expo 57) |
+| webview | **>=13.16.1** (não 14) |
+| async-storage | **>=2.2.0** (Expo 57 ainda 2.2; não forçar 3.x) |
+| Firebase peers | **>=24** (dual); devDeps **>=25** |
+| chalk | **^4** (CLI CJS; chalk 5 é ESM) |
+
+**Docs/CLI:**
+- README + CLAUDE: `default@sdk-57`, compat Firebase v24+/v25
+- `bin/install.js`: pin hot-updater `>=0.35.3`
+
+**Riscos documentados na conversa:**
+- **Alto:** host em SDK 55/56 com expo-utils 1.2.1 → mismatch nativo; precisa upgrade + rebuild
+- **Médio:** hot-updater parcialmente em 0.35; Firebase 24/25 misturado
+- **Baixo:** AdMob/Purchases minors; dual-path RC; async-storage 2.x
+
+**Commit:** `6f87d1d` chore(release): 1.2.1 — target Expo SDK 57
+
+### Releases desta sessão
+
+| Versão | Conteúdo |
+|--------|----------|
+| **1.1.21** | CrossPromoCard |
+| **1.1.22** | showDelay + `review_show_delay` |
+| **1.2.0** | RNFB v25 Remote Config dual-path |
+| **1.2.1** | Peers Expo SDK 57 / RN 0.86 + docs |
+
+### Arquivos tocados (resumo)
+- `utils/cross-promo-card.tsx` (novo)
+- `utils/ask-for-review.tsx`
+- `utils/types.ts`
+- `utils/Utils.ts` (RC dual-path)
+- `index.ts`, `index.d.ts`
+- `package.json`
+- `bin/install.js`
+- `README.md`, `CLAUDE.md`
+
+### Uso rápido
+```bash
+bun add expo-utils@1.2.1
+# Host deve estar em Expo 57 + RN 0.86; Firebase idealmente 25 alinhado; rebuild nativo
+```
+
+```tsx
+import {CrossPromoCard} from "expo-utils";
+import {askForReview} from "expo-utils/utils/ask-for-review";
+
+<CrossPromoCard screen="home" colors={Colors} />
+await askForReview(); // usa RC review_show_delay
+await askForReview(undefined, undefined, 3000); // override local
+```
+
+**Resultado:** Sucesso — `expo-utils@1.2.1` no npm (`latest`), `main` em `6f87d1d`.
+
