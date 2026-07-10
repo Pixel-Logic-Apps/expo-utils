@@ -40,18 +40,27 @@ import {reportConfigIntegrity} from "./config-integrity";
 import {setBlocklist} from "./AdPlacementTracker";
 
 // Importações modulares do Firebase
+// RNFB v25 removeu setConfigSettings/setDefaults do modular — lemos via namespace
+// e caímos pro path de instância quando não existirem (ver getRemoteConfigUtils).
 import {
     getRemoteConfig,
-    setConfigSettings,
-    setDefaults,
     fetchAndActivate,
     getValue,
 } from "@react-native-firebase/remote-config";
+import * as RemoteConfigModule from "@react-native-firebase/remote-config";
 import {getMessaging, requestPermission, onMessage, subscribeToTopic, unsubscribeFromTopic, getToken, setBackgroundMessageHandler, experimentalSetDeliveryMetricsExportedToBigQueryEnabled, registerDeviceForRemoteMessages, isDeviceRegisteredForRemoteMessages, getAPNSToken} from "@react-native-firebase/messaging";
 import {getAnalytics, getAppInstanceId, logEvent} from "@react-native-firebase/analytics";
 import {getApp} from "@react-native-firebase/app";
 import TiktokAdsEvents, {TikTokStandardEvents, TikTokWaitForConfig} from "expo-tiktok-ads-events";
 import {TrendingsTracker} from "./TrendingsTracker";
+
+// v24: funções no namespace; v25: undefined → fetchConfigs usa settings/defaultConfig na instância
+const setConfigSettings = (RemoteConfigModule as any).setConfigSettings as
+    | ((remoteConfig: any, settings: {minimumFetchIntervalMillis?: number}) => Promise<void>)
+    | undefined;
+const setDefaults = (RemoteConfigModule as any).setDefaults as
+    | ((remoteConfig: any, defaults: Record<string, string>) => Promise<void>)
+    | undefined;
 
 function getExpoUtilsDisableWarnings(appConfig?: any): boolean {
     if (!appConfig?.expo?.plugins) return false;
