@@ -1,54 +1,49 @@
 import {AppState} from "react-native";
 import {AppOpenAd, AdEventType} from "react-native-google-mobile-ads";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import Purchases from "react-native-purchases";
 import {generatePlacementId, isPlacementBlocked} from "./AdPlacementTracker";
-import {expoUtilsLog} from "./Utils";
+import {expoUtilsLog, expoUtilsWarn} from "./Utils";
+import {PremiumUtils} from "./PremiumUtils";
 
 let canShowAppOpenAgain = true;
+let listenerRegistered = false;
 const appState = {current: "active"};
 
 export const setupAppOpenListener = (adUnitId?: string) => {
+    // Registro único: remount do layout (StrictMode/dev) não pode duplicar o listener global —
+    // dois listeners passavam juntos pela janela async e dobravam o app-open.
+    if (listenerRegistered) return;
+    listenerRegistered = true;
     AppState.addEventListener("change", (nextAppState) => {
         (async () => {
+            try {
+                if (!(global as any).isAdsEnabled) return;
 
-            if (!(global as any).isAdsEnabled) {
-                appState.current = nextAppState;
-                return;
-            }
+                const unitId = adUnitId ?? (global as any).adUnits?.appOpen;
+                if (!unitId) return;
 
-            if (await Purchases.isConfigured()) {
-                const customerInfo = await Purchases.getCustomerInfo();
-                const isPremium = Object.keys(customerInfo.entitlements.active).length > 0;
-                if (isPremium) {
-                    appState.current = nextAppState;
+                if (!(canShowAppOpenAgain && appState.current === "background" && nextAppState === "active")) return;
+                // Fecha a janela ANTES de qualquer await — transições rápidas não disparam 2 loads.
+                canShowAppOpenAgain = false;
+
+                // Premium unificado (DEV: @isPremium; produção: RevenueCat) — consultado só
+                // quando um ad realmente iria aparecer (bg→active), não em toda transição.
+                if (await PremiumUtils.getIsPremiumStatus()) {
+                    canShowAppOpenAgain = true;
                     return;
                 }
-            }
 
-            const isPremiumStorage = JSON.parse((await AsyncStorage.getItem("@isPremium")) || "false");
-            if (isPremiumStorage) {
-                appState.current = nextAppState;
-                return;
-            }
-
-            const unitId = adUnitId ?? (global as any).adUnits?.appOpen;
-            if (!unitId) return;
-
-            if (canShowAppOpenAgain && appState.current === "background" && nextAppState === "active") {
                 const placementId = generatePlacementId("appopen");
-
                 if (isPlacementBlocked(placementId)) {
                     expoUtilsLog(`[expo-utils] AppOpen blocked: ${placementId}`);
-                    appState.current = nextAppState;
+                    canShowAppOpenAgain = true;
                     return;
                 }
 
-                canShowAppOpenAgain = false;
                 const appOpenAd = AppOpenAd.createForAdRequest(unitId);
-
                 appOpenAd.addAdEventListener(AdEventType.LOADED, () => {
-                    appOpenAd.show();
+                    appOpenAd.show().catch(() => {
+                        canShowAppOpenAgain = true;
+                    });
                 });
                 appOpenAd.addAdEventListener(AdEventType.CLOSED, () => {
                     setTimeout(() => {
@@ -59,8 +54,15 @@ export const setupAppOpenListener = (adUnitId?: string) => {
                     canShowAppOpenAgain = true;
                 });
                 appOpenAd.load();
+            } catch (e) {
+                // getCustomerInfo pode rejeitar mesmo configurado (1º launch offline, RC fora
+                // do ar) — sem este catch o listener morria em unhandled rejection ANTES de
+                // atualizar appState.current e o rastreamento bg→active corrompia.
+                canShowAppOpenAgain = true;
+                expoUtilsWarn("setupAppOpenListener:", e);
+            } finally {
+                appState.current = nextAppState;
             }
-            appState.current = nextAppState;
         })();
     });
 };

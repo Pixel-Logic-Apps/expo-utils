@@ -1,7 +1,7 @@
-import {memo, useEffect, useRef, useState} from "react";
+import {memo, useEffect, useState} from "react";
 import {BannerAd, BannerAdSize, TestIds} from "react-native-google-mobile-ads";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import Utils, {expoUtilsLog} from "./Utils";
+import {PremiumUtils} from "./PremiumUtils";
 
 /**
  * Banner protegido contra o erro “The specified child already has a parent…”.
@@ -21,14 +21,16 @@ export default function BannerAdComponent({unitId}: {unitId?: string}) {
 
     useEffect(() => {
         (async () => {
-            const isPremium = await AsyncStorage.getItem("@isPremium");
+            // Premium unificado (DEV: @isPremium; produção: RevenueCat).
+            const isPremium = await PremiumUtils.getIsPremiumStatus();
             expoUtilsLog("isPremium", isPremium);
 
-            if (isPremium === "true") {
+            if (isPremium) {
                 setIsAdsEnabled(false);
                 return;
             }
 
+            // Memoizado no Utils — todos os banners compartilham o fetch do prepare().
             const remote = await Utils.getRemoteConfigUtils();
             expoUtilsLog("remote.is_ads_enabled", remote.is_ads_enabled);
 
@@ -37,8 +39,12 @@ export default function BannerAdComponent({unitId}: {unitId?: string}) {
             }
 
             expoUtilsLog("bannerUnitId", bannerUnitId);
-        })();
+        })().catch(() => {});
     }, []);
+
+    // Em produção, sem unitId o <BannerAd> lança no render — sem ad é melhor que crash.
+    // (Em DEV o SafeBanner usa TestIds.BANNER, então unitId ausente é permitido.)
+    if (!__DEV__ && !bannerUnitId) return null;
 
     return isAdsEnabled ? <SafeBanner unitId={bannerUnitId} /> : null;
 }

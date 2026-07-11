@@ -1,7 +1,5 @@
 import {StatusBar} from "react-native";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
-    AdEventListener,
     AdEventType,
     InterstitialAd,
     RewardedAd,
@@ -11,6 +9,7 @@ import {getAnalytics, logEvent} from "@react-native-firebase/analytics";
 import {getApp} from "@react-native-firebase/app";
 import {expoUtilsWarn, expoUtilsLog} from "./Utils";
 import {generatePlacementId, isPlacementBlocked} from "./AdPlacementTracker";
+import {PremiumUtils} from "./PremiumUtils";
 
 type LoadAdsManagerType = {
     showInterstitial: (unitId?: string, tag?: string) => Promise<boolean>;
@@ -26,112 +25,111 @@ const getFirebaseApp = () => {
     }
 };
 
+// Telemetria fora do caminho crítico: fire-and-forget com catch. Antes o logEvent era
+// AGUARDADO dentro do listener LOADED — se rejeitasse, o show() nunca rodava e o await do
+// app pendurava pra sempre.
+const logAdEvent = (analytics: any, name: string, e: any, placementId: string) => {
+    if (!analytics) return;
+    try {
+        logEvent(analytics, name, {...(e ?? {}), placementId}).catch(() => {});
+    } catch {}
+};
+
+// Checks compartilhados dos dois formatos. Retorna a request pronta, ou null quando o fluxo
+// deve seguir SEM ad (bloqueado/premium/ads off/sem unitId) — nunca lança.
+const resolveAdRequest = async (kind: "interstitial" | "rewarded", unitId?: string, tag?: string) => {
+    const placementId = generatePlacementId(kind, tag);
+    if (isPlacementBlocked(placementId)) {
+        expoUtilsLog(`[expo-utils] ${kind} blocked: ${placementId}`);
+        return null;
+    }
+    // Premium unificado (DEV: @isPremium; produção: RevenueCat).
+    const isPremium = await PremiumUtils.getIsPremiumStatus();
+    expoUtilsLog("isPremium", isPremium);
+    if (isPremium) return null;
+    if (global.isAdsEnabled === false || global?.remoteConfigUtils?.is_ads_enabled === false) return null;
+    expoUtilsLog("isAdsEnabled", global.isAdsEnabled);
+    const adUnitId = unitId ?? ((global as any).adUnits || {})[kind];
+    if (!adUnitId || typeof adUnitId !== "string") {
+        // Sem o guard, createForAdRequest(undefined) lançava DENTRO do executor async da
+        // promise (engolido) e o await do app pendurava pra sempre.
+        expoUtilsWarn(`show ${kind}: sem unitId (global.adUnits/prepare ainda não prontos?) — seguindo sem ad.`);
+        return null;
+    }
+    return {placementId, adUnitId};
+};
+
 const LoadAdsManager: LoadAdsManagerType = {
-    showInterstitial: (unitId?: string, tag?: string): Promise<boolean> => {
-        return new Promise(async (resolve, reject) => {
-            const placementId = generatePlacementId("interstitial", tag);
-
-            if (isPlacementBlocked(placementId)) {
-                expoUtilsLog(`[expo-utils] Interstitial blocked: ${placementId}`);
-                resolve(true);
-                return;
-            }
-
-            const isPremium = await AsyncStorage.getItem("@isPremium");
-            expoUtilsLog("isPremium", isPremium);
-            if (isPremium === "true") {
-                resolve(true);
-                return;
-            }
+    // Contrato: NUNCA pendura nem lança — resolve true quando o fluxo do app deve seguir
+    // (fechou o ad / premium / ads off / bloqueado / sem unitId) e false em erro de ad.
+    showInterstitial: async (unitId?: string, tag?: string): Promise<boolean> => {
+        try {
+            const request = await resolveAdRequest("interstitial", unitId, tag);
+            if (!request) return true;
             const app = getFirebaseApp();
             const analytics = app ? getAnalytics(app) : null;
-            if (global.isAdsEnabled === false || global?.remoteConfigUtils?.is_ads_enabled === false) {
-                resolve(true);
-                return;
-            }
-            expoUtilsLog("isAdsEnabled", global.isAdsEnabled);
-            const adUnits = (global as any).adUnits || {};
-            expoUtilsLog("interstitialUnitIds", adUnits);
-
-            const interstitialAdUnitId = unitId ?? adUnits.interstitial;
-            const interstitial = InterstitialAd.createForAdRequest(interstitialAdUnitId, {});
-            const onAdLoaded: AdEventListener = async (e) => {
-                if (analytics) await logEvent(analytics, "AdLOADED", {...(e as any), placementId});
-                interstitial.show().then();
-            };
-            const onAdClosed: AdEventListener = async (e) => {
-                if (analytics) await logEvent(analytics, "AdCLOSED", {...(e as any), placementId});
-                StatusBar.setHidden(false);
-                resolve(true);
-            };
-            const onAdOpened: AdEventListener = async (e) => {
-                if (analytics) await logEvent(analytics, "OPENED", {...(e as any), placementId});
-                StatusBar.setHidden(true);
-            };
-            const onAdError: AdEventListener = async (e) => {
-                if (analytics) await logEvent(analytics, "AdERROR", {...(e as any), placementId});
-                resolve(false);
-            };
-            interstitial.addAdEventListener(AdEventType.LOADED, onAdLoaded);
-            interstitial.addAdEventListener(AdEventType.CLOSED, onAdClosed);
-            interstitial.addAdEventListener(AdEventType.OPENED, onAdOpened);
-            interstitial.addAdEventListener(AdEventType.ERROR, onAdError);
-            interstitial.load();
-        });
+            return await new Promise<boolean>((resolve) => {
+                const interstitial = InterstitialAd.createForAdRequest(request.adUnitId, {});
+                interstitial.addAdEventListener(AdEventType.LOADED, (e) => {
+                    logAdEvent(analytics, "AdLOADED", e, request.placementId);
+                    interstitial.show().catch(() => resolve(false));
+                });
+                interstitial.addAdEventListener(AdEventType.OPENED, (e) => {
+                    logAdEvent(analytics, "OPENED", e, request.placementId);
+                    StatusBar.setHidden(true);
+                });
+                interstitial.addAdEventListener(AdEventType.CLOSED, (e) => {
+                    logAdEvent(analytics, "AdCLOSED", e, request.placementId);
+                    StatusBar.setHidden(false);
+                    resolve(true);
+                });
+                interstitial.addAdEventListener(AdEventType.ERROR, (e) => {
+                    logAdEvent(analytics, "AdERROR", e, request.placementId);
+                    resolve(false);
+                });
+                interstitial.load();
+            });
+        } catch (e) {
+            expoUtilsWarn("showInterstitial:", e);
+            return false;
+        }
     },
-    showRewarded: (unitId?: string, tag?: string): Promise<boolean> => {
-        return new Promise(async (resolve, reject) => {
-            const placementId = generatePlacementId("rewarded", tag);
-
-            if (isPlacementBlocked(placementId)) {
-                expoUtilsLog(`[expo-utils] Rewarded blocked: ${placementId}`);
-                resolve(true);
-                return;
-            }
-
-            const isPremium = await AsyncStorage.getItem("@isPremium");
-            if (isPremium === "true") {
-                resolve(true);
-                return;
-            }
+    showRewarded: async (unitId?: string, tag?: string): Promise<boolean> => {
+        try {
+            const request = await resolveAdRequest("rewarded", unitId, tag);
+            if (!request) return true;
             const app = getFirebaseApp();
             const analytics = app ? getAnalytics(app) : null;
-            if (global.isAdsEnabled === false || global?.remoteConfigUtils?.is_ads_enabled === false) {
-                resolve(true);
-                return;
-            }
-            const adUnits = (global as any).adUnits || {};
-            const adUnitId = unitId ?? adUnits.rewarded;
-            const ad = RewardedAd.createForAdRequest(adUnitId, {});
-            const onAdLoaded: AdEventListener = async (e) => {
-                if (analytics) await logEvent(analytics, "AdLOADED", {...(e as any), placementId});
-                ad.show().then();
-            };
-            const onAdClosed: AdEventListener = async (e) => {
-                if (analytics) await logEvent(analytics, "AdCLOSED", {...(e as any), placementId});
-                StatusBar.setHidden(false);
-                resolve(false);
-            };
-            const onEarnedReward: AdEventListener = async (e) => {
-                if (analytics) await logEvent(analytics, "REWARDED", {...(e as any), placementId});
-                StatusBar.setHidden(true);
-                resolve(true);
-            };
-            const onAdOpened: AdEventListener = async (e) => {
-                if (analytics) await logEvent(analytics, "OPENED", {...(e as any), placementId});
-                StatusBar.setHidden(true);
-            };
-            const onAdError: AdEventListener = async (e) => {
-                if (analytics) await logEvent(analytics, "AdERROR", {...(e as any), placementId});
-                resolve(false);
-            };
-            ad.addAdEventListener(RewardedAdEventType.LOADED, onAdLoaded);
-            ad.addAdEventListener(AdEventType.CLOSED, onAdClosed);
-            ad.addAdEventListener(RewardedAdEventType.EARNED_REWARD, onEarnedReward);
-            ad.addAdEventListener(AdEventType.OPENED, onAdOpened);
-            ad.addAdEventListener(AdEventType.ERROR, onAdError);
-            ad.load();
-        });
+            return await new Promise<boolean>((resolve) => {
+                const ad = RewardedAd.createForAdRequest(request.adUnitId, {});
+                ad.addAdEventListener(RewardedAdEventType.LOADED, (e) => {
+                    logAdEvent(analytics, "AdLOADED", e, request.placementId);
+                    ad.show().catch(() => resolve(false));
+                });
+                ad.addAdEventListener(AdEventType.OPENED, (e) => {
+                    logAdEvent(analytics, "OPENED", e, request.placementId);
+                    StatusBar.setHidden(true);
+                });
+                ad.addAdEventListener(RewardedAdEventType.EARNED_REWARD, (e) => {
+                    logAdEvent(analytics, "REWARDED", e, request.placementId);
+                    StatusBar.setHidden(true);
+                    resolve(true);
+                });
+                ad.addAdEventListener(AdEventType.CLOSED, (e) => {
+                    logAdEvent(analytics, "AdCLOSED", e, request.placementId);
+                    StatusBar.setHidden(false);
+                    resolve(false);
+                });
+                ad.addAdEventListener(AdEventType.ERROR, (e) => {
+                    logAdEvent(analytics, "AdERROR", e, request.placementId);
+                    resolve(false);
+                });
+                ad.load();
+            });
+        } catch (e) {
+            expoUtilsWarn("showRewarded:", e);
+            return false;
+        }
     },
 };
 

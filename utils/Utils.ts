@@ -1,9 +1,31 @@
+// Telemetria dos warns: cada mensagem única vira 1 evento "expo_utils_warn" no Analytics
+// (dedup por sessão + cap de 50 pra nunca inundar; roda MESMO com disableWarnings — o ponto
+// é enxergar em produção o que o console não mostra). Best-effort: nunca lança nem recursa
+// (falha do logEvent não pode gerar outro warn).
+const warnEventSent = new Set<string>();
+function reportWarnEvent(args: any[]) {
+    try {
+        const message = args
+            .map((a) => {
+                if (typeof a === "string") return a;
+                if (a instanceof Error) return String(a);
+                try { return JSON.stringify(a); } catch { return String(a); }
+            })
+            .join(" ")
+            .slice(0, 100); // limite de valor de parâmetro do Analytics
+        if (!message || warnEventSent.has(message) || warnEventSent.size >= 50) return;
+        warnEventSent.add(message);
+        logEvent(getAnalytics(getApp()), "expo_utils_warn", {message}).catch(() => {});
+    } catch {}
+}
+
 // Função para warnings configuráveis do expo-utils
 export function expoUtilsWarn(...args: any[]) {
     if (!(global as any).disableExpoUtilsWarnings) {
         // eslint-disable-next-line no-console
         console.warn(...args);
     }
+    reportWarnEvent(args);
 }
 
 // Função para logs configuráveis do expo-utils
@@ -168,6 +190,65 @@ export const usableRcKey = (rckey?: string): string | undefined => {
     return undefined;
 };
 
+// RevenueCat "ativo" DE VERDADE: isConfigured() sozinho mente — fica true até com key
+// inválida (401 silencioso, logHandler no-op) e não garante que getCustomerInfo funcione.
+// Aqui exigimos configure feito E uma chamada real funcionando (getCustomerInfo; barata
+// após o 1º sucesso — cache do SDK). Memoiza o sucesso; falha limpa o memo pra tentar de
+// novo na próxima chamada (configure tardio / rede que voltou).
+let rcActivePromise: Promise<boolean> | null = null;
+export const isRevenueCatActive = (): Promise<boolean> => {
+    if (rcActivePromise) return rcActivePromise;
+    const attempt = (async () => {
+        try {
+            if (!(await Purchases.isConfigured())) return false;
+            await Purchases.getCustomerInfo();
+            return true;
+        } catch (e) {
+            expoUtilsWarn("isRevenueCatActive:", e);
+            return false;
+        }
+    })();
+    rcActivePromise = attempt;
+    attempt.then((ok) => {
+        if (!ok) rcActivePromise = null;
+    });
+    return attempt;
+};
+
+// iOS descarta Alert.alert sobrepostos (RN não enfileira UIAlertController) — o 2º some.
+// Fila simples: cada alert só aparece quando o anterior foi fechado.
+let alertQueue: Promise<void> = Promise.resolve();
+export const queueAlert = (title: string, message?: string) => {
+    alertQueue = alertQueue
+        .then(
+            () =>
+                new Promise<void>((resolve) => {
+                    Alert.alert(title, message, [{text: "OK", onPress: () => resolve()}], {
+                        cancelable: true,
+                        onDismiss: () => resolve(),
+                    });
+                }),
+        )
+        .catch(() => {});
+};
+
+// Promo × ATT: o modal promocional só agenda a exibição depois que o fluxo do ATT terminou
+// (ou 15s de fallback), pra Modal do RN não disputar a janela do prompt do sistema.
+// O gate só arma quando o boot da lib roda (prepare) — usePromotional standalone não espera.
+let attGateArmed = false;
+let settleAttFlow: () => void = () => {};
+const attFlowDonePromise = new Promise<void>((resolve) => {
+    settleAttFlow = resolve;
+});
+export const waitAttFlowDone = (timeoutMs = 15000): Promise<void> => {
+    if (!attGateArmed) return Promise.resolve();
+    return Promise.race([attFlowDonePromise, new Promise<void>((resolve) => setTimeout(resolve, timeoutMs))]);
+};
+
+// Memos de boot: Remote Config compartilhado entre prepare() e banners; prepare roda 1x.
+let remoteConfigUtilsPromise: Promise<RemoteConfigUtilsType> | null = null;
+let preparePromise: Promise<void> | null = null;
+
 // Compara versões "a.b.c": >0 se current > store, 0 se iguais, <0 se current < store.
 const compareVersions = (current: string, store: string): number => {
     const currentParts = current.split(".").map((part) => Number(part) || 0);
@@ -284,6 +365,85 @@ const runStoreGate = async (): Promise<boolean> => {
     return false;
 };
 
+/**
+ * Corpo real do boot — extraído do prepare() para rodar UMA vez por sessão (preparePromise):
+ * StrictMode/remount chamavam prepare 2x e duplicavam Purchases.configure e o
+ * addCustomerInfoUpdateListener. Nunca rejeita: cada bloco é isolado em try/catch próprio.
+ */
+const runPrepare = async (appConfig?: any, appStrings?: AppStrings): Promise<void> => {
+    try {
+        LogBox.ignoreAllLogs(true);
+        global.isAdsEnabled = !__DEV__;
+    } catch (e) {
+        expoUtilsWarn("ignoreAllLogs:", e);
+    }
+
+    try {
+        if (__DEV__) {
+            // Dev menu: limpar storage + toggles de Premium e Ads + reload manual.
+            // Premium persiste (@isPremium). Ads flipa global.isAdsEnabled em RUNTIME (não persiste —
+            // volta ao Remote Config no próximo reload). Os toggles só setam; use "Reload" pra reaplicar a UI.
+            registerDevMenuItems([
+                {name: "Clear Storage And Reload", callback: async () => { await AsyncStorage.clear(); DevSettings.reload(); }},
+                {name: `Premium → toggle`, callback: async () => {
+                    const isPrem = (await AsyncStorage.getItem("@isPremium")) === "true";
+                    await AsyncStorage.setItem("@isPremium", JSON.stringify(!isPrem));
+                }},
+                {name: `Ads → toggle`, callback: async () => {
+                    global.isAdsEnabled = global.isAdsEnabled === false;
+                }},
+                {name: "Reload", callback: async () => { DevSettings.reload(); }},
+            ]);
+        }
+    } catch (e) {
+        expoUtilsWarn("registerDevMenuItems:", e);
+    }
+    const rckey = usableRcKey(appStrings?.rckey);
+    const adUnits = appStrings?.adUnits;
+    try {
+        //Setup do remoteconfig (Precisa de internet). Trabalho NÃO-tracking — sempre roda.
+        //HotUpdater: já é disparado no module-scope do RootLayout (initHotUpdater) — não duplicamos aqui.
+        //checkForRequiredUpdateDialog: movido para DEPOIS do ATT (RootLayout) para o Alert não
+        //colidir/suprimir o prompt do ATT (iOS exibe um modal de sistema por vez).
+        const remoteConfigs = await Utils.getRemoteConfigUtils();
+        try { await Utils.setupRevenueCat(rckey); }                                catch (e) { expoUtilsWarn("setupRevenueCat:", e); }
+        try { await Utils.setupGlobalConfigs(appConfig, remoteConfigs, adUnits); } catch (e) { expoUtilsWarn("setupGlobalConfigs:", e); }
+        try { await reportConfigIntegrity(remoteConfigs, appConfig); }             catch (e) { expoUtilsWarn("reportConfigIntegrity:", e); }
+
+        // Opt-in via app.json (["expo-utils", {"disableAdsIfBuildIsNewerThanStore": true}], default
+        // DESATIVADO): gate FAIL-CLOSED de ads por versão da loja. AGUARDADO de propósito — o
+        // veredito precisa chegar ANTES do setAppIsReady(true), porque banner-ad lê
+        // global.isAdsEnabled UMA vez no mount e os filhos do ExpoUtilsLayout montam assim que
+        // appIsReady vira true. Também precisa rodar DEPOIS do setupGlobalConfigs (que reseta/
+        // sobrescreve os globals que o gate lê/escreve). Não pendura o boot: fetch com timeout
+        // de 5s e runStoreGate nunca rejeita.
+        if (getExpoUtilsDisableAdsIfBuildIsNewerThanStore(appConfig)) {
+            try { await Utils.disableAdsIfBuildIsNewerThanStore(); } catch (e) { expoUtilsWarn("disableAdsIfBuildIsNewerThanStore:", e); }
+        }
+
+        //Trabalho NÃO-tracking que pode rodar sem consentimento (push topics + clarity).
+        (async () => {
+            try { await Utils.setupClarity(remoteConfigs); }                        catch (e) { expoUtilsWarn("setupClarity:", e); }
+            try { await Utils.requestFCMToken(); }                                  catch (e) { expoUtilsWarn("requestFCMToken:", e); }
+            try { await Utils.setupMessagingTopics(appConfig, rckey); }             catch (e) { expoUtilsWarn("setupMessagingTopics:", e); }
+        })();
+
+
+        //Listener se mudou informacao do Usuário.
+        try {
+            if (rckey) {
+                Purchases.addCustomerInfoUpdateListener(() => {
+                    Utils.updateRCStatusMessagingTopic(appConfig, rckey);
+                });
+            }
+        } catch (e) { expoUtilsWarn("addCustomerInfoUpdateListener:", e); }
+
+
+    } catch (e) {
+        expoUtilsWarn("Error in prepare:", e);
+    }
+};
+
 const Utils = {
     // Função para buscar App ID iOS a partir do bundle ID
     getIOSAppId: async (): Promise<string | null> => {
@@ -298,61 +458,78 @@ const Utils = {
                 return null;
             }
 
-            const lookupUrl = `https://itunes.apple.com/lookup?bundleId=${bundleId}`;
+            // Mesmo padrão do getStoreVersion: storefront do usuário primeiro (sem `country`
+            // o lookup cai na US e app publicado só em outras storefronts vem vazio → botão
+            // de review morto) e fetch com timeout (sem ele o lookup pendurado trava o botão).
+            const region = safeGetLocales()[0]?.regionCode?.toLowerCase();
+            const base = `https://itunes.apple.com/lookup?bundleId=${bundleId}`;
+            const urls = region ? [`${base}&country=${region}`, base] : [base];
             expoUtilsLog("Looking up iOS App ID for bundle:", bundleId);
 
-            const response = await fetch(lookupUrl);
-            const data = await response.json();
-
-            if (data.resultCount > 0 && data.results && data.results.length > 0) {
-                const appId = data.results[0].trackId.toString();
-                expoUtilsLog("Found iOS App ID:", appId);
-                return appId;
-            } else {
-                expoUtilsWarn("App not found in App Store for bundle ID:", bundleId);
-                return null;
+            for (const url of urls) {
+                try {
+                    const response = await fetchWithTimeout(url);
+                    const data = await response.json();
+                    const trackId = data?.results?.[0]?.trackId;
+                    if (trackId) {
+                        const appId = String(trackId);
+                        expoUtilsLog("Found iOS App ID:", appId);
+                        return appId;
+                    }
+                } catch {}
             }
+            expoUtilsWarn("App not found in App Store for bundle ID:", bundleId);
+            return null;
         } catch (error) {
             expoUtilsWarn("Error looking up iOS App ID:", error);
             return null;
         }
     },
 
-    getRemoteConfigUtils: async (): Promise<RemoteConfigUtilsType> => {
-        const app = getApp();
-        // Default de ads: ON em produção, OFF em dev. O Remote Config ainda pode
-        // desligar explicitamente (is_ads_enabled:false) — isso é só o fallback quando não há valor.
-        const DEFAULT = {is_ads_enabled: !__DEV__, min_version: 1.0} as any;
-        if (!app) {
-            expoUtilsWarn("Firebase not configured, using default settings");
-            return DEFAULT;
-        }
-        const fetchConfigs = async (): Promise<RemoteConfigUtilsType> => {
-            try {
-                const remoteConfig = getRemoteConfig(app);
-                const defaults = {
-                    utils: JSON.stringify({is_ads_enabled: !__DEV__}),
-                    screens: JSON.stringify({}),
-                };
-                await applyRemoteConfigDefaults(remoteConfig, defaults, {
-                    minimumFetchIntervalMillis: 0,
-                });
-                try {
-                    await fetchAndActivate(remoteConfig);
-                } catch {}
-                // Coalesce com DEFAULT: se o param `utils` existir mas vier sem is_ads_enabled,
-                // não cai em undefined (que apagaria o banner) — herda o default (ON em prod).
-                return {...DEFAULT, ...JSON.parse(getValue(remoteConfig, "utils").asString())};
-            } catch {
+    getRemoteConfigUtils: (): Promise<RemoteConfigUtilsType> => {
+        // Memoizado: prepare() e cada mount de banner compartilham o MESMO fetch. Antes,
+        // cada banner refazia setDefaults+fetchAndActivate (minimumFetchInterval 0) — uma
+        // request de rede por tela e risco de throttle do Remote Config.
+        if (remoteConfigUtilsPromise) return remoteConfigUtilsPromise;
+        remoteConfigUtilsPromise = (async (): Promise<RemoteConfigUtilsType> => {
+            // Default de ads: ON em produção, OFF em dev. O Remote Config ainda pode
+            // desligar explicitamente (is_ads_enabled:false) — isso é só o fallback quando não há valor.
+            const DEFAULT = {is_ads_enabled: !__DEV__, min_version: 1.0} as any;
+            let app: any = null;
+            try { app = getApp(); } catch {}
+            if (!app) {
+                expoUtilsWarn("Firebase not configured, using default settings");
                 return DEFAULT;
             }
-        };
-        // Timeout de segurança: se o Remote Config (rede/nativo) pendurar, NÃO trava o boot —
-        // seguimos com os defaults e o app renderiza normalmente.
-        return Promise.race([
-            fetchConfigs(),
-            new Promise<RemoteConfigUtilsType>((resolve) => setTimeout(() => resolve(DEFAULT), 60000)),
-        ]);
+            const fetchConfigs = async (): Promise<RemoteConfigUtilsType> => {
+                try {
+                    const remoteConfig = getRemoteConfig(app);
+                    const defaults = {
+                        utils: JSON.stringify({is_ads_enabled: !__DEV__}),
+                        screens: JSON.stringify({}),
+                    };
+                    await applyRemoteConfigDefaults(remoteConfig, defaults, {
+                        minimumFetchIntervalMillis: 0,
+                    });
+                    try {
+                        await fetchAndActivate(remoteConfig);
+                    } catch {}
+                    // Coalesce com DEFAULT: se o param `utils` existir mas vier sem is_ads_enabled,
+                    // não cai em undefined (que apagaria o banner) — herda o default (ON em prod).
+                    return {...DEFAULT, ...JSON.parse(getValue(remoteConfig, "utils").asString())};
+                } catch {
+                    return DEFAULT;
+                }
+            };
+            // Timeout de segurança: se o Remote Config (rede/nativo) pendurar, NÃO trava o boot —
+            // seguimos com os defaults e o app renderiza normalmente. 10s (era 60s: ninguém
+            // deve encarar 1 minuto de splash por um RC nativo pendurado).
+            return Promise.race([
+                fetchConfigs(),
+                new Promise<RemoteConfigUtilsType>((resolve) => setTimeout(() => resolve(DEFAULT), 10000)),
+            ]);
+        })();
+        return remoteConfigUtilsPromise;
     },
 
     getRemoteConfigScreens: async (): Promise<any> => {
@@ -377,7 +554,7 @@ const Utils = {
             Purchases.setLogLevel(LOG_LEVEL.ERROR);
             Purchases.setLogHandler(() => {}); //Erro de js quando n usa.
         } catch (error) {
-            console.error("Error setting up RevenueCat:", error);
+            expoUtilsWarn("Error setting up RevenueCat:", error);
         }
     },
 
@@ -399,7 +576,7 @@ const Utils = {
             FbsdkSettings.setAdvertiserIDCollectionEnabled(attGranted);
             await FbsdkSettings.setAdvertiserTrackingEnabled(attGranted);
         } catch (error) {
-            console.error("Error setting up Facebook SDK:", error);
+            expoUtilsWarn("Error setting up Facebook SDK:", error);
         }
     },
 
@@ -516,7 +693,9 @@ const Utils = {
                     if (remoteMessage.notification) {
                         const languageCode = safeGetLocales()[0]?.languageCode ?? "en";
                         const messages = getLocalizedMessages(languageCode);
-                        Alert.alert(messages.newMessage, remoteMessage.notification.body);
+                        // Enfileirado: 2 pushes seguidos em foreground não perdem o 2º alert (iOS
+                        // descarta UIAlertController sobreposto).
+                        queueAlert(messages.newMessage, remoteMessage.notification.body);
                     }
                 });
 
@@ -538,26 +717,26 @@ const Utils = {
 
                 const topicName = appConfig?.expo?.slug || "default-topic";
                 subscribeToTopic(messaging, topicName)
-                    .then(() => { expoUtilsWarn("Subscribed to topic:", topicName); logEvent(analytics, "fcm_topic_subscribe", {topic: topicName}); })
+                    .then(() => { expoUtilsLog("Subscribed to topic:", topicName); logEvent(analytics, "fcm_topic_subscribe", {topic: topicName}).catch(() => {}); })
                     .catch(() => expoUtilsWarn("Failed to subscribe to topic:", topicName));
                 const localeInfo = safeGetLocales()[0];
                 const regionCode = localeInfo?.regionCode;
                 if (regionCode) {
                     const countryTopic = `${topicName}-${regionCode.toLowerCase()}`;
                     subscribeToTopic(messaging, countryTopic)
-                        .then(() => { expoUtilsWarn("Subscribed to country topic:", countryTopic); logEvent(analytics, "fcm_topic_subscribe", {topic: countryTopic}); })
+                        .then(() => { expoUtilsLog("Subscribed to country topic:", countryTopic); logEvent(analytics, "fcm_topic_subscribe", {topic: countryTopic}).catch(() => {}); })
                         .catch(() => expoUtilsWarn("Failed to subscribe to country topic:", countryTopic));
                 }
                 const languageCode = localeInfo?.languageCode;
                 if (languageCode) {
                     const langTopic = `${topicName}-lang-${languageCode.toLowerCase()}`;
                     subscribeToTopic(messaging, langTopic)
-                        .then(() => { expoUtilsWarn("Subscribed to language topic:", langTopic); logEvent(analytics, "fcm_topic_subscribe", {topic: langTopic}); })
+                        .then(() => { expoUtilsLog("Subscribed to language topic:", langTopic); logEvent(analytics, "fcm_topic_subscribe", {topic: langTopic}).catch(() => {}); })
                         .catch(() => expoUtilsWarn("Failed to subscribe to language topic:", langTopic));
                 }
             }
         } catch (error) {
-            console.error("Error setting up push notifications:", error);
+            expoUtilsWarn("Error setting up push notifications:", error);
         }
     },
 
@@ -565,10 +744,10 @@ const Utils = {
         try {
             const remoteConfigs = (global as any).remoteConfigUtils as RemoteConfigUtilsType;
             if (!Application.nativeApplicationVersion) return;
-            const version = parseFloat(Application.nativeApplicationVersion);
-            const minVersion = parseFloat((remoteConfigs?.min_version ?? 0).toString());
-
-            if (isNaN(minVersion) || isNaN(version) || version >= minVersion) {
+            // compareVersions, não parseFloat: "1.10" parseava como 1.1 (< "1.9") e "1.2.3"
+            // virava 1.2 — comparação semanticamente errada de versões multi-segmento.
+            const minVersion = String(remoteConfigs?.min_version ?? "").trim();
+            if (!minVersion || compareVersions(Application.nativeApplicationVersion, minVersion) >= 0) {
                 return;
             }
 
@@ -590,7 +769,7 @@ const Utils = {
                             : "https://apps.apple.com/";
                     }
                 }
-                Linking.openURL(url);
+                await Linking.openURL(url);
             };
 
             const present = () => {
@@ -601,7 +780,13 @@ const Utils = {
                         {
                             text: messages.updateNow,
                             onPress: async () => {
-                                await openStore();
+                                // openURL pode rejeitar (sem handler p/ URL) — sem o catch o alert
+                                // sumia e nunca era reapresentado (fura o update obrigatório).
+                                try {
+                                    await openStore();
+                                } catch (e) {
+                                    expoUtilsWarn("checkForRequiredUpdateDialog/openStore:", e);
+                                }
                                 present();
                             },
                         },
@@ -611,7 +796,7 @@ const Utils = {
             };
             present();
         } catch (error) {
-            console.error("Error checking for required update:", error);
+            expoUtilsWarn("Error checking for required update:", error);
         }
     },
 
@@ -648,76 +833,15 @@ const Utils = {
         bootAppConfig = appConfig;
         bootAppStrings = appStrings;
         bootFcmTrackingAllowed = fcmTrackingAllowed;
-        try {
-            LogBox.ignoreAllLogs(true);
-            global.isAdsEnabled = !__DEV__;
-        } catch (e) {
-            expoUtilsWarn("ignoreAllLogs:", e);
+        // Boot 1x por sessão (StrictMode/remount chamam prepare de novo): a 2ª chamada apenas
+        // espera o MESMO boot terminar antes de liberar a UI — sem configurar RevenueCat nem
+        // registrar o customerInfoUpdateListener em dobro. runPrepare nunca rejeita.
+        if (!preparePromise) {
+            attGateArmed = true; // o promo passa a esperar o fluxo do ATT (waitAttFlowDone)
+            preparePromise = runPrepare(appConfig, appStrings);
         }
-
         try {
-            if (__DEV__) {
-                // Dev menu: limpar storage + toggles de Premium e Ads + reload manual.
-                // Premium persiste (@isPremium). Ads flipa global.isAdsEnabled em RUNTIME (não persiste —
-                // volta ao Remote Config no próximo reload). Os toggles só setam; use "Reload" pra reaplicar a UI.
-                registerDevMenuItems([
-                    {name: "Clear Storage And Reload", callback: async () => { await AsyncStorage.clear(); DevSettings.reload(); }},
-                    {name: `Premium → toggle`, callback: async () => {
-                        const isPrem = (await AsyncStorage.getItem("@isPremium")) === "true";
-                        await AsyncStorage.setItem("@isPremium", JSON.stringify(!isPrem));
-                    }},
-                    {name: `Ads → toggle`, callback: async () => {
-                        global.isAdsEnabled = global.isAdsEnabled === false;
-                    }},
-                    {name: "Reload", callback: async () => { DevSettings.reload(); }},
-                ]);
-            }
-        } catch (e) {
-            expoUtilsWarn("registerDevMenuItems:", e);
-        }
-        const rckey = usableRcKey(appStrings?.rckey);
-        const adUnits = appStrings?.adUnits;
-        try {
-            //Setup do remoteconfig (Precisa de internet). Trabalho NÃO-tracking — sempre roda.
-            //HotUpdater: já é disparado no module-scope do RootLayout (initHotUpdater) — não duplicamos aqui.
-            //checkForRequiredUpdateDialog: movido para DEPOIS do ATT (RootLayout) para o Alert não
-            //colidir/suprimir o prompt do ATT (iOS exibe um modal de sistema por vez).
-            const remoteConfigs = await Utils.getRemoteConfigUtils();
-            try { await Utils.setupRevenueCat(rckey); }                                catch (e) { expoUtilsWarn("setupRevenueCat:", e); }
-            try { await Utils.setupGlobalConfigs(appConfig, remoteConfigs, adUnits); } catch (e) { expoUtilsWarn("setupGlobalConfigs:", e); }
-            try { await reportConfigIntegrity(remoteConfigs, appConfig); }             catch (e) { expoUtilsWarn("reportConfigIntegrity:", e); }
-
-            // Opt-in via app.json (["expo-utils", {"disableAdsIfBuildIsNewerThanStore": true}], default
-            // DESATIVADO): gate FAIL-CLOSED de ads por versão da loja. AGUARDADO de propósito — o
-            // veredito precisa chegar ANTES do setAppIsReady(true) (finally), porque banner-ad lê
-            // global.isAdsEnabled UMA vez no mount e os filhos do ExpoUtilsLayout montam assim que
-            // appIsReady vira true. Também precisa rodar DEPOIS do setupGlobalConfigs (que reseta/
-            // sobrescreve os globals que o gate lê/escreve). Não pendura o boot: fetch com timeout
-            // de 5s e runStoreGate nunca rejeita.
-            if (getExpoUtilsDisableAdsIfBuildIsNewerThanStore(appConfig)) {
-                try { await Utils.disableAdsIfBuildIsNewerThanStore(); } catch (e) { expoUtilsWarn("disableAdsIfBuildIsNewerThanStore:", e); }
-            }
-
-            //Trabalho NÃO-tracking que pode rodar sem consentimento (push topics + clarity).
-            (async () => {
-                try { await Utils.setupClarity(remoteConfigs); }                        catch (e) { expoUtilsWarn("setupClarity:", e); }
-                try { await Utils.requestFCMToken(); }                                  catch (e) { expoUtilsWarn("requestFCMToken:", e); }
-                try { await Utils.setupMessagingTopics(appConfig, rckey); }             catch (e) { expoUtilsWarn("setupMessagingTopics:", e); }
-            })();
-
-
-            //Listener se mudou informacao do Usuário.
-            try {
-                if (rckey) {
-                    Purchases.addCustomerInfoUpdateListener(() => {
-                        Utils.updateRCStatusMessagingTopic(appConfig, rckey);
-                    });
-                }
-            } catch (e) { expoUtilsWarn("addCustomerInfoUpdateListener:", e); }
-
-
-        } catch (e) {
-            expoUtilsWarn("Error in prepare:", e);
+            await preparePromise;
         } finally {
             setAppIsReady(true);
         }
@@ -798,6 +922,9 @@ const Utils = {
             }
         }
 
+        // Prompt do ATT resolvido (ou plataforma sem ATT): libera o gate do promo (waitAttFlowDone).
+        settleAttFlow();
+
         // Push (iOS e Android) — não é tracking de IDFA, roda independente do ATT.
         if (fcmTrackingAllowed) {
             try { await Utils.requestPushPermission(); } catch (e) { expoUtilsWarn("requestPushPermission:", e); }
@@ -840,7 +967,15 @@ const Utils = {
         if (!tkads.token || !tkads.appid || !tkads.tkappid) return;
         await TiktokAdsEvents.initializeSdk(tkads.token, tkads.appid, tkads.tkappid, tkads.isdebug);
         if (await TikTokWaitForConfig(10 * 1000)) {
-            if (rckey) await TiktokAdsEvents.identify(await Purchases.getAppUserID());
+            // identify depende do RevenueCat REALMENTE ativo (getAppUserID lança se o configure
+            // falhou) — isolado pra nunca abortar o launch_app/install_app abaixo.
+            if (rckey && (await isRevenueCatActive())) {
+                try {
+                    await TiktokAdsEvents.identify(await Purchases.getAppUserID());
+                } catch (e) {
+                    expoUtilsWarn("initTikTokSDK/identify:", e);
+                }
+            }
             await TiktokAdsEvents.trackTTEvent(TikTokStandardEvents.launch_app);
             if ((await AsyncStorage.getItem("tk_is_first_launch")) != "true") {
                 TiktokAdsEvents.trackTTEvent(TikTokStandardEvents.install_app);
@@ -943,18 +1078,18 @@ const Utils = {
             // Se o topic mudou, desinscreve do anterior e inscreve no novo
             if (previousTopic && previousTopic !== newTopic) {
                 await unsubscribeFromTopic(messaging, previousTopic);
-                logEvent(getAnalytics(getApp()), "fcm_topic_unsubscribe", {topic: previousTopic});
-                console.log("Unsubscribed from topic:", previousTopic);
+                logEvent(getAnalytics(getApp()), "fcm_topic_unsubscribe", {topic: previousTopic}).catch(() => {});
+                expoUtilsLog("Unsubscribed from topic:", previousTopic);
             }
 
             if (previousTopic !== newTopic) {
                 await subscribeToTopic(messaging, newTopic);
                 await AsyncStorage.setItem("FCM_CURRENT_TOPIC", newTopic);
-                logEvent(getAnalytics(getApp()), "fcm_topic_subscribe", {topic: newTopic, status});
-                console.log("Subscribed to topic:", newTopic);
+                logEvent(getAnalytics(getApp()), "fcm_topic_subscribe", {topic: newTopic, status}).catch(() => {});
+                expoUtilsLog("Subscribed to topic:", newTopic);
             }
         } catch (error) {
-            console.log("Failed to update messaging topic:", error);
+            expoUtilsWarn("Failed to update messaging topic:", error);
         }
     },
 
@@ -996,6 +1131,9 @@ const Utils = {
             (global as any).isAdsEnabled = false;
         }
         (global as any).remoteConfigUtils = remoteConfigs;
+        // Alias documentado: CLAUDE.md/apps leem global.remoteConfigs (o PaywallUtils trata
+        // como "legacy" e o store gate já escreve nos dois) — sem o alias ficava undefined.
+        (global as any).remoteConfigs = remoteConfigs;
         try { (global as any).remoteConfigScreens = await Utils.getRemoteConfigScreens(); } catch {}
         if (remoteConfigs?.ad_blocklist) {
             setBlocklist(remoteConfigs.ad_blocklist);
@@ -1057,7 +1195,7 @@ const Utils = {
                 return false;
             }
         } catch (error) {
-            console.error("Error opening review URL:", error);
+            expoUtilsWarn("Error opening review URL:", error);
             return false;
         }
     },

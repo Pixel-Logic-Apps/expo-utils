@@ -1,8 +1,8 @@
 import React, {useEffect, useRef, useState} from "react";
 import {BannerAd, BannerAdSize} from "react-native-google-mobile-ads";
 import Utils, {expoUtilsLog} from "./Utils";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import {generatePlacementId, isPlacementBlocked} from "./AdPlacementTracker";
+import {PremiumUtils} from "./PremiumUtils";
 
 export default function BannerAdComponent({unitId, tag}: {unitId?: string; tag?: string}) {
     const [IS_ADS_ENABLED, setIsAdsEnabled] = useState(global.isAdsEnabled);
@@ -26,12 +26,14 @@ export default function BannerAdComponent({unitId, tag}: {unitId?: string; tag?:
                 return;
             }
 
-            const isPremium = await AsyncStorage.getItem("@isPremium");
+            // Premium unificado (DEV: @isPremium; produção: RevenueCat).
+            const isPremium = await PremiumUtils.getIsPremiumStatus();
             expoUtilsLog("isPremium", isPremium);
-            if (isPremium === "true") {
+            if (isPremium) {
                 setIsAdsEnabled(false);
                 return;
             }
+            // Memoizado no Utils — todos os banners compartilham o fetch do prepare().
             const remoteConfigSettings = await Utils.getRemoteConfigUtils();
             expoUtilsLog("isAdsEnabled", global.isAdsEnabled);
             if (global.isAdsEnabled !== false) {
@@ -39,13 +41,17 @@ export default function BannerAdComponent({unitId, tag}: {unitId?: string; tag?:
             }
             expoUtilsLog("bannerUnitIds", bannerUnitId);
         };
-        didLoaded().then();
+        didLoaded().catch(() => {});
     }, []);
 
     if (isBlocked) {
         expoUtilsLog(`[expo-utils] Banner blocked: ${placementId}`);
         return null;
     }
+
+    // Sem unitId o <BannerAd> lança no render (validação do react-native-google-mobile-ads)
+    // e derruba o app sem error boundary — sem ad é melhor que crash.
+    if (!bannerUnitId) return null;
 
     return (
         IS_ADS_ENABLED && (

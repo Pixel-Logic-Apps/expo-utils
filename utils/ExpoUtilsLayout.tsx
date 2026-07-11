@@ -42,18 +42,26 @@ export function ExpoUtilsLayout({appConfig, appStrings, children, onReady, fcmTr
 
     useEffect(() => {
         (async () => {
-            await initHotUpdater(appStrings.hotUpdaterUrl);
-            await Utils.prepare(setAppIsReady, appConfig, appStrings, fcmTrackingAllowed);
-            if (!onReadyRan.current) {
-                onReadyRan.current = true;
-                try {
-                    await onReady?.();
-                } catch (e) {
-                    expoUtilsWarn("onReady:", e);
+            try {
+                await initHotUpdater(appStrings?.hotUpdaterUrl);
+                await Utils.prepare(setAppIsReady, appConfig, appStrings, fcmTrackingAllowed);
+                if (!onReadyRan.current) {
+                    onReadyRan.current = true;
+                    try {
+                        await onReady?.();
+                    } catch (e) {
+                        expoUtilsWarn("onReady:", e);
+                    }
                 }
+                setupAppOpenListener();
+                showPromoModal();
+            } catch (e) {
+                // Boot NUNCA pode deixar o app preso no splash: qualquer throw aqui (ex.:
+                // appStrings inválido num app JS) libera a UI e vira warn em vez de
+                // rejection silenciosa com appIsReady=false pra sempre.
+                expoUtilsWarn("ExpoUtilsLayout boot:", e);
+                setAppIsReady(true);
             }
-            setupAppOpenListener();
-            showPromoModal();
         })();
         return AskForReviewEvents.onShowPopup(() => setShowReviewOverlay(true));
     }, []);

@@ -2,7 +2,7 @@ import {Stack, usePathname} from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import {useEffect, useState} from "react";
 import {View} from "react-native";
-import Utils, {initHotUpdater} from "expo-utils/utils/Utils";
+import Utils, {initHotUpdater, expoUtilsWarn} from "expo-utils/utils/Utils";
 import {setupAppOpenListener} from "expo-utils/utils/appopen-ads";
 import AskForReviewOverlay, {AskForReviewEvents} from "expo-utils/utils/ask-for-review";
 import PromotionalContent, {usePromotional} from "expo-utils/utils/modal-promotional-content";
@@ -20,10 +20,16 @@ export default function RootLayout() {
 
     useEffect(() => {
         (async () => {
-            await initHotUpdater(appStrings.hotUpdaterUrl);
-            await Utils.prepare(setAppIsReady, appConfig, appStrings);
-            setupAppOpenListener();
-            showPromoModal();
+            try {
+                await initHotUpdater(appStrings.hotUpdaterUrl);
+                await Utils.prepare(setAppIsReady, appConfig, appStrings);
+                setupAppOpenListener();
+                showPromoModal();
+            } catch (e) {
+                // Boot nunca pode deixar o app preso no splash: falhou → libera a UI e avisa.
+                expoUtilsWarn("RootLayout boot:", e);
+                setAppIsReady(true);
+            }
         })();
         return AskForReviewEvents.onShowPopup(() => setShowReviewOverlay(true));
     }, []);

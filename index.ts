@@ -1,5 +1,6 @@
-export {default as Utils, initHotUpdater} from "./utils/Utils";
+export {default as Utils, initHotUpdater, isRevenueCatActive, queueAlert, expoUtilsWarn, expoUtilsLog} from "./utils/Utils";
 export {default} from "./utils/Utils";
+export {PremiumUtils} from "./utils/PremiumUtils";
 export {ExpoUtilsLayout} from "./utils/ExpoUtilsLayout";
 export {ExpoUtilsStyles} from "./utils/styles";
 export type {AppConfig, AppStrings, AdUnits, RemoteConfigUtilsType, FacebookConfig, RevenueCatKeys, PromotionalType, PromotionalConfig, PromotionalShadow} from "./utils/types";

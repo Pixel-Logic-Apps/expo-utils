@@ -7,20 +7,39 @@ import * as Linking from "expo-linking";
 import React, {useEffect, useRef, useState} from "react";
 import {Animated, Dimensions, Image, Modal, PanResponder, Pressable, StyleSheet, Text, View, ViewStyle} from "react-native";
 import {useSafeAreaInsets} from "react-native-safe-area-context";
-import {useVideoPlayer, VideoView} from "expo-video";
+import {expoUtilsWarn, waitAttFlowDone} from "./Utils";
 import type {PromotionalConfig, PromotionalShadow} from "./types";
 export type {PromotionalShadow};
 
+// expo-video é peerDep (instalado pelo CLI), mas o require é LAZY e guardado: app que
+// atualizou a lib sem rodar o CLI (sem expo-video no node_modules) não pode quebrar o
+// bundle inteiro por causa do promo de vídeo — só o vídeo deixa de renderizar.
+let videoModule: typeof import("expo-video") | null | undefined;
+function getVideoModule() {
+    if (videoModule === undefined) {
+        try {
+            videoModule = require("expo-video");
+        } catch {
+            videoModule = null;
+            expoUtilsWarn("expo-video não instalado — promo de vídeo não será exibido.");
+        }
+    }
+    return videoModule;
+}
+
 // PromoVideo precisa ser componente próprio por causa das regras de hooks
-// (useVideoPlayer é chamado incondicionalmente). expo-video é peerDep (instalado pelo CLI).
+// (useVideoPlayer é chamado incondicionalmente). O early-return de módulo ausente é estável
+// pela sessão inteira (require nunca passa a existir depois), então não viola as regras.
 function PromoVideo({uri}: {uri: string}) {
-    const player = useVideoPlayer(uri, (p) => {
+    const video = getVideoModule();
+    if (!video) return null;
+    const player = video.useVideoPlayer(uri, (p) => {
         p.loop = true;
         p.muted = false;
         p.play();
     });
     return (
-        <VideoView
+        <video.VideoView
             style={StyleSheet.absoluteFill}
             player={player}
             contentFit="cover"
@@ -141,7 +160,10 @@ type Props = {
     t?: (key: string) => string;
 };
 
-const processText = (text: string, t?: (key: string) => string): string => {
+const processText = (text: string | undefined, t?: (key: string) => string): string => {
+    // Config remota pode vir sem name/description — sem o guard, undefined.replace
+    // crashava o render do promo quando o app passava `t`.
+    if (!text) return "";
     if (!t) return text;
     return text.replace(/%\{(\w+)\}/g, (_, key) => t(key) || key);
 };
@@ -265,12 +287,20 @@ function BottomSheetContent({visible, onClose, colors: colorsProp, t, config}: P
     };
 
     const handleBaixar = async () => {
-        if (config.storeUrl) await Linking.openURL(config.storeUrl);
+        // openURL rejeita com URL inválida/scheme sem handler — sem o catch o modal ficava
+        // preso aberto (handleClose nunca rodava) e a rejeição ficava unhandled.
+        try {
+            if (config.storeUrl) await Linking.openURL(config.storeUrl);
+        } catch (e) {
+            expoUtilsWarn("PromotionalContent/openURL:", e);
+        }
         handleClose();
     };
 
     const handleNaoMostrar = async () => {
-        await AsyncStorage.setItem(STORAGE_KEY_NAO_MOSTRAR, "true");
+        try {
+            await AsyncStorage.setItem(STORAGE_KEY_NAO_MOSTRAR, "true");
+        } catch {}
         handleClose();
     };
 
@@ -458,12 +488,20 @@ function CardBannerBottomContent({visible, onClose, colors: colorsProp, t, confi
     };
 
     const handleBaixar = async () => {
-        if (config.storeUrl) await Linking.openURL(config.storeUrl);
+        // openURL rejeita com URL inválida/scheme sem handler — sem o catch o modal ficava
+        // preso aberto (handleClose nunca rodava) e a rejeição ficava unhandled.
+        try {
+            if (config.storeUrl) await Linking.openURL(config.storeUrl);
+        } catch (e) {
+            expoUtilsWarn("PromotionalContent/openURL:", e);
+        }
         handleClose();
     };
 
     const handleNaoMostrar = async () => {
-        await AsyncStorage.setItem(STORAGE_KEY_NAO_MOSTRAR, "true");
+        try {
+            await AsyncStorage.setItem(STORAGE_KEY_NAO_MOSTRAR, "true");
+        } catch {}
         handleClose();
     };
 
@@ -612,12 +650,18 @@ function FullscreenContent({visible, onClose, colors: colorsProp, t, config}: Pr
     }, [visible]);
 
     const handleBaixar = async () => {
-        if (config.storeUrl) await Linking.openURL(config.storeUrl);
+        try {
+            if (config.storeUrl) await Linking.openURL(config.storeUrl);
+        } catch (e) {
+            expoUtilsWarn("PromotionalContent/openURL:", e);
+        }
         onClose();
     };
 
     const handleNaoMostrar = async () => {
-        await AsyncStorage.setItem(STORAGE_KEY_NAO_MOSTRAR, "true");
+        try {
+            await AsyncStorage.setItem(STORAGE_KEY_NAO_MOSTRAR, "true");
+        } catch {}
         onClose();
     };
 
@@ -799,12 +843,20 @@ function NotificationCardContent({visible, onClose, colors: colorsProp, t, confi
     };
 
     const handleBaixar = async () => {
-        if (config.storeUrl) await Linking.openURL(config.storeUrl);
+        // openURL rejeita com URL inválida/scheme sem handler — sem o catch o modal ficava
+        // preso aberto (handleClose nunca rodava) e a rejeição ficava unhandled.
+        try {
+            if (config.storeUrl) await Linking.openURL(config.storeUrl);
+        } catch (e) {
+            expoUtilsWarn("PromotionalContent/openURL:", e);
+        }
         handleClose();
     };
 
     const handleNaoMostrar = async () => {
-        await AsyncStorage.setItem(STORAGE_KEY_NAO_MOSTRAR, "true");
+        try {
+            await AsyncStorage.setItem(STORAGE_KEY_NAO_MOSTRAR, "true");
+        } catch {}
         handleClose();
     };
 
@@ -905,21 +957,29 @@ export function PromotionalBanner({colors: colorsProp, t, style, size = "small",
     const config = getConfig();
 
     useEffect(() => {
-        AsyncStorage.getItem(STORAGE_KEY_NAO_MOSTRAR).then((val) => {
-            if (val === "true") setHidden(true);
-        });
+        AsyncStorage.getItem(STORAGE_KEY_NAO_MOSTRAR)
+            .then((val) => {
+                if (val === "true") setHidden(true);
+            })
+            .catch(() => {});
     }, []);
 
     if (!config?.enabled || config.type !== "banner" || dismissed || hidden) return null;
 
     const handlePress = async () => {
-        if (config.storeUrl) await Linking.openURL(config.storeUrl);
+        try {
+            if (config.storeUrl) await Linking.openURL(config.storeUrl);
+        } catch (e) {
+            expoUtilsWarn("PromotionalBanner/openURL:", e);
+        }
     };
 
     const handleDismiss = async () => {
-        if (config.showDontShowAgain) {
-            await AsyncStorage.setItem(STORAGE_KEY_NAO_MOSTRAR, "true");
-        }
+        try {
+            if (config.showDontShowAgain) {
+                await AsyncStorage.setItem(STORAGE_KEY_NAO_MOSTRAR, "true");
+            }
+        } catch {}
         setDismissed(true);
     };
 
@@ -1041,35 +1101,55 @@ export const ModalPromotionalContent = PromotionalContent;
 export const usePromotional = (currentScreen?: string) => {
     const [visible, setVisible] = React.useState(false);
     const timerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+    const mountedRef = React.useRef(true);
+
+    React.useEffect(() => {
+        mountedRef.current = true; // StrictMode re-executa o effect: rearma após o cleanup
+        return () => {
+            mountedRef.current = false;
+            if (timerRef.current) clearTimeout(timerRef.current);
+        };
+    }, []);
 
     const show = async () => {
-        const config = getConfig();
-        if (!config?.enabled) return;
-        if (config.type === "banner") return;
+        try {
+            const config = getConfig();
+            if (!config?.enabled) return;
+            if (config.type === "banner") return;
 
-        // targetScreens check
-        if (config.targetScreens?.length && currentScreen && !config.targetScreens.includes(currentScreen)) return;
+            // targetScreens check
+            if (config.targetScreens?.length && currentScreen && !config.targetScreens.includes(currentScreen)) return;
 
-        // "Não mostrar novamente" check
-        const naoMostrar = await AsyncStorage.getItem(STORAGE_KEY_NAO_MOSTRAR);
-        if (naoMostrar === "true") return;
+            // Promo × ATT: espera o prompt do ATT resolver (ou 15s de fallback) — a Modal do
+            // RN não disputa a janela do prompt do sistema. No-op fora do boot da lib.
+            await waitAttFlowDone();
 
-        // Increment visit count (always, even if we don't show)
-        const countStr = await AsyncStorage.getItem(STORAGE_KEY_VISIT_COUNT);
-        const visit = (countStr ? parseInt(countStr, 10) : 0) + 1;
-        await AsyncStorage.setItem(STORAGE_KEY_VISIT_COUNT, String(visit));
+            // "Não mostrar novamente" check
+            const naoMostrar = await AsyncStorage.getItem(STORAGE_KEY_NAO_MOSTRAR);
+            if (naoMostrar === "true") return;
 
-        // nthImpression check (CSS nth-child syntax: "2n", "1+2n", "3", etc.)
-        if (config.nthImpression) {
-            const {a, b} = parseNthExpression(config.nthImpression);
-            if (!matchesNth(visit, a, b)) return;
+            // Increment visit count (always, even if we don't show)
+            const countStr = await AsyncStorage.getItem(STORAGE_KEY_VISIT_COUNT);
+            const visit = (countStr ? parseInt(countStr, 10) : 0) + 1;
+            await AsyncStorage.setItem(STORAGE_KEY_VISIT_COUNT, String(visit));
+
+            // nthImpression check (CSS nth-child syntax: "2n", "1+2n", "3", etc.)
+            if (config.nthImpression) {
+                const {a, b} = parseNthExpression(config.nthImpression);
+                if (!matchesNth(visit, a, b)) return;
+            }
+
+            // show() é async: se o hook desmontou durante os awaits, o cleanup já rodou — sem
+            // este guard um timer órfão dispararia setVisible(true) pós-unmount.
+            if (!mountedRef.current) return;
+            if (timerRef.current) clearTimeout(timerRef.current);
+            const delay = config.delayMs ?? 5000;
+            timerRef.current = setTimeout(() => {
+                if (mountedRef.current) setVisible(true);
+            }, delay);
+        } catch (e) {
+            expoUtilsWarn("usePromotional/show:", e);
         }
-
-        if (timerRef.current) clearTimeout(timerRef.current);
-        const delay = config.delayMs ?? 5000;
-        timerRef.current = setTimeout(() => {
-            setVisible(true);
-        }, delay);
     };
 
     const hide = () => {

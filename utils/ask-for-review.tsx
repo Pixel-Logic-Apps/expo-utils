@@ -15,6 +15,7 @@ import {
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as StoreReview from "expo-store-review";
 import {getLocales} from "expo-localization";
+import {expoUtilsLog} from "./Utils";
 
 // Sistema de eventos para mostrar o popup de review
 export class AskForReviewEvents {
@@ -76,7 +77,7 @@ export async function askForReview(texts?: AskForReviewTexts, image?: any, showD
         }
 
         const reviewType = global.remoteConfigUtils?.review_type || "store-review";
-        console.log("reviewType", reviewType);
+        expoUtilsLog("reviewType", reviewType);
         if (reviewType === "store-review") {
             await StoreReview.requestReview();
         } else if (reviewType === "popup") {
@@ -327,9 +328,15 @@ const TRANSLATIONS: Record<string, {title: string; message: string; rateNow: str
 };
 
 const getDefaultTranslations = () => {
-    const locales = getLocales();
-    const locale = locales[0]?.languageCode || "en";
-    return TRANSLATIONS[locale] || TRANSLATIONS.en;
+    // Chamado no RENDER do overlay — getLocales() lançando (módulo nativo indisponível)
+    // não pode derrubar o app; cai pro inglês (mesmo padrão do safeGetLocales/promo).
+    try {
+        const locales = getLocales();
+        const locale = locales[0]?.languageCode || "en";
+        return TRANSLATIONS[locale] || TRANSLATIONS.en;
+    } catch {
+        return TRANSLATIONS.en;
+    }
 }
 
 // Default colors for when colors prop is not provided

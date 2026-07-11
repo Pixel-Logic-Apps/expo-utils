@@ -85,19 +85,22 @@ Central initialization module with a `prepare()` function that:
 **Global Variables Set by prepare()**:
 
 ```typescript
-global.remoteConfigs; // Firebase Remote Config values
-global.isAdsEnabled; // Master ad toggle
-global.adUnits; // AdMob unit IDs per platform
+global.remoteConfigUtils; // Firebase Remote Config values (fonte)
+global.remoteConfigs;     // alias do MESMO objeto (nome legado; setupGlobalConfigs seta os dois)
+global.isAdsEnabled;      // Master ad toggle
+global.adUnits;           // AdMob unit IDs per platform
 ```
+
+`prepare()` roda **uma vez por sessão** (memoizado em `preparePromise`): chamadas repetidas (StrictMode/remount) só aguardam o mesmo boot e re-liberam a UI — não reconfiguram RevenueCat nem re-registram o `customerInfoUpdateListener`.
 
 #### 3. Ad System (`utils/LoadAdsManager.ts`, `utils/banner-ad.tsx`)
 
 Handles Google Mobile Ads with automatic premium user detection:
 
-- Checks `@isPremium` in AsyncStorage - if true, skips ads
-- Respects `global.isAdsEnabled` and `global.remoteConfigs.is_ads_enabled`
-- Provides `showInterstitial()` and `showRewarded()` methods
-- `BannerAdComponent` supports customizable styling via `useFooterStyle` prop
+- Premium check unificado via `PremiumUtils.getIsPremiumStatus()` (DEV: `@isPremium`; produção: RevenueCat — ver "Premium User Detection")
+- Respects `global.isAdsEnabled` and `global.remoteConfigUtils.is_ads_enabled`
+- Provides `showInterstitial()` and `showRewarded()` methods — **contrato: nunca penduram nem lançam** (resolve `true` = fluxo segue [fechou ad/premium/ads off/bloqueado/sem unitId], `false` = erro de ad). O executor antigo (`new Promise(async ...)`) engolia exceções (ex.: `createForAdRequest(undefined)`) e o `await` do app travava pra sempre.
+- `BannerAdComponent` supports customizable styling via `useFooterStyle` prop; banners retornam `null` sem `unitId` (o `<BannerAd>` lança no render se receber undefined)
 
 #### 4. Internationalization (`utils/i18n.ts`)
 
@@ -189,6 +192,7 @@ Templates in `/templates` can use placeholders:
 
 - Firebase is **optional** - all Firebase code has null checks
 - The package uses Firebase v24+/v25 modular API (getRemoteConfig, getAnalytics, etc.). Remote Config dual-path supports RNFB v24 modular helpers and v25 instance `settings`/`defaultConfig`.
+- `Utils.getRemoteConfigUtils()` é **memoizado** (1 fetch por sessão — prepare e todos os banners compartilham a mesma promise; antes cada banner refazia `fetchAndActivate` e arriscava throttle) e tem teto de **10s** (era 60s) pra nunca segurar o splash em RC nativo pendurado.
 - Placeholder files work for development but must be replaced with real configs for production
 
 #### APNS / FCM gate (`Utils.ensureApnsReady`)
@@ -199,12 +203,14 @@ iOS push only works once the **APNS token** arrives (a native async callback). A
 
 ### Premium User Detection
 
-Premium status is checked in two ways:
+**Unificado (2026-07-11)** — fonte única: `PremiumUtils.getIsPremiumStatus()` (exportado no index). Regra:
 
-1. AsyncStorage key `@isPremium` (set by user project)
-2. Firebase Remote Config `is_ads_enabled` flag
+- **`__DEV__`**: lê o toggle local `@isPremium` (AsyncStorage, flipável no dev menu).
+- **Produção**: consulta **SEMPRE o RevenueCat** (o storage NÃO é lido em produção; cache offline é o do próprio SDK do RC). Premium = entitlement ativo **e** `willRenew` **e** sem `unsubscribeDetectedAt` (com o override `is_opted_out_trial_enabled` do Remote Config → basta assinatura ativa). RC indisponível → não-premium.
 
-Both LoadAdsManager and BannerAdComponent respect these checks.
+Todos os pontos de ad delegam pra essa função: app-open (`appopen-ads.tsx`), interstitial/rewarded (`LoadAdsManager`), banners (`banner-ad`/`safe-banner-ad`) e `PaywallUtils.getIsPremium` (sem `entitlementIds`; com `entitlementIds` mantém o check específico, também sem fallback de storage em produção). `@isPremium` continua sendo **escrito** nas compras (`setPremiumStatus`) — só a leitura em produção mudou. O gate de "RC funciona de verdade" é `isRevenueCatActive()` (Utils): exige `isConfigured()` **e** um `getCustomerInfo()` real bem-sucedido — `isConfigured()` sozinho retorna true até com key inválida (401 silencioso). Memoiza sucesso; falha permite retry na próxima chamada.
+
+O Remote Config `is_ads_enabled` continua sendo um kill-switch separado respeitado por todos os formatos.
 
 ### iOS App Store Review Detection
 
@@ -227,9 +233,12 @@ Hard-won lessons from debugging consumer apps — they affect anyone integrating
 - **`banner-ad.tsx` snapshots `global.isAdsEnabled` once, on mount**, and never reacts to later changes. Interstitial/app-open ads re-check per load/show (`LoadAdsManager.ts`), banners don't — anything that disables ads at runtime must land before banners mount.
 - **`initHotUpdater` is a no-op in `__DEV__`**: dev bundles come from Metro, but a previously downloaded OTA bundle (`Documents/bundle-store/...`) loads on cold launch instead of the embedded bundle — and its `isolation_key` (`hotupdater_<version>_<channel>_`) doesn't change when you rebuild the SAME version, so a stale OTA silently "eats" freshly rebuilt code ("my fix didn't work"). Deleting the bundle only helps until the next download; re-deploy the OTA or bump the version.
 - **`JSON.stringify(error)` of an `Error` is always `"{}"`** (non-enumerable props) — use `String(error)` in debug catches.
-- **React StrictMode (dev) runs mount effects twice** — boot callbacks fire twice in dev unless guarded (module-level `bootDone` pattern in `Utils.handleReady`; ref guard for `onReady` in `ExpoUtilsLayout`).
-- **iOS drops overlapping `alert()`s silently** (RN doesn't queue `UIAlertController`) — two back-to-back alerts show only the first, which reads as "code stopped in the middle". One alert per event, or chain via button callback.
+- **React StrictMode (dev) runs mount effects twice** — boot callbacks fire twice in dev unless guarded (module-level `bootDone` pattern in `Utils.handleReady`; ref guard for `onReady` in `ExpoUtilsLayout`; `preparePromise` no `prepare()`; `listenerRegistered` no `setupAppOpenListener`).
+- **iOS drops overlapping `alert()`s silently** (RN doesn't queue `UIAlertController`) — two back-to-back alerts show only the first, which reads as "code stopped in the middle". Use o `queueAlert(title, message)` do Utils (serializa; o push em foreground já usa) ou encadeie via callback do botão.
 - **Expo dev lazy bundling**: grepping Metro's `entry.bundle` for app code is a false negative — app modules aren't in the initial bundle.
+- **`expoUtilsWarn` emite telemetria**: além do `console.warn` (suprimível com `disableWarnings`), cada mensagem única vira 1 evento `expo_utils_warn` no Firebase Analytics (param `message`, 100 chars; dedup por sessão, cap 50; roda MESMO com `disableWarnings` — é a visibilidade de produção). Best-effort: nunca lança nem recursa.
+- **Promo × ATT**: `usePromotional.show()` espera `waitAttFlowDone()` (resolvido pelo `requestTrackingWhenActive` após o prompt do ATT, com fallback de 15s) antes de agendar o modal — a `Modal` do RN não disputa a janela do prompt do sistema. O gate só arma quando `prepare()` roda; `usePromotional` standalone não espera nada.
+- **Todo o hardening de runtime de 2026-07-11** (21 itens: guards de RevenueCat não-configurado, ads que nunca penduram, banners sem crash de unitId, etc.) está documentado com tabela completa em `docs/auditoria-runtime-2026-07-11.md`.
 
 ## Testing Strategy
 

@@ -106,6 +106,9 @@ declare global {
     // eslint-disable-next-line no-var
     var global: typeof globalThis;
     var remoteConfigUtils: RemoteConfigUtilsType;
+    // Alias de remoteConfigUtils (mesmo objeto), setado pelo setupGlobalConfigs — nome
+    // documentado no CLAUDE.md; o store gate e apps legados leem/escrevem por ele.
+    var remoteConfigs: RemoteConfigUtilsType;
     var remoteConfigScreens: any;
     var isAdsEnabled: boolean;
     // Setada (true) pelo gate fail-closed de versão da loja (Utils.disableAdsIfBuildIsNewerThanStore)

@@ -2,6 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import {useCallback, useEffect, useMemo, useRef, useState} from "react";
 import Purchases from "react-native-purchases";
 import {expoUtilsWarn, usableRcKey} from "./Utils";
+import {PremiumUtils} from "./PremiumUtils";
 
 type PurchasesModule = any;
 
@@ -333,8 +334,13 @@ export class PaywallUtils {
         return popular?.id || items[0]?.id || "";
     }
 
-    static async ensureRevenueCat(apiKey?: string) {
-        if (purchasesReady) return;
+    /**
+     * Garante o RevenueCat configurado. Retorna false quando NÃO há como configurar (sem key
+     * utilizável) — o chamador deve seguir SEM RevenueCat em vez de deixar getOfferings/
+     * getCustomerInfo estourarem "There is no singleton instance".
+     */
+    static async ensureRevenueCat(apiKey?: string): Promise<boolean> {
+        if (purchasesReady) return true;
 
         const Purchases = getPurchases();
         const isConfigured = typeof Purchases.isConfigured === "function" ? await Purchases.isConfigured() : false;
@@ -346,12 +352,13 @@ export class PaywallUtils {
             const key = usableRcKey(apiKey);
             if (!key) {
                 expoUtilsWarn("ensureRevenueCat: sem apiKey utilizável (vazia ou placeholder do template) — RevenueCat não configurado, paywall sem produtos.");
-                return;
+                return false;
             }
             Purchases.configure({apiKey: key});
         }
 
         purchasesReady = true;
+        return true;
     }
 
     static getOfferingPackages(offerings: any) {
@@ -382,7 +389,17 @@ export class PaywallUtils {
         const Purchases = getPurchases();
         const t = options.t;
 
-        await PaywallUtils.ensureRevenueCat(options.revenueCatApiKey);
+        // Mesma classe do bug do app-open: sem RC configurado, getOfferings()/getProducts()
+        // estouram "There is no singleton instance" — devolvemos resultado vazio em vez de crashar.
+        if (!(await PaywallUtils.ensureRevenueCat(options.revenueCatApiKey))) {
+            return {
+                config,
+                items: [],
+                selectedProductId: "",
+                selectedItem: null,
+                closeDelay: PaywallUtils.getCloseDelay(config, options.defaultCloseDelay ?? 5000),
+            };
+        }
 
         let items: PaywallItem[] = [];
 
@@ -431,7 +448,9 @@ export class PaywallUtils {
                 return {ok: true, cancelled: false, premiumGranted: true, simulated: true};
             }
 
-            await PaywallUtils.ensureRevenueCat(options.revenueCatApiKey);
+            if (!(await PaywallUtils.ensureRevenueCat(options.revenueCatApiKey))) {
+                return {ok: false, cancelled: false, premiumGranted: false, error: new Error("RevenueCat não configurado (sem API key utilizável)")};
+            }
             const Purchases = getPurchases();
             const rawResult = item.package
                 ? await Purchases.purchasePackage(item.package)
@@ -453,7 +472,9 @@ export class PaywallUtils {
 
     static async restore(options: PaywallOptions = {}): Promise<PaywallPurchaseResult> {
         try {
-            await PaywallUtils.ensureRevenueCat(options.revenueCatApiKey);
+            if (!(await PaywallUtils.ensureRevenueCat(options.revenueCatApiKey))) {
+                return {ok: false, cancelled: false, premiumGranted: false, error: new Error("RevenueCat não configurado (sem API key utilizável)")};
+            }
             const Purchases = getPurchases();
             const customerInfo = await Purchases.restorePurchases();
             const premiumGranted = PaywallUtils.hasPremiumAccess(customerInfo, options.entitlementIds);
@@ -469,13 +490,22 @@ export class PaywallUtils {
     }
 
     static async getIsPremium(options: PaywallOptions = {}) {
-        try {
-            await PaywallUtils.ensureRevenueCat(options.revenueCatApiKey);
-            const customerInfo = await getPurchases().getCustomerInfo();
-            return PaywallUtils.hasPremiumAccess(customerInfo, options.entitlementIds);
-        } catch {
+        // Premium unificado (2026-07-11): DEV lê o toggle local; PRODUÇÃO consulta SEMPRE o
+        // RevenueCat, sem fallback de storage. entitlementIds explícitos mantêm o check
+        // específico; sem eles, delega pra fonte única (PremiumUtils.getIsPremiumStatus).
+        if (isDevRuntime()) {
             return AsyncStorage.getItem(options.storageKey || "@isPremium").then((value) => value === "true");
         }
+        if (options.entitlementIds?.length) {
+            try {
+                if (!(await PaywallUtils.ensureRevenueCat(options.revenueCatApiKey))) return false;
+                const customerInfo = await getPurchases().getCustomerInfo();
+                return PaywallUtils.hasPremiumAccess(customerInfo, options.entitlementIds);
+            } catch {
+                return false;
+            }
+        }
+        return PremiumUtils.getIsPremiumStatus();
     }
 
     static getButtonText(config: PaywallConfig = {}, t?: PaywallTranslator, item?: PaywallItem | null) {
@@ -604,7 +634,9 @@ export function usePaywall(options: UsePaywallOptions = {}): UsePaywallResult {
 
     useEffect(() => {
         if (options.autoLoad === false) return;
-        void reload();
+        // reload() re-lança pro chamador manual tratar; aqui o estado `error` já capturou —
+        // sem este catch, toda falha de load virava unhandled rejection no mount do paywall.
+        reload().catch(() => {});
     }, [reload, options.autoLoad, options.reloadKey]);
 
     useEffect(() => {

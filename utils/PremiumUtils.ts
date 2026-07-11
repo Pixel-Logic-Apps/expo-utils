@@ -1,8 +1,14 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Purchases from "react-native-purchases";
+import {expoUtilsWarn, isRevenueCatActive} from "./Utils";
 
 /**
- * Classe utilitária para gerenciar funcionalidades relacionadas ao status premium
+ * Classe utilitária para gerenciar funcionalidades relacionadas ao status premium.
+ *
+ * FONTE ÚNICA de "é premium?" da lib (app-open, interstitial/rewarded, banners e paywall
+ * delegam pra cá): em __DEV__ lê o toggle local @isPremium; em PRODUÇÃO consulta SEMPRE o
+ * RevenueCat (decisão 2026-07-11 — o storage não é mais lido em produção; o cache offline
+ * fica por conta do próprio SDK do RevenueCat).
  */
 export class PremiumUtils {
     /**
@@ -24,9 +30,15 @@ export class PremiumUtils {
      */
     static async getIsPremiumStatus(): Promise<boolean> {
         try {
+            // DEV: @isPremium é apenas o toggle de desenvolvimento (dev menu).
             if (__DEV__) {
                 return (await AsyncStorage.getItem("@isPremium")) === "true";
             }
+
+            // PRODUÇÃO: RevenueCat é a fonte única. isRevenueCatActive() exige configure feito
+            // + chamada real funcionando (isConfigured() sozinho mente com key inválida).
+            // RC indisponível → trata como não-premium.
+            if (!(await isRevenueCatActive())) return false;
 
             const customerInfo = await Purchases.getCustomerInfo();
 
@@ -54,7 +66,7 @@ export class PremiumUtils {
 
             return false;
         } catch (error) {
-            console.error("Erro ao verificar status premium:", error);
+            expoUtilsWarn("Erro ao verificar status premium:", error);
             return false;
         }
     }
