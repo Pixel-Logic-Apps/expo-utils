@@ -1,6 +1,6 @@
 {
   "name": "expo-utils",
-  "version": "1.2.4",
+  "version": "1.2.5",
   "description": "CLI tool and utility library that automates 90% of the initial setup for Expo/React Native projects",
   "keywords": [
     "expo",
@@ -43,7 +43,6 @@
   "peerDependencies": {
     "@hot-updater/expo": ">=0.35.3",
     "@hot-updater/react-native": ">=0.35.3",
-    "hot-updater": ">=0.35.3",
     "@microsoft/react-native-clarity": ">=4.6.3",
     "@react-native-async-storage/async-storage": ">=2.2.0",
     "@react-native-community/slider": ">=5.2.0",
@@ -57,11 +56,11 @@
     "eas-build-cache-provider": ">=20.0.0",
     "expo": ">=57.0.4",
     "expo-application": ">=57.0.0",
-    "expo-device": ">=57.0.0",
-    "expo-dev-client": ">=57.0.5",
     "expo-blur": ">=57.0.0",
     "expo-build-properties": ">=57.0.3",
     "expo-constants": ">=57.0.3",
+    "expo-dev-client": ">=57.0.5",
+    "expo-device": ">=57.0.0",
     "expo-file-system": ">=57.0.0",
     "expo-insights": ">=57.0.2",
     "expo-linear-gradient": ">=57.0.0",
@@ -79,6 +78,7 @@
     "expo-tiktok-ads-events": ">=0.1.6",
     "expo-tracking-transparency": ">=57.0.0",
     "expo-video": ">=57.0.0",
+    "hot-updater": ">=0.35.3",
     "react": ">=19.2.3",
     "react-native": ">=0.86.0",
     "react-native-edge-to-edge": ">=1.8.1",
