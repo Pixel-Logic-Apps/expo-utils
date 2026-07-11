@@ -64,3 +64,268 @@ peça explicitamente para alterar o pacote.
 - O objetivo e **verificar consistencia**, nao proteger segredos.
 - Se o usuario solicitar SHA-256 ou outro hash, ajustar a implementacao
   (ainda sem libs externas).
+
+
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Project Overview
+
+`expo-utils` is a CLI tool and utility library that automates 90% of the initial setup for Expo/React Native projects. It provides:
+
+- Automated dependency installation via a custom CLI (`expo-utils-install`)
+- Pre-built utilities for ads (AdMob), Firebase integration, internationalization, and analytics
+- Template scaffolding for common Expo patterns
+- Configuration management for complex integrations (Firebase, RevenueCat, Facebook SDK, etc.)
+
+This is a **library package** that gets installed into user projects, not a standalone application.
+
+## Package Manager Support
+
+The CLI auto-detects the package manager via `detectPackageManager()` in `bin/install.js`. Detection priority:
+
+1. **Lockfile** (most reliable): yarn.lock → pnpm-lock.yaml → package-lock.json → bun.lockb/bun.lock
+2. **User agent** (`npm_config_user_agent`): yarn → pnpm → bun → npm
+3. **Default**: **bun**
+
+The detected PM controls both the install command (`bun add`, `yarn add`, etc.) and the exec runner (`bunx`, `npx -y`, etc.) used for `expo install`.
+
+## Development Commands
+
+### Building/Testing
+
+- This project has **no build step** - it's distributed as plain TypeScript/JavaScript
+- TypeScript is only used for type checking in development
+- To test locally: `npm pack` then `bun add ./expo-utils-X.X.X.tgz` in a test project (avoids symlink issues)
+
+### Running the CLI
+
+- Test CLI installation: `node bin/install.js` (from within a test project that has expo-utils installed)
+- CLI flags:
+    - `--new`: Full setup for new projects (runs all scaffolding with confirmation prompts). During the app-reset step (behind the `Y/n` prompt) it cleans `assets/images/` down to an **allowlist** — keeps only `icon.png`, `splash-icon.png`, `android-icon-background.png`, `android-icon-foreground.png`, `android-icon-monochrome.png`; removes **everything else** — every other loose file (`react-logo*`, `favicon`, `partial-react-logo`, `expo-badge*`, `expo-logo`, …) **and subfolders** (e.g. the template's `tabIcons/` with the example `explore`/`home` icons), recursively. Since `--new` targets new projects, any subfolder there is template junk, not your asset. It also deletes the broken `assets/expo.icon/` Icon Composer folder (pairs with `--expo-icon`, which strips the matching `ios.icon` from app.json).
+    - `--config`: Add standard plugins to app.json, including the default `expo-splash-screen` config. Also sets `ios.supportsTablet: true` (iPad support) and the Android `AD_ID` permission.
+    - `--layout`: Replace root \_layout.tsx with template
+    - `--srcapp`: Move app/ to src/app/
+    - `--languages`: Setup i18n with pt/en/es translations. Also writes localized iOS purpose strings (`NSUserTracking`/`NSPhotoLibrary`/`NSPhotoLibraryAdd`/`NSCamera` usage descriptions) into each `languages/<locale>.json` for `expo.locales` → `InfoPlist.strings`, **merging** into existing files (adds only missing keys, preserves your translations). The Info.plist base keys themselves are injected by the config plugin (see Configuration System).
+    - `--firebase-placeholders`: Create placeholder Firebase config files
+    - `--skadnetwork`: Remove SKAdNetworkItems from app.json (the IDs are now injected into Info.plist by the expo-utils config plugin at prebuild — see `app.plugin.js`). Keeps any custom IDs not in the plugin list.
+    - `--constants`: Create constants folder with Strings.ts template
+    - `--eas-config`: Setup EAS Build, build cache, remove updates block. Does **not** inject an `extra.eas.projectId` — that ID is per-project on EAS, so a shared/fixed value would point a brand-new app at another app's EAS project (cross-app build/update contamination). If it finds the OLD shared placeholder (`df0dc510-fafe-4076-9ea7-6926d54cb2ab`, injected by earlier expo-utils versions) it removes it; any other `projectId` already present (a real one from a prior `eas init`) is left untouched. Run `eas init` (or the first `eas build`) to link the app to a real EAS project — that populates `extra.eas.projectId` and `extra.owner` correctly.
+    - `--tracking-permission`: Add iOS tracking transparency permission
+    - `--fix-ios-build`: Apply iOS build fixes (expo-build-properties, static frameworks). Also dedupes string arrays in `infoPlist` (e.g. `UIBackgroundModes`), preserving order — object arrays like `SKAdNetworkItems` are left to `--skadnetwork`.
+    - `--expo-icon`: Removes a broken `ios.icon` — one pointing at a path that doesn't exist on disk (e.g. a deleted `./assets/expo.icon`), which makes `actool` fail at prebuild with `attempt to insert nil object from objects[0]`. The iOS then falls back to the valid root `icon`. Removed **only** when a valid root `icon` exists; otherwise it just warns (never leaves the app icon-less). Runs automatically in `--new` — and **again right after the app-reset step**, because `handleAppReset()` is what deletes `assets/expo.icon`, so the first (pre-reset) pass can't yet see the now-orphaned `ios.icon` (the directory still existed). The post-reset pass strips it.
+    - `--gitignore`: Update .gitignore with ios/, android/, etc.
+    - `--hot-updater`: Setup Hot Updater (babel.config.js, .env files, dependencies)
+    - `--sort-plugins`: Reorder app.json `plugins` so string plugins come first, then array (`[name, config]`) plugins (stable within each group). Also runs automatically at the end of `--config` and `--new`.
+    - `--pin-deps`: Pin every project dependency in `package.json` to an **exact** version so installs are identical across machines. Strips range operators (`^`, `~`, `>=`, `>`, `<=`, `<`, `=`) from `dependencies`/`devDependencies`/`optionalDependencies` and, whenever the package is installed, rewrites the spec to the version actually resolved in `node_modules` (otherwise falls back to the range's floor). Non-registry specs are **preserved untouched** — git/GitHub (incl. shorthand `owner/repo`), `file:`/`link:`/`workspace:`/`npm:` and tarball/URL/path specs (anything containing `:` or `/`), so e.g. `expo-utils` installed via a GitHub link is never overwritten. Composite ranges (`>=1 <2`) on not-installed packages are left as-is. Runs automatically near the end of `--new` (after all handlers that modify `package.json`).
+
+## Architecture
+
+### Core Components
+
+#### 1. CLI System (`bin/install.js`)
+
+The CLI is a Node.js script that scaffolds Expo projects. It:
+
+- Detects and installs missing peer dependencies (using expo install when possible)
+- Modifies `app.json` to add plugins and configurations
+- Creates template files from `templates/` directory
+- Handles project structure transformations (moving app/ to src/app/, etc.)
+
+**Key Pattern**: Each CLI flag has a dedicated `handle*Flag()` function. The `--new` flag orchestrates multiple operations with user confirmation for destructive changes.
+
+#### 2. Utils Module (`utils/Utils.ts`)
+
+Central initialization module with a `prepare()` function that:
+
+- Loads Firebase Remote Config settings
+- Configures RevenueCat (in-app purchases)
+- Initializes Firebase (Analytics, Crashlytics, Push Notifications)
+- Sets up Facebook SDK with App Events
+- Configures Microsoft Clarity analytics
+- Requests iOS tracking permissions
+- Checks for required app updates
+- Subscribes to Firebase topic based on app slug
+
+**Important**: Uses dynamic imports with fallbacks for optional dependencies to avoid crashes when packages aren't installed.
+
+**Global Variables Set by prepare()**:
+
+```typescript
+global.remoteConfigUtils; // Firebase Remote Config values (fonte)
+global.remoteConfigs;     // alias do MESMO objeto (nome legado; setupGlobalConfigs seta os dois)
+global.isAdsEnabled;      // Master ad toggle
+global.adUnits;           // AdMob unit IDs per platform
+```
+
+`prepare()` roda **uma vez por sessão** (memoizado em `preparePromise`): chamadas repetidas (StrictMode/remount) só aguardam o mesmo boot e re-liberam a UI — não reconfiguram RevenueCat nem re-registram o `customerInfoUpdateListener`.
+
+#### 3. Ad System (`utils/LoadAdsManager.ts`, `utils/banner-ad.tsx`)
+
+Handles Google Mobile Ads with automatic premium user detection:
+
+- Premium check unificado via `PremiumUtils.getIsPremiumStatus()` (DEV: `@isPremium`; produção: RevenueCat — ver "Premium User Detection")
+- Respects `global.isAdsEnabled` and `global.remoteConfigUtils.is_ads_enabled`
+- Provides `showInterstitial()` and `showRewarded()` methods — **contrato: nunca penduram nem lançam** (resolve `true` = fluxo segue [fechou ad/premium/ads off/bloqueado/sem unitId], `false` = erro de ad). O executor antigo (`new Promise(async ...)`) engolia exceções (ex.: `createForAdRequest(undefined)`) e o `await` do app travava pra sempre.
+- `BannerAdComponent` supports customizable styling via `useFooterStyle` prop; banners retornam `null` sem `unitId` (o `<BannerAd>` lança no render se receber undefined)
+
+#### 4. Internationalization (`utils/i18n.ts`)
+
+Provides translations in 12 languages (pt, en, es, fr, de, it, ja, ko, zh, ru, ar, nl). Auto-detects system language via `expo-localization` with fallback to 'en'.
+
+#### 5. Type System (`utils/types.ts`)
+
+Defines core interfaces:
+
+- `AppConfig`: Expo app.json structure
+- `AppStrings`: Local app strings with `rckey` (RevenueCat key) and `adUnits` (AdMob unit IDs)
+- `AdUnits`: AdMob unit IDs (appOpen, banner, interstitial, rewarded)
+- `RemoteConfigUtilsType`: Firebase remote config schema (all fields flat: ads, version, review, promotional, tiktokads, clarity, etc.)
+- `FacebookConfig`: Facebook SDK configuration
+- `RevenueCatKeys`: Platform-specific RevenueCat API keys
+- `PromotionalConfig`: Promotional content configuration
+
+### Peer Dependencies Strategy
+
+This package uses **peer dependencies** extensively to avoid duplication. All major dependencies (Firebase, Expo modules, React Native packages) are peer deps. The package:
+
+- Uses dynamic `require()` with try-catch for optional features
+- Provides helpful warnings when features are unavailable
+- Never crashes due to missing dependencies
+
+### Configuration System
+
+The package can be configured via the Expo config plugin in app.json:
+
+```json
+["expo-utils", {"disableWarnings": true, "disableLogs": true}]
+```
+
+These flags suppress console output from expo-utils in production (read at **runtime** from app.json via `plugin[1]?.disableWarnings`/`disableLogs` in `Utils.ts`).
+
+Another **runtime** flag (opt-in, default **off**): `disableAdsIfBuildIsNewerThanStore: true` makes `prepare()` run the store-version ads gate. **Fail-closed**: ads stay on only with a CONFIRMED store version and local build <= store — a build newer than the store (App Review/TestFlight), an app not yet published (first-version review: iTunes lookup returns `resultCount: 0`), network errors and the 5s timeout all turn ads OFF (`global.isAdsEnabled = false`, `is_ads_enabled: false` in the global remote configs, plus the gate-owned `global.adsDisabledByStoreGate = true`, which `prepare()` never touches). Store version: iTunes lookup (user's storefront via `regionCode` first, then global/US — without `country` the lookup hits the US storefront and an app published only elsewhere would look unpublished) / Play Store page (Android), with `ios_store_version`/`android_store_version` from Remote Config as the post-launch override valve (`getStoreVersion` never rejects, so the valve works even when the lookup is down). The gate is **awaited** inside `prepare()` — after `setupGlobalConfigs` (which resets/overwrites the ad globals, so an app-side gate racing the boot gets clobbered) and before `setAppIsReady(true)` — because `banner-ad.tsx` reads `global.isAdsEnabled` **once on mount** and `ExpoUtilsLayout` children mount as soon as `appIsReady` flips; awaiting guarantees banners mount after the verdict. Memoized (once per session, StrictMode-safe); returns `Promise<boolean>` (true = ads blocked). Also callable manually, always **after** `prepare()`.
+
+The same config plugin (`app.plugin.js`) also injects all SKAdNetwork IDs (`data/skadnetwork_ids.json`) into the iOS `Info.plist` at **prebuild** via `withInfoPlist`, so the ~160 IDs no longer need to live in `app.json`. The merge is case-insensitive and preserves any custom `SKAdNetworkItems` already present. The plugin is wrapped in `createRunOncePlugin` to avoid double-application. Just keep `["expo-utils", { ... }]` in the `plugins` array.
+
+By default the same plugin also hides the `expo-dev-menu` onboarding overlay **and** the floating action button (FAB) in **DEBUG** dev builds, by injecting flags into native boot at **prebuild** (tag `skip-devmenu-onboarding`, via `mergeContents`): iOS `AppDelegate.swift` (`#if DEBUG` → `UserDefaults.standard.set(true, "EXDevMenuIsOnboardingFinished")` + `set(false, "EXDevMenuShowFloatingActionButton")`) with `withAppDelegate`; Android `MainApplication.kt` (`if (BuildConfig.DEBUG)` → SharedPreferences `expo.modules.devmenu.sharedpreferences`, `isOnboardingFinished=true` / `showFab=false`) with `withMainApplication`. It runs before the first frame, so neither overlay nor FAB ever appears; inert in release (compiled out). The FAB only shows once onboarding is finished, so both flags are set together. Opt out with `["expo-utils", { "skipDevMenuOnboarding": false }]` — this option is read at **prebuild** (unlike `disableWarnings`/`disableLogs`, read at runtime).
+
+The plugin also accepts an **opt-in** `firebaseLogLevel` option (`"error" | "warn" | "info" | "debug"`, or `true` = `"error"`) that quiets the **native** Firebase iOS SDK logs (e.g. `[FirebaseAnalytics][I-ACS...]`). At **prebuild** (`withDangerousMod` → `withFirebaseLogLevel`) it writes/merges `react-native.app_log_level` into a `firebase.json` at the **project root**, so you never have to create that file by hand — RNFirebase's `ios_config.sh` walks up from `ios/` and reads it, applying `[FIRConfiguration setLoggerLevel:]`. The merge **preserves** other `firebase.json` keys and does **not** overwrite a manually-set `app_log_level` (idempotent across re-prebuilds). It's iOS-only (the key only applies to iOS) so it runs in the iOS mod. Note: this does **not** silence RNFirebase's own `DLog` lines (`RNFBMessaging getAPNSToken`, `RNFBCrashlyticsInit`) — those are `#ifdef DEBUG NSLog` and vanish in release builds. Example: `["expo-utils", { "disableWarnings": true, "firebaseLogLevel": "error" }]`.
+
+The plugin also injects two **RNFirebase Analytics Podfile globals** at **prebuild** (`withDangerousMod` → `withAnalyticsPodfileGlobals`, anchored after `require 'json'`, one tagged block, idempotent + try/catch), both **on by default** (opt-out):
+
+- `analyticsAdSupport` → `$RNFirebaseAnalyticsEnableAdSupport = true` → `RNFBAnalytics.podspec` links `AdSupport.framework` → Firebase Analytics gets IDFA access → audience demographics/interests on iOS (parity with Android). **Privacy:** collects IDFA in production — requires ATT (expo-utils already prompts) + IDFA declared in the privacy manifest / App Store. Default-on because expo-utils is ads-first (AdMob apps already collect IDFA); turn **off** for a no-ads app with `{ "analyticsAdSupport": false }`.
+- `analyticsOnDeviceConversion` → `$RNFirebaseAnalyticsGoogleAppMeasurementOnDeviceConversion = true` → podspec adds the `GoogleAdsOnDeviceConversion` pod, resolving the `[FirebaseAnalytics] Failed to initiate on-device conversion measurement... dependency does not support this feature` log. Opt-out with `{ "analyticsOnDeviceConversion": false }`.
+
+**Why the Podfile (not the analytics config plugin):** `@react-native-firebase/analytics` only ships a config plugin in newer RNFirebase — in **v24** (the supported peer range here) it has **no** `app.plugin.js`, so referencing `["@react-native-firebase/analytics", { ... }]` in `app.json` **crashes `expo prebuild`**. The Podfile globals (read by `RNFBAnalytics.podspec`) work on any version. Needs `prebuild --clean` + rebuild to take effect.
+
+The plugin also injects **iOS privacy purpose strings** into the Info.plist at **prebuild** (`withInfoPlist` → `withIosUsageDescriptions`), **on by default**. Common SDKs reference sensitive APIs even when your app never uses them — `expo-image`/`expo-video`/`expo-file-system` and `FBSDKShareKit` reference the Photo Library — so Apple rejects the build with **ITMS-90683** ("Missing purpose string") unless the key is present in the Info.plist (localized `InfoPlist.strings` alone aren't enough for Apple's static check). It adds `NSPhotoLibraryUsageDescription`, `NSPhotoLibraryAddUsageDescription` and `NSCameraUsageDescription` **only if the dev hasn't already set them** (preserves anything in `app.json` `ios.infoPlist`). Per-language translation comes from `expo.locales` (the `languages/*.json` written by `--languages`, mirroring the same three keys, with pt/en/es). Base default text is **English** (neutral fallback for locales without an `.lproj`). Opt out entirely with `{ "usageDescriptions": false }`, or per key: `{ "usageDescriptions": { "NSCameraUsageDescription": false } }` (pass a string to override the default text). **Android has no equivalent** — ITMS-90683 is iOS-only; the Play Store doesn't require purpose strings.
+
+**Android AdMob / Kotlin (default on):** `androidKotlinAdsFix` injects at **prebuild** (1) `-Xskip-metadata-version-check` on all `KotlinCompile` tasks in the project `build.gradle` (tag `expo-utils-android-kotlin-ads-fix`) and (2) `org.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m` in `gradle.properties`. Reason: `play-services-ads` (via `react-native-google-mobile-ads`) ships Kotlin metadata **2.3.0** while Expo SDK 57 still compiles with Kotlin **~2.1.x**, which fails `:react-native-google-mobile-ads:compile*Kotlin` with "metadata is 2.3.0, expected version is 2.1.0". Heap bump avoids OOM on large Firebase+ads+fbsdk graphs. Does **not** pin Gradle version. Opt out: `["expo-utils", { "androidKotlinAdsFix": false }]`. Apps should **not** keep a local `plugins/with-*-gradle*` for this — it belongs here so every app stays clean.
+
+## Common Patterns
+
+### Adding a New CLI Flag
+
+1. Create a `handle*Flag()` function in `bin/install.js`
+2. Add flag handling in `main()` function (both in `--new` block and individual flags section)
+3. Document the flag in this file and README.md
+4. If creating files, add templates to `/templates` directory
+
+### Adding a New Utility Function
+
+1. Add to existing utility files in `/utils` or create a new one
+2. Export from `index.ts` if it should be public API
+3. Use dynamic imports for any peer dependencies
+4. Add proper TypeScript types in `types.ts` or inline
+
+### Modifying app.json via CLI
+
+Use the helper functions in `bin/install.js`:
+
+- `getAppConfig()`: Read current app.json
+- `writeAppConfig(config)`: Write back to app.json
+- Always check if values exist before adding to avoid duplicates
+
+### Working with Templates
+
+Templates in `/templates` can use placeholders:
+
+- `${androidPackage}` - replaced in google-services.template.json
+- `${iosBundleId}` - replaced in GoogleService-Info.template.plist
+
+## Important Notes
+
+### Firebase Integration
+
+- Firebase is **optional** - all Firebase code has null checks
+- The package uses Firebase v24+/v25 modular API (getRemoteConfig, getAnalytics, etc.). Remote Config dual-path supports RNFB v24 modular helpers and v25 instance `settings`/`defaultConfig`.
+- `Utils.getRemoteConfigUtils()` é **memoizado** (1 fetch por sessão — prepare e todos os banners compartilham a mesma promise; antes cada banner refazia `fetchAndActivate` e arriscava throttle) e tem teto de **10s** (era 60s) pra nunca segurar o splash em RC nativo pendurado.
+- Placeholder files work for development but must be replaced with real configs for production
+
+#### APNS / FCM gate (`Utils.ensureApnsReady`)
+
+iOS push only works once the **APNS token** arrives (a native async callback). All FCM call sites (`requestFCMToken`, `setupMessagingTopics`, `updateRCStatusMessagingTopic`, `setupAttribution`) gate on `Utils.ensureApnsReady()` before calling `getToken`/`subscribeToTopic`, so they never throw "No APNS token specified" / `[messaging/unregistered]`. The gate:
+1. **Simulator/emulator skip** — if `expo-device` is installed and `Device.isDevice === false`, it returns `false` immediately **without calling `getAPNSToken`**, so the native DLog spam (`getAPNSToken - Simulator without APNS support`, ~8 lines) drops to ~0 and boot isn't blocked 10s. `expo-device` is an **optional** peer dep (guarded `require` in try/catch → Metro treats it as optional; without it, behaves as a physical device).
+2. **Physical device** — polls `getAPNSToken` with backoff (300→2000ms) until the token appears or a 10s timeout. Memoized once per session via `apnsReadyPromise`.
+
+### Premium User Detection
+
+**Unificado (2026-07-11)** — fonte única: `PremiumUtils.getIsPremiumStatus()` (exportado no index). Regra:
+
+- **`__DEV__`**: lê o toggle local `@isPremium` (AsyncStorage, flipável no dev menu).
+- **Produção**: consulta **SEMPRE o RevenueCat** (o storage NÃO é lido em produção; cache offline é o do próprio SDK do RC). Premium = entitlement ativo **e** `willRenew` **e** sem `unsubscribeDetectedAt` (com o override `is_opted_out_trial_enabled` do Remote Config → basta assinatura ativa). RC indisponível → não-premium.
+
+Todos os pontos de ad delegam pra essa função: app-open (`appopen-ads.tsx`), interstitial/rewarded (`LoadAdsManager`), banners (`banner-ad`/`safe-banner-ad`) e `PaywallUtils.getIsPremium` (sem `entitlementIds`; com `entitlementIds` mantém o check específico, também sem fallback de storage em produção). `@isPremium` continua sendo **escrito** nas compras (`setPremiumStatus`) — só a leitura em produção mudou. O gate de "RC funciona de verdade" é `isRevenueCatActive()` (Utils): exige `isConfigured()` **e** um `getCustomerInfo()` real bem-sucedido — `isConfigured()` sozinho retorna true até com key inválida (401 silencioso). Memoiza sucesso; falha permite retry na próxima chamada.
+
+O Remote Config `is_ads_enabled` continua sendo um kill-switch separado respeitado por todos os formatos.
+
+### Promotional content analytics
+
+`modal-promotional-content.tsx` reporta tudo no Firebase Analytics via `logPromoEvent` (best-effort: try/catch + `.catch`, fire-and-forget — nunca quebra/atrasa o promo):
+
+- **Eventos**: `promo_impression` (a cada exibição; no `PromotionalBanner` só depois do check de "não mostrar", pra não contar flash de 1 frame), `promo_click` (qualquer tap que abre a loja), `promo_close` (fechamento explícito), `promo_dont_show_again`, `promo_expand` (notification compacta → expandida).
+- **Params comuns**: `promo_variant` (`bottom_sheet` | `card_banner` | `fullscreen` | `notification` | `banner_small` | `banner_large`), `promo_type` (type cru da config), `promo_name`, `promo_store_url`, `promo_media` (`video`|`image`|`gradient`). Específicos: `click_source` (`cta`|`media`|`card`|`icon`), `close_method` (`close`|`overlay`|`button`|`swipe`|`back`), `notification_compact`, `close_delay_ms` (fullscreen).
+- `promo_close` NÃO é emitido quando o fechamento veio de download/dont-show (esses já têm evento próprio — sem duplo-conto no funil). Handlers usados direto em `onPress` recebem o `GestureResponderEvent` como 1º arg — por isso `handleBaixar`/`handlePress` só aceitam `source` string explícita (senão caem no default).
+
+### iOS App Store Review Detection
+
+`Utils.openReviewURL()` automatically:
+
+- Detects iOS App ID via iTunes API lookup using bundle ID
+- Falls back to `remoteConfigs.ios_app_id` if lookup fails
+- Uses `Application.applicationId` for Android package name
+- Supports both native store and browser URLs
+
+### Language/Localization System
+
+The CLI creates `languages/` folder with JSON files per locale that override app.json values (app name, etc.) for each language. This integrates with Expo's built-in localization system.
+
+### Runtime Debugging Gotchas
+
+Hard-won lessons from debugging consumer apps — they affect anyone integrating with the lib's boot:
+
+- **`prepare()` resets/overwrites the ad globals** (`global.isAdsEnabled = !__DEV__` at the start; `setupGlobalConfigs` replaces the whole `global.remoteConfigUtils` object). App-side code that flips ad flags concurrently with boot gets clobbered — such logic is only reliable AFTER `prepare()` (inside the lib's boot, or in a child of `ExpoUtilsLayout`, which mounts children only when `appIsReady` is true).
+- **`banner-ad.tsx` snapshots `global.isAdsEnabled` once, on mount**, and never reacts to later changes. Interstitial/app-open ads re-check per load/show (`LoadAdsManager.ts`), banners don't — anything that disables ads at runtime must land before banners mount.
+- **`initHotUpdater` is a no-op in `__DEV__`**: dev bundles come from Metro, but a previously downloaded OTA bundle (`Documents/bundle-store/...`) loads on cold launch instead of the embedded bundle — and its `isolation_key` (`hotupdater_<version>_<channel>_`) doesn't change when you rebuild the SAME version, so a stale OTA silently "eats" freshly rebuilt code ("my fix didn't work"). Deleting the bundle only helps until the next download; re-deploy the OTA or bump the version.
+- **`JSON.stringify(error)` of an `Error` is always `"{}"`** (non-enumerable props) — use `String(error)` in debug catches.
+- **React StrictMode (dev) runs mount effects twice** — boot callbacks fire twice in dev unless guarded (module-level `bootDone` pattern in `Utils.handleReady`; ref guard for `onReady` in `ExpoUtilsLayout`; `preparePromise` no `prepare()`; `listenerRegistered` no `setupAppOpenListener`).
+- **iOS drops overlapping `alert()`s silently** (RN doesn't queue `UIAlertController`) — two back-to-back alerts show only the first, which reads as "code stopped in the middle". Use o `queueAlert(title, message)` do Utils (serializa; o push em foreground já usa) ou encadeie via callback do botão.
+- **Expo dev lazy bundling**: grepping Metro's `entry.bundle` for app code is a false negative — app modules aren't in the initial bundle.
+- **`expoUtilsWarn` emite telemetria**: além do `console.warn` (suprimível com `disableWarnings`), cada mensagem única vira 1 evento `expo_utils_warn` no Firebase Analytics (param `message`, 100 chars; dedup por sessão, cap 50; roda MESMO com `disableWarnings` — é a visibilidade de produção). Best-effort: nunca lança nem recursa.
+- **Promo × ATT**: `usePromotional.show()` espera `waitAttFlowDone()` (resolvido pelo `requestTrackingWhenActive` após o prompt do ATT, com fallback de 15s) antes de agendar o modal — a `Modal` do RN não disputa a janela do prompt do sistema. O gate só arma quando `prepare()` roda; `usePromotional` standalone não espera nada.
+- **Todo o hardening de runtime de 2026-07-11** (21 itens: guards de RevenueCat não-configurado, ads que nunca penduram, banners sem crash de unitId, etc.) está documentado com tabela completa em `docs/auditoria-runtime-2026-07-11.md`.
+
+## Testing Strategy
+
+Since this is a library:
+
+1. Create a test Expo project: `bunx create-expo-app test-project --template default@sdk-57`
+2. Build .tgz: `cd /path/to/expo-utils && npm pack`
+3. Install in test project: `cd test-project && bun add ../expo-utils/expo-utils-X.X.X.tgz`
+4. Run CLI: `bunx expo-utils-install --new`
+5. Build iOS: `npx expo run:ios`
+6. Verify: Strings.ts, CLAUDE.md, app.json (no updates block, has buildCacheProvider), .gitignore/.easignore (has bun.lock)
+
+
+nunca use Co-Authored-By:
