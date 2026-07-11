@@ -7,6 +7,8 @@ import * as Linking from "expo-linking";
 import React, {useEffect, useRef, useState} from "react";
 import {Animated, Dimensions, Image, Modal, PanResponder, Pressable, StyleSheet, Text, View, ViewStyle} from "react-native";
 import {useSafeAreaInsets} from "react-native-safe-area-context";
+import {getAnalytics, logEvent} from "@react-native-firebase/analytics";
+import {getApp} from "@react-native-firebase/app";
 import {expoUtilsWarn, waitAttFlowDone} from "./Utils";
 import type {PromotionalConfig, PromotionalShadow} from "./types";
 export type {PromotionalShadow};
@@ -209,11 +211,33 @@ function getConfig(): PromotionalConfig | undefined {
     return undefined;
 }
 
+// ─── Telemetria (Firebase Analytics) ────────────────────────────────────────
+// Eventos: promo_impression / promo_click / promo_close / promo_dont_show_again /
+// promo_expand. Params comuns: promo_variant (formato exibido: bottom_sheet,
+// card_banner, fullscreen, notification, banner_small, banner_large), promo_type
+// (type cru da config), promo_name, promo_store_url, promo_media (video|image|
+// gradient). Específicos: click_source (cta|media|card|icon), close_method
+// (close|overlay|button|swipe|back). Best-effort: analytics nunca pode quebrar
+// nem atrasar o promo (try/catch + .catch, fire-and-forget).
+const logPromoEvent = (event: string, config: PromotionalConfig | undefined, extra: Record<string, string | number> = {}) => {
+    try {
+        const analytics = getAnalytics(getApp());
+        logEvent(analytics, event, {
+            promo_type: String(config?.type ?? "bottom-sheet").slice(0, 40),
+            promo_name: String(config?.name ?? "").slice(0, 100),
+            promo_store_url: String(config?.storeUrl ?? "").slice(0, 100),
+            promo_media: config?.videoUrl ? "video" : config?.imageUrl ? "image" : "gradient",
+            ...extra,
+        }).catch(() => {});
+    } catch {}
+};
+
 // ─── Bottom Sheet (existing modal) ──────────────────────────────────────────
 
 function BottomSheetContent({visible, onClose, colors: colorsProp, t, config}: Props & {config: PromotionalConfig}) {
     const insets = useSafeAreaInsets();
     const c = {...defaultColors, ...colorsProp};
+    const promoVariant = "bottom_sheet";
 
     const slideAnim = useRef(new Animated.Value(MODAL_HEIGHT)).current;
     const overlayAnim = useRef(new Animated.Value(0)).current;
@@ -230,6 +254,7 @@ function BottomSheetContent({visible, onClose, colors: colorsProp, t, config}: P
             },
             onPanResponderRelease: (_, gestureState) => {
                 if (gestureState.dy > 100 || gestureState.vy > 0.5) {
+                    logPromoEvent("promo_close", config, {promo_variant: "bottom_sheet", close_method: "swipe"});
                     Animated.timing(panY, {
                         toValue: MODAL_HEIGHT,
                         duration: 200,
@@ -250,6 +275,7 @@ function BottomSheetContent({visible, onClose, colors: colorsProp, t, config}: P
 
     useEffect(() => {
         if (visible) {
+            logPromoEvent("promo_impression", config, {promo_variant: promoVariant});
             Animated.parallel([
                 Animated.spring(slideAnim, {
                     toValue: 0,
@@ -269,7 +295,11 @@ function BottomSheetContent({visible, onClose, colors: colorsProp, t, config}: P
         }
     }, [visible]);
 
-    const handleClose = () => {
+    const handleClose = (method: string = "close") => {
+        // download/dont_show já têm evento próprio (promo_click/promo_dont_show_again).
+        if (method !== "download" && method !== "dont_show") {
+            logPromoEvent("promo_close", config, {promo_variant: promoVariant, close_method: method});
+        }
         Animated.parallel([
             Animated.timing(slideAnim, {
                 toValue: MODAL_HEIGHT,
@@ -286,7 +316,10 @@ function BottomSheetContent({visible, onClose, colors: colorsProp, t, config}: P
         });
     };
 
-    const handleBaixar = async () => {
+    const handleBaixar = async (source?: unknown) => {
+        // onPress={handleBaixar} passa o GestureResponderEvent como 1º arg — só string explícita vale.
+        const clickSource = typeof source === "string" ? source : "cta";
+        logPromoEvent("promo_click", config, {promo_variant: promoVariant, click_source: clickSource});
         // openURL rejeita com URL inválida/scheme sem handler — sem o catch o modal ficava
         // preso aberto (handleClose nunca rodava) e a rejeição ficava unhandled.
         try {
@@ -294,23 +327,24 @@ function BottomSheetContent({visible, onClose, colors: colorsProp, t, config}: P
         } catch (e) {
             expoUtilsWarn("PromotionalContent/openURL:", e);
         }
-        handleClose();
+        handleClose("download");
     };
 
     const handleNaoMostrar = async () => {
+        logPromoEvent("promo_dont_show_again", config, {promo_variant: promoVariant});
         try {
             await AsyncStorage.setItem(STORAGE_KEY_NAO_MOSTRAR, "true");
         } catch {}
-        handleClose();
+        handleClose("dont_show");
     };
 
     const gradientColors = config.gradientColors || ["#22C55E", "#16A34A"];
 
     return (
-        <Modal visible={visible} transparent animationType="none" onRequestClose={handleClose}>
+        <Modal visible={visible} transparent animationType="none" onRequestClose={() => handleClose("back")}>
             <View style={styles.container}>
                 <Animated.View style={[styles.overlay, {opacity: overlayAnim, backgroundColor: c.overlayBackground}]}>
-                    <Pressable style={styles.overlayPressable} onPress={handleClose} />
+                    <Pressable style={styles.overlayPressable} onPress={() => handleClose("overlay")} />
                 </Animated.View>
 
                 <Animated.View
@@ -432,6 +466,7 @@ function BottomSheetContent({visible, onClose, colors: colorsProp, t, config}: P
 function CardBannerBottomContent({visible, onClose, colors: colorsProp, t, config}: Props & {config: PromotionalConfig}) {
     const insets = useSafeAreaInsets();
     const c = {...defaultColors, ...colorsProp};
+    const promoVariant = "card_banner";
     const hasBannerImg = !!config.imageUrl;
 
     const slideAnim = useRef(new Animated.Value(300)).current;
@@ -448,6 +483,7 @@ function CardBannerBottomContent({visible, onClose, colors: colorsProp, t, confi
             },
             onPanResponderRelease: (_, gestureState) => {
                 if (gestureState.dy > 60 || gestureState.vy > 0.5) {
+                    logPromoEvent("promo_close", config, {promo_variant: "card_banner", close_method: "swipe"});
                     Animated.timing(panY, {
                         toValue: 300,
                         duration: 200,
@@ -468,6 +504,7 @@ function CardBannerBottomContent({visible, onClose, colors: colorsProp, t, confi
 
     useEffect(() => {
         if (visible) {
+            logPromoEvent("promo_impression", config, {promo_variant: promoVariant});
             Animated.spring(slideAnim, {
                 toValue: 0,
                 useNativeDriver: true,
@@ -479,7 +516,10 @@ function CardBannerBottomContent({visible, onClose, colors: colorsProp, t, confi
         }
     }, [visible]);
 
-    const handleClose = () => {
+    const handleClose = (method: string = "close") => {
+        if (method !== "download" && method !== "dont_show") {
+            logPromoEvent("promo_close", config, {promo_variant: promoVariant, close_method: method});
+        }
         Animated.timing(slideAnim, {
             toValue: 300,
             duration: 200,
@@ -487,7 +527,10 @@ function CardBannerBottomContent({visible, onClose, colors: colorsProp, t, confi
         }).start(() => onClose());
     };
 
-    const handleBaixar = async () => {
+    const handleBaixar = async (source?: unknown) => {
+        // onPress={handleBaixar} passa o GestureResponderEvent como 1º arg — só string explícita vale.
+        const clickSource = typeof source === "string" ? source : "cta";
+        logPromoEvent("promo_click", config, {promo_variant: promoVariant, click_source: clickSource});
         // openURL rejeita com URL inválida/scheme sem handler — sem o catch o modal ficava
         // preso aberto (handleClose nunca rodava) e a rejeição ficava unhandled.
         try {
@@ -495,22 +538,23 @@ function CardBannerBottomContent({visible, onClose, colors: colorsProp, t, confi
         } catch (e) {
             expoUtilsWarn("PromotionalContent/openURL:", e);
         }
-        handleClose();
+        handleClose("download");
     };
 
     const handleNaoMostrar = async () => {
+        logPromoEvent("promo_dont_show_again", config, {promo_variant: promoVariant});
         try {
             await AsyncStorage.setItem(STORAGE_KEY_NAO_MOSTRAR, "true");
         } catch {}
-        handleClose();
+        handleClose("dont_show");
     };
 
     const gradientColors = config.gradientColors || ["#22C55E", "#16A34A"];
     const shadowStyle = buildShadowStyle(config.shadow ?? {color: "#000", offsetY: 4, opacity: 0.25, radius: 12, elevation: 10});
 
     return (
-        <Modal visible={visible} transparent animationType="none" onRequestClose={handleClose}>
-            <Pressable style={styles.cardOverlay} onPress={handleClose} />
+        <Modal visible={visible} transparent animationType="none" onRequestClose={() => handleClose("back")}>
+            <Pressable style={styles.cardOverlay} onPress={() => handleClose("overlay")} />
             <Animated.View
                 {...panResponder.panHandlers}
                 style={[
@@ -535,10 +579,10 @@ function CardBannerBottomContent({visible, onClose, colors: colorsProp, t, confi
                             end={{x: 0, y: 1}}
                             style={[StyleSheet.absoluteFill, {borderRadius: 16}]}
                         />
-                        <Pressable style={styles.cardCloseBtn} onPress={handleClose} hitSlop={8}>
+                        <Pressable style={styles.cardCloseBtn} onPress={() => handleClose("button")} hitSlop={8}>
                             <Text style={styles.cardCloseBtnText}>✕</Text>
                         </Pressable>
-                        <Pressable style={styles.cardImgInner} onPress={handleBaixar}>
+                        <Pressable style={styles.cardImgInner} onPress={() => handleBaixar("card")}>
                             <View style={styles.cardImgBody}>
                                 <View style={styles.cardImgTextArea}>
                                     <Text style={[styles.cardImgTitle, {color: c.titleText}]} numberOfLines={3}>
@@ -570,7 +614,7 @@ function CardBannerBottomContent({visible, onClose, colors: colorsProp, t, confi
                             style={[StyleSheet.absoluteFill, {borderRadius: 16}]}
                         />
                         <View style={styles.cardInner}>
-                            <Pressable style={styles.cardCloseBtn} onPress={handleClose} hitSlop={8}>
+                            <Pressable style={styles.cardCloseBtn} onPress={() => handleClose("button")} hitSlop={8}>
                                 <Text style={styles.cardCloseBtnText}>✕</Text>
                             </Pressable>
                             <View style={styles.cardBody}>
@@ -615,6 +659,7 @@ function CardBannerBottomContent({visible, onClose, colors: colorsProp, t, confi
 function FullscreenContent({visible, onClose, colors: colorsProp, t, config}: Props & {config: PromotionalConfig}) {
     const insets = useSafeAreaInsets();
     const c = {...defaultColors, ...colorsProp};
+    const promoVariant = "fullscreen";
     const delayMs = config.closeBtnDelayMs ?? 5000;
     const delaySec = Math.ceil(delayMs / 1000);
 
@@ -629,6 +674,8 @@ function FullscreenContent({visible, onClose, colors: colorsProp, t, config}: Pr
             closeOpacity.setValue(0);
             return;
         }
+
+        logPromoEvent("promo_impression", config, {promo_variant: promoVariant, close_delay_ms: delayMs});
 
         const interval = setInterval(() => {
             setCountdown((prev) => {
@@ -649,7 +696,10 @@ function FullscreenContent({visible, onClose, colors: colorsProp, t, config}: Pr
         return () => clearInterval(interval);
     }, [visible]);
 
-    const handleBaixar = async () => {
+    const handleBaixar = async (source?: unknown) => {
+        // onPress={handleBaixar} passa o GestureResponderEvent como 1º arg — só string explícita vale.
+        const clickSource = typeof source === "string" ? source : "cta";
+        logPromoEvent("promo_click", config, {promo_variant: promoVariant, click_source: clickSource});
         try {
             if (config.storeUrl) await Linking.openURL(config.storeUrl);
         } catch (e) {
@@ -659,9 +709,16 @@ function FullscreenContent({visible, onClose, colors: colorsProp, t, config}: Pr
     };
 
     const handleNaoMostrar = async () => {
+        logPromoEvent("promo_dont_show_again", config, {promo_variant: promoVariant});
         try {
             await AsyncStorage.setItem(STORAGE_KEY_NAO_MOSTRAR, "true");
         } catch {}
+        onClose();
+    };
+
+    // Fecha explicitamente (✕ / back) com telemetria — o Fullscreen usa onClose direto.
+    const closeWith = (method: string) => {
+        logPromoEvent("promo_close", config, {promo_variant: promoVariant, close_method: method});
         onClose();
     };
 
@@ -670,8 +727,8 @@ function FullscreenContent({visible, onClose, colors: colorsProp, t, config}: Pr
     // Full-media mode: video or image covers entire screen, tap to open store
     if (config.videoUrl || config.imageUrl) {
         return (
-            <Modal visible={visible} animationType="fade" onRequestClose={canClose ? onClose : undefined}>
-                <Pressable style={{flex: 1}} onPress={handleBaixar}>
+            <Modal visible={visible} animationType="fade" onRequestClose={canClose ? () => closeWith("back") : undefined}>
+                <Pressable style={{flex: 1}} onPress={() => handleBaixar("media")}>
                     {config.videoUrl ? (
                         <PromoVideo uri={config.videoUrl} />
                     ) : config.imageUrl ? (
@@ -685,7 +742,7 @@ function FullscreenContent({visible, onClose, colors: colorsProp, t, config}: Pr
                         </View>
                     ) : (
                         <Animated.View style={{opacity: closeOpacity}}>
-                            <Pressable style={styles.fullscreenCloseBtn} onPress={onClose} hitSlop={8}>
+                            <Pressable style={styles.fullscreenCloseBtn} onPress={() => closeWith("button")} hitSlop={8}>
                                 <Text style={styles.fullscreenCloseBtnText}>✕</Text>
                             </Pressable>
                         </Animated.View>
@@ -696,7 +753,7 @@ function FullscreenContent({visible, onClose, colors: colorsProp, t, config}: Pr
     }
 
     return (
-        <Modal visible={visible} animationType="fade" onRequestClose={canClose ? onClose : undefined}>
+        <Modal visible={visible} animationType="fade" onRequestClose={canClose ? () => closeWith("back") : undefined}>
             <View style={[styles.fullscreenContainer, {paddingTop: insets.top, paddingBottom: insets.bottom}]}>
                 {/* Top area with gradient */}
                 <LinearGradient
@@ -725,7 +782,7 @@ function FullscreenContent({visible, onClose, colors: colorsProp, t, config}: Pr
                         </View>
                     ) : (
                         <Animated.View style={{opacity: closeOpacity}}>
-                            <Pressable style={styles.fullscreenCloseBtn} onPress={onClose} hitSlop={8}>
+                            <Pressable style={styles.fullscreenCloseBtn} onPress={() => closeWith("button")} hitSlop={8}>
                                 <Text style={styles.fullscreenCloseBtnText}>✕</Text>
                             </Pressable>
                         </Animated.View>
@@ -773,6 +830,7 @@ function FullscreenContent({visible, onClose, colors: colorsProp, t, config}: Pr
 function NotificationCardContent({visible, onClose, colors: colorsProp, t, config}: Props & {config: PromotionalConfig}) {
     const insets = useSafeAreaInsets();
     const c = {...defaultColors, ...colorsProp};
+    const promoVariant = "notification";
     const isTop = config.position === "top";
     const isCompact = config.notificationCompact !== false;
     const slideDistance = 400;
@@ -793,6 +851,7 @@ function NotificationCardContent({visible, onClose, colors: colorsProp, t, confi
             onPanResponderRelease: (_, g) => {
                 const threshold = isTop ? g.dy < -60 || g.vy < -0.5 : g.dy > 60 || g.vy > 0.5;
                 if (threshold) {
+                    logPromoEvent("promo_close", config, {promo_variant: "notification", close_method: "swipe"});
                     Animated.timing(panY, {
                         toValue: isTop ? -slideDistance : slideDistance,
                         duration: 200,
@@ -810,6 +869,7 @@ function NotificationCardContent({visible, onClose, colors: colorsProp, t, confi
 
     useEffect(() => {
         if (visible) {
+            logPromoEvent("promo_impression", config, {promo_variant: promoVariant, notification_compact: isCompact ? "1" : "0"});
             expandAnim.setValue(isCompact ? 0 : 1);
             setExpanded(!isCompact);
             Animated.spring(slideAnim, {
@@ -825,6 +885,7 @@ function NotificationCardContent({visible, onClose, colors: colorsProp, t, confi
 
     const handleExpand = () => {
         if (expanded) return;
+        logPromoEvent("promo_expand", config, {promo_variant: promoVariant});
         setExpanded(true);
         Animated.spring(expandAnim, {
             toValue: 1,
@@ -834,7 +895,10 @@ function NotificationCardContent({visible, onClose, colors: colorsProp, t, confi
         }).start();
     };
 
-    const handleClose = () => {
+    const handleClose = (method: string = "close") => {
+        if (method !== "download" && method !== "dont_show") {
+            logPromoEvent("promo_close", config, {promo_variant: promoVariant, close_method: method});
+        }
         Animated.timing(slideAnim, {
             toValue: isTop ? -slideDistance : slideDistance,
             duration: 200,
@@ -842,7 +906,10 @@ function NotificationCardContent({visible, onClose, colors: colorsProp, t, confi
         }).start(() => onClose());
     };
 
-    const handleBaixar = async () => {
+    const handleBaixar = async (source?: unknown) => {
+        // onPress={handleBaixar} passa o GestureResponderEvent como 1º arg — só string explícita vale.
+        const clickSource = typeof source === "string" ? source : "cta";
+        logPromoEvent("promo_click", config, {promo_variant: promoVariant, click_source: clickSource});
         // openURL rejeita com URL inválida/scheme sem handler — sem o catch o modal ficava
         // preso aberto (handleClose nunca rodava) e a rejeição ficava unhandled.
         try {
@@ -850,14 +917,15 @@ function NotificationCardContent({visible, onClose, colors: colorsProp, t, confi
         } catch (e) {
             expoUtilsWarn("PromotionalContent/openURL:", e);
         }
-        handleClose();
+        handleClose("download");
     };
 
     const handleNaoMostrar = async () => {
+        logPromoEvent("promo_dont_show_again", config, {promo_variant: promoVariant});
         try {
             await AsyncStorage.setItem(STORAGE_KEY_NAO_MOSTRAR, "true");
         } catch {}
-        handleClose();
+        handleClose("dont_show");
     };
 
     const shadowStyle = buildShadowStyle(config.shadow ?? {color: "#000", offsetY: 8, opacity: 0.2, radius: 16, elevation: 12});
@@ -867,8 +935,8 @@ function NotificationCardContent({visible, onClose, colors: colorsProp, t, confi
     const animatedSeparatorOpacity = expandAnim;
 
     return (
-        <Modal visible={visible} transparent animationType="none" onRequestClose={handleClose}>
-            <Pressable style={styles.cardOverlay} onPress={handleClose} />
+        <Modal visible={visible} transparent animationType="none" onRequestClose={() => handleClose("back")}>
+            <Pressable style={styles.cardOverlay} onPress={() => handleClose("overlay")} />
             <Animated.View
                 {...panResponder.panHandlers}
                 style={[
@@ -923,7 +991,7 @@ function NotificationCardContent({visible, onClose, colors: colorsProp, t, confi
                                 </Text>
                             </Pressable>
                         </View>
-                        <Pressable style={styles.notifBodyIconArea} onPress={handleBaixar}>
+                        <Pressable style={styles.notifBodyIconArea} onPress={() => handleBaixar("icon")}>
                             <View style={styles.notifBodyIconContainer}>
                                 <Image source={{uri: config.icon}} style={styles.notifBodyIcon} resizeMode="cover" />
                             </View>
@@ -955,18 +1023,32 @@ export function PromotionalBanner({colors: colorsProp, t, style, size = "small",
     const [hidden, setHidden] = useState(false);
 
     const config = getConfig();
+    const promoVariant = size === "large" ? "banner_large" : "banner_small";
+    const impressionLogged = useRef(false);
 
     useEffect(() => {
         AsyncStorage.getItem(STORAGE_KEY_NAO_MOSTRAR)
             .then((val) => {
-                if (val === "true") setHidden(true);
+                if (val === "true") {
+                    setHidden(true);
+                    return;
+                }
+                // Impressão só depois de confirmar que o banner não está oculto pelo
+                // "não mostrar novamente" (não conta o flash de 1 frame pré-check).
+                if (!impressionLogged.current && config?.enabled && config.type === "banner") {
+                    impressionLogged.current = true;
+                    logPromoEvent("promo_impression", config, {promo_variant: promoVariant});
+                }
             })
             .catch(() => {});
     }, []);
 
     if (!config?.enabled || config.type !== "banner" || dismissed || hidden) return null;
 
-    const handlePress = async () => {
+    const handlePress = async (source?: unknown) => {
+        // onPress={handlePress} passa o GestureResponderEvent como 1º arg — só string explícita vale.
+        const clickSource = typeof source === "string" ? source : "card";
+        logPromoEvent("promo_click", config, {promo_variant: promoVariant, click_source: clickSource});
         try {
             if (config.storeUrl) await Linking.openURL(config.storeUrl);
         } catch (e) {
@@ -975,6 +1057,11 @@ export function PromotionalBanner({colors: colorsProp, t, style, size = "small",
     };
 
     const handleDismiss = async () => {
+        if (config.showDontShowAgain) {
+            logPromoEvent("promo_dont_show_again", config, {promo_variant: promoVariant});
+        } else {
+            logPromoEvent("promo_close", config, {promo_variant: promoVariant, close_method: "button"});
+        }
         try {
             if (config.showDontShowAgain) {
                 await AsyncStorage.setItem(STORAGE_KEY_NAO_MOSTRAR, "true");
@@ -1058,7 +1145,7 @@ export function PromotionalBanner({colors: colorsProp, t, style, size = "small",
                     {backgroundColor: config.primaryColor},
                     pressed && {opacity: 0.8},
                 ]}
-                onPress={handlePress}>
+                onPress={() => handlePress("cta")}>
                 <Text style={[styles.bannerCtaText, {color: c.primaryButtonText}]}>
                     {resolveText(config.buttonText, "download", t)}
                 </Text>

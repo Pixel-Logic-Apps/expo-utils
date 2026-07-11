@@ -212,6 +212,14 @@ Todos os pontos de ad delegam pra essa função: app-open (`appopen-ads.tsx`), i
 
 O Remote Config `is_ads_enabled` continua sendo um kill-switch separado respeitado por todos os formatos.
 
+### Promotional content analytics
+
+`modal-promotional-content.tsx` reporta tudo no Firebase Analytics via `logPromoEvent` (best-effort: try/catch + `.catch`, fire-and-forget — nunca quebra/atrasa o promo):
+
+- **Eventos**: `promo_impression` (a cada exibição; no `PromotionalBanner` só depois do check de "não mostrar", pra não contar flash de 1 frame), `promo_click` (qualquer tap que abre a loja), `promo_close` (fechamento explícito), `promo_dont_show_again`, `promo_expand` (notification compacta → expandida).
+- **Params comuns**: `promo_variant` (`bottom_sheet` | `card_banner` | `fullscreen` | `notification` | `banner_small` | `banner_large`), `promo_type` (type cru da config), `promo_name`, `promo_store_url`, `promo_media` (`video`|`image`|`gradient`). Específicos: `click_source` (`cta`|`media`|`card`|`icon`), `close_method` (`close`|`overlay`|`button`|`swipe`|`back`), `notification_compact`, `close_delay_ms` (fullscreen).
+- `promo_close` NÃO é emitido quando o fechamento veio de download/dont-show (esses já têm evento próprio — sem duplo-conto no funil). Handlers usados direto em `onPress` recebem o `GestureResponderEvent` como 1º arg — por isso `handleBaixar`/`handlePress` só aceitam `source` string explícita (senão caem no default).
+
 ### iOS App Store Review Detection
 
 `Utils.openReviewURL()` automatically:
