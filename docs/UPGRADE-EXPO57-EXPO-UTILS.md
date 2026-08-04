@@ -1,0 +1,942 @@
+# Guia completo: migrar app Expo (SDK 53) → Expo 57 + expo-utils 1.2.5
+
+Documento operacional para **qualquer IA** (ou humano) repetir exatamente o que foi feito no **expo-plant-ai**.  
+Não pule passos. Se o app-alvo for outro, mantenha a mesma **ordem** e o mesmo **checklist**; só troque IDs, keys e nomes de produto.
+
+**Referências usadas na migração bem-sucedida:**
+
+| O quê | Onde |
+|--------|------|
+| Código-fonte do expo-utils (última versão) | `../expo-utils` (local) ou `github:Pixel-Logic-Apps/expo-utils` |
+| Versão do expo-utils neste trabalho | **1.2.5** |
+| App referência Expo 57 + utils moderno | `../expo-meclivros` (`package.json`, `app.json`, `src/app/_layout.tsx`, `src/constants/Strings.ts`) |
+| App de referência secundária | `../expo-carsoundidentifier` |
+| Template oficial do utils | `expo-utils/templates/RootLayout.tsx`, `Strings.ts`, `babel.config.js` |
+| README do utils | `expo-utils/README.md` (Remote Config `utils` + `screens`, CLI) |
+
+---
+
+## 0. Objetivo e resultado esperado
+
+### Antes (estado típico legado)
+
+- Expo **~53**, React **19.0**, RN **0.79.x**
+- `expo-utils` via GitHub com API antiga:
+  - `Utils.prepare(setAppIsReady, appConfig, adUnits, revenueKeys)`
+  - `HotUpdater.wrap({ source: getUpdateSource(...) })(RootLayout)`
+- `Strings.ts` exporta **só ad units**
+- Remote Config **flat** em `global.remoteConfigs` (paywall_data, free_limits, api_url, store_ratings_type, is_ads_enabled tudo junto)
+- `app.json` com **centenas de SKAdNetworkItems** no `infoPlist`
+- `babel`: `hot-updater/babel-plugin`
+- Premium local com `Purchases.getCustomerInfo()` + AsyncStorage
+
+### Depois (estado alvo)
+
+- Expo **57.x**, React **19.2.3**, RN **0.86.0**
+- expo-utils **1.2.5**
+- Boot via **`<ExpoUtilsLayout appConfig appStrings>`**
+- `Strings.ts` = **AppStrings**: `hotUpdaterUrl` + `rckey` + `adUnits` por plataforma
+- Remote Config Firebase: keys **`utils`** e **`screens`**
+- `app.json` limpo (SKAd injetado pelo plugin no prebuild)
+- Premium via **`PremiumUtils`**
+- TypeScript limpo (`npx tsc --noEmit` exit 0 no app)
+
+---
+
+## 1. Análise obrigatória ANTES de editar código
+
+Execute e leia tudo isto. Não edite cego.
+
+### 1.1 Inventário do app-alvo
+
+```bash
+cat package.json
+cat app.json   # ou app.config.*
+cat babel.config.js
+cat tsconfig.json
+cat hot-updater.config.ts 2>/dev/null
+find src -name '_layout.tsx' | head
+cat src/app/_layout.tsx   # ou app/_layout.tsx
+cat src/constants/Strings.ts 2>/dev/null
+```
+
+### 1.2 Grep de APIs legadas (lista completa a migrar)
+
+```bash
+# Boot / utils legado
+rg -n "Utils\.prepare|HotUpdater\.wrap|getUpdateSource|revenueKeys|from \"expo-utils" src
+
+# Remote Config flat
+rg -n "global\.remoteConfigs|paywall_data|store_ratings_type|free_limits|is_paywall_enabled|api_url" src
+
+# Premium local
+rg -n "checkPremiumStatus|getCustomerInfo|@isPremium|PREMIUM_STATUS|Purchases\." src
+
+# Ads
+rg -n "banner-ad|LoadAdsManager|showInterstitial|isAdsEnabled|adUnits" src
+
+# FileSystem (quebra no SDK 57 se usar API antiga no import principal)
+rg -n "expo-file-system|uploadAsync|FileSystemUploadType|getInfoAsync" src
+
+# Tema / color scheme (quebra com ColorSchemeName 'unspecified' no RN novo)
+rg -n "Colors\[colorScheme|useColorScheme" src
+
+# Hot updater babel
+rg -n "hot-updater|@hot-updater" babel.config.js package.json
+```
+
+### 1.3 Versões do expo-utils e peers
+
+Leia **sempre** o `package.json` do expo-utils local ou instalado:
+
+```bash
+cat ../expo-utils/package.json | head -100
+# Foque em: version, peerDependencies (expo, react, react-native, firebase, hot-updater, purchases, admob…)
+```
+
+**Peers críticos 1.2.5 (mínimos):**
+
+| Pacote | Peer aproximado |
+|--------|------------------|
+| expo | >=57.0.4 |
+| react | >=19.2.3 |
+| react-native | >=0.86.0 |
+| @react-native-firebase/* | >=24 (ideal **25.1.0** como meclivros) |
+| @hot-updater/* / hot-updater | >=0.35.3 |
+| react-native-purchases | >=10.4.2 |
+| react-native-google-mobile-ads | >=16.4.0 |
+| react-native-reanimated | 4.x → **exige** `react-native-worklets` |
+| eas-build-cache-provider | >=20.0.0 |
+| expo-device, expo-video, expo-tiktok-ads-events | peers opcionais mas recomendados |
+
+### 1.4 App referência Expo 57
+
+```bash
+cat ../expo-meclivros/package.json
+cat ../expo-meclivros/app.json
+cat ../expo-meclivros/src/app/_layout.tsx
+cat ../expo-meclivros/src/constants/Strings.ts
+cat ../expo-meclivros/babel.config.js
+```
+
+**Copie a estrutura mental, não o branding/IDs do meclivros.**
+
+---
+
+## 2. Dependências (`package.json`) — checklist item a item
+
+### 2.1 Core a fixar
+
+Atualize (ou alinhe com `npx expo install --fix` depois) para algo equivalente a:
+
+```text
+expo                          ~57.0.6   (ou pin 57.0.4+)
+react                         19.2.3
+react-dom                     19.2.3
+react-native                  0.86.0
+expo-router                   ~57.0.6
+```
+
+Adicione override:
+
+```json
+"overrides": {
+  "react-dom": "19.2.3"
+}
+```
+
+### 2.2 expo-utils
+
+Opções (preferência nesta ordem):
+
+1. **Tarball local da 1.2.5** (mais seguro se o GitHub não tiver tag):
+   ```bash
+   cd ../expo-utils && npm pack
+   cd ../SEU-APP && npm install ../expo-utils/expo-utils-1.2.5.tgz
+   ```
+   Em package.json: `"expo-utils": "file:../expo-utils/expo-utils-1.2.5.tgz"`
+
+2. **file:../expo-utils** (symlink) — funciona no Metro, mas o **tsc pode typecheckar o source do utils fora do app** e gerar erros de peers no `../expo-utils`. Prefira tarball se `tsc` reclamar.
+
+3. `github:Pixel-Logic-Apps/expo-utils` se a branch/main já for 1.2.5+.
+
+**NÃO** use `file:` symlink + incluir `../expo-utils` no `tsc` do app sem exclusão — vai poluir erros.
+
+### 2.3 Firebase (todos na MESMA versão)
+
+```text
+@react-native-firebase/app            25.1.0
+@react-native-firebase/analytics      25.1.0
+@react-native-firebase/auth           25.1.0
+@react-native-firebase/crashlytics    25.1.0
+@react-native-firebase/firestore      25.1.0
+@react-native-firebase/messaging      25.1.0
+@react-native-firebase/remote-config  25.1.0
+```
+
+### 2.4 Hot Updater
+
+```text
+@hot-updater/react-native   0.35.3
+@hot-updater/expo           0.35.3   (devDependency)
+@hot-updater/cloudflare     0.35.3   (devDependency)
+hot-updater                 0.35.3   (devDependency)
+```
+
+### 2.5 Ads / IAP / tracking / utils peers
+
+```text
+react-native-google-mobile-ads   16.4.0
+react-native-purchases           10.4.2
+react-native-fbsdk-next          13.4.3
+react-native-edge-to-edge        1.8.1
+react-native-fs                  2.20.0
+@microsoft/react-native-clarity  4.6.3
+@react-native-async-storage/async-storage  2.2.0
+@react-native-community/slider   5.2.0
+expo-tracking-transparency       ~57.0.1
+expo-device                      ~57.0.1
+expo-video                       ~57.0.1
+expo-tiktok-ads-events           0.1.6
+eas-build-cache-provider         20.0.0   (devDependency)
+```
+
+### 2.6 Navigation / UI RN (compat SDK 57)
+
+```text
+react-native-reanimated          4.5.0
+react-native-worklets            0.10.0    # OBRIGATÓRIO com Reanimated 4
+react-native-gesture-handler     2.32.0
+react-native-screens             4.25.2
+react-native-safe-area-context   5.7.0
+react-native-webview             13.16.1
+react-native-web                 0.21.2
+@expo/vector-icons               15.x
+@react-navigation/*              versões modernas alinhadas (meclivros: bottom-tabs 7.18.x etc.)
+```
+
+### 2.7 Pacotes expo-* do app (manter features do produto)
+
+Para cada pacote `expo-*` que o app já usa, force família **57**:
+
+```bash
+npx expo install expo-camera expo-image-picker expo-image-manipulator \
+  expo-media-library expo-haptics expo-image expo-file-system \
+  expo-font expo-splash-screen expo-linking expo-constants \
+  expo-localization expo-mail-composer expo-sharing expo-print \
+  expo-network expo-application expo-blur expo-linear-gradient \
+  expo-store-review expo-status-bar expo-system-ui expo-symbols \
+  expo-web-browser expo-dev-client expo-build-properties expo-insights
+```
+
+Depois:
+
+```bash
+npx expo install --fix
+```
+
+### 2.8 Remover / não trazer de volta
+
+| Remover | Motivo |
+|---------|--------|
+| `expo-updates` (se o fluxo for Hot Updater) | Conflito conceitual; meclivros não usa |
+| Bloco `"updates": {...}` no app.json | Idem |
+| `^` / `~` excessivos se o time pina deps (opcional) | Pin como meclivros se quiser builds reprodutíveis |
+
+### 2.9 DevDependencies
+
+```text
+typescript           ~6.0.3
+@types/react         19.2.x
+eslint-config-expo   57.x
+dotenv               atual
+```
+
+### 2.10 Install limpo
+
+```bash
+rm -rf node_modules package-lock.json   # se npm
+npm install
+npx expo install --fix
+```
+
+Detectar package manager: lockfile (`package-lock.json` → npm, `bun.lock` → bun). O CLI `expo-utils-install` também detecta.
+
+---
+
+## 3. `app.json` — o que REMOVER, MANTER e ADICIONAR
+
+### 3.1 REMOVER (obrigatório / recomendado)
+
+1. **Todo** `ios.infoPlist.SKAdNetworkItems`  
+   - O plugin do expo-utils injeta ~162 IDs no **prebuild**.  
+   - Lista gigante no app.json = legado.  
+   - CLI: `npx expo-utils-install --skadnetwork`
+
+2. **Bloco `updates`** (Expo Updates) se usar Hot Updater.
+
+3. **Plugins duplicados** (muito comum no legado):
+   - `expo-build-properties` 2x
+   - `expo-tracking-transparency` 2x  
+   Deixe **um** de cada.
+
+4. `android.edgeToEdgeEnabled` se o schema do Expo 57 reclamar (expo-doctor: *should NOT have additional property*). Edge-to-edge via plugin `react-native-edge-to-edge`.
+
+5. `newArchEnabled` se o template referência não usa (opcional; meclivros não declara).
+
+### 3.2 MANTER (específico do produto)
+
+- `name`, `slug`, `scheme`, `version`, `runtimeVersion`
+- `ios.bundleIdentifier` / `android.package`
+- `googleServicesFile` (iOS + Android) — **arquivos reais**, não template
+- `extra.eas.projectId`
+- Plugins de **câmera**, **image-picker**, permissões de mídia se o app precisa
+- IDs AdMob e Facebook do **app** (não copiar do meclivros)
+- `locales` / `languages/*`
+
+### 3.3 ADICIONAR / ALINHAR
+
+**iOS infoPlist mínimo (além do que o plugin injeta):**
+
+```json
+"infoPlist": {
+  "CFBundleAllowMixedLocalizations": true,
+  "ITSAppUsesNonExemptEncryption": false,
+  "UIBackgroundModes": ["remote-notification"]
+}
+```
+
+**entitlements:**
+
+```json
+"entitlements": { "aps-environment": "production" }
+```
+
+**Único bloco `expo-build-properties`:**
+
+```json
+[
+  "expo-build-properties",
+  {
+    "ios": {
+      "useFrameworks": "static",
+      "useModularHeaders": true,
+      "forceStaticLinking": [
+        "RNFBApp",
+        "RNFBAuth",
+        "RNFBFirestore",
+        "RNFBMessaging",
+        "RNFBCrashlytics",
+        "RNFBAnalytics",
+        "RNFBRemoteConfig"
+      ]
+    }
+  }
+]
+```
+
+**Plugin expo-utils (flags recomendadas meclivros):**
+
+```json
+[
+  "expo-utils",
+  {
+    "disableWarnings": false,
+    "disableLogs": false,
+    "skipDevMenuOnboarding": true,
+    "analyticsAdSupport": true,
+    "analyticsOnDeviceConversion": true,
+    "usageDescriptions": true,
+    "androidKotlinAdsFix": true,
+    "firebaseLogLevel": "error",
+    "disableAdsIfBuildIsNewerThanStore": true
+  }
+]
+```
+
+**edge-to-edge:**
+
+```json
+[
+  "react-native-edge-to-edge",
+  {
+    "android": {
+      "parentTheme": "Default",
+      "enforceNavigationBarContrast": false
+    }
+  }
+]
+```
+
+**experiments:**
+
+```json
+"experiments": {
+  "typedRoutes": true,
+  "reactCompiler": true,
+  "buildCacheProvider": "eas"
+}
+```
+
+**Hot updater plugin:**
+
+```json
+["@hot-updater/react-native", { "channel": "production" }]
+```
+
+**Ordem de plugins (padrão limpo):**
+
+1. Strings simples: `expo-router`, `expo-localization`, `expo-mail-composer`, `expo-sharing`, `expo-font`, `expo-video`, `expo-web-browser`, `@react-native-firebase/app`, `@react-native-firebase/crashlytics`
+2. Com config: splash, build-properties, image-picker/camera (se houver), tracking-transparency, google-mobile-ads, fbsdk-next, edge-to-edge, expo-utils, hot-updater
+
+CLI útil: `npx expo-utils-install --sort-plugins`
+
+**Opcional root-level (AdMob):**
+
+```json
+"react-native-google-mobile-ads": {
+  "android_app_id": "ca-app-pub-…~…",
+  "ios_app_id": "ca-app-pub-…~…"
+}
+```
+
+Nota: o Expo 57 pode avisar que a chave root não é do schema `expo` — ainda assim meclivros usa; os IDs **também** vão no plugin.
+
+### 3.4 CLI expo-utils (depois de ter o pacote instalado)
+
+```bash
+npx expo-utils-install
+npx expo-utils-install --skadnetwork --sort-plugins --fix-ios-build --eas-config --hot-updater
+# Opcional: --languages  (purpose strings iOS localizadas)
+```
+
+**Não rode `--layout` se o app já tem Stack custom** — reescreva o layout manualmente (seção 4).
+
+---
+
+## 4. Boot: `_layout.tsx` + `Strings.ts` + babel
+
+### 4.1 `src/constants/Strings.ts` (AppStrings)
+
+**ANTES (legado plant):**
+
+```ts
+export default Platform.select({ android: androidAdUnits, default: iosAdUnits });
+// prepare(…, adUnits, revenueKeys)  ← 4º arg keys RevenueCat separado
+```
+
+**DEPOIS (obrigatório):**
+
+```ts
+import {Platform} from "react-native";
+
+const hotUpdaterUrl = "https://SEU-WORKER.workers.dev/api/check-update";
+
+const ios = {
+  hotUpdaterUrl,
+  rckey: "appl_…",           // RevenueCat iOS
+  adUnits: {
+    appOpen: "ca-app-pub-…/…",
+    banner: "ca-app-pub-…/…",
+    interstitial: "ca-app-pub-…/…",
+    rewarded: "ca-app-pub-…/…",
+  },
+};
+
+const android = {
+  hotUpdaterUrl,
+  rckey: "goog_…",
+  adUnits: { /* … */ },
+};
+
+export default Platform.OS === "android" ? android : ios;
+```
+
+**Conferir:**
+
+- [ ] `hotUpdaterUrl` aponta para o worker **deste** app
+- [ ] `rckey` iOS começa com `appl_`, Android com `goog_`
+- [ ] Ad units reais (não placeholder `…/0000` — no plant o interstitial Android estava quebrado e foi restaurado para o ID real)
+- [ ] Placeholder `YOUR_REVENUECAT` desativa RevenueCat no utils — nunca deixe em produção
+
+### 4.2 `src/app/_layout.tsx`
+
+**REMOVER:**
+
+- `import Utils from "expo-utils/utils/Utils"`
+- `import { getUpdateSource, HotUpdater } from "@hot-updater/react-native"`
+- `useState(appIsReady)` + `useEffect` com `Utils.prepare(...)`
+- `export default HotUpdater.wrap(...)(RootLayout)`
+- `SafeAreaProvider` só se não for mais necessário (edge-to-edge + layout do utils cobrem o comum)
+- `revenueKeys` embutido no layout
+
+**ADICIONAR padrão meclivros:**
+
+```tsx
+import {Stack} from "expo-router";
+import {ExpoUtilsLayout} from "expo-utils/utils/ExpoUtilsLayout";
+import type {RemoteConfigUtilsType} from "expo-utils/utils/types";
+import appConfig from "../../app.json";
+import appStrings from "@/constants/Strings";
+
+declare global {
+  var remoteConfigUtils: RemoteConfigUtilsType;
+  var remoteConfigScreens: any;
+  var isAdsEnabled: boolean;
+  var adUnits: any;
+}
+
+export default function RootLayout() {
+  return (
+    <ExpoUtilsLayout appConfig={appConfig} appStrings={appStrings}>
+      <Stack screenOptions={{ headerShown: false }}>
+        {/* MANTER todas as Stack.Screen do app: tabs, paywall, camera, etc. */}
+      </Stack>
+    </ExpoUtilsLayout>
+  );
+}
+```
+
+**O que o ExpoUtilsLayout já faz (não reimplementar):**
+
+- `initHotUpdater(appStrings.hotUpdaterUrl)`
+- `Utils.prepare` (Remote Config, RevenueCat, globals)
+- App-open ads listener
+- Promo modal
+- Ask-for-review overlay
+- ATT pós-primeiro-frame (`Utils.handleReady`)
+- Splash control
+
+Props opcionais: `fcmTrackingAllowed={false}` se o app pede push só no onboarding; `onReady` callback.
+
+### 4.3 `babel.config.js`
+
+**ANTES:**
+
+```js
+plugins: ["hot-updater/babel-plugin"]
+```
+
+**DEPOIS:**
+
+```js
+plugins: ["@hot-updater/expo/babel-plugin"]
+```
+
+Preset: `babel-preset-expo`.
+
+### 4.4 `hot-updater.config.ts`
+
+Já no formato `@hot-updater/cloudflare` + `expo()` + `updateStrategy: "appVersion"` → só garantir deps 0.35.x.  
+Não misturar API do hot-updater 0.20.
+
+---
+
+## 5. Remote Config — migração de código + Firebase
+
+### 5.1 Modelo novo (expo-utils 1.x+)
+
+| Key no Firebase Console | Global no app | Conteúdo |
+|-------------------------|---------------|----------|
+| `utils` (JSON string) | `global.remoteConfigUtils` **e** alias `global.remoteConfigs` | ads, review, promo, clarity, tiktok, min_version… |
+| `screens` (JSON string) | `global.remoteConfigScreens` (`RemoteConfigScreensType`) | features do app: api, paywall, limits, flags + **`cross_promo` (obrigatório em todo app — ver 5.3)** |
+
+**Se o Firebase continuar com um único JSON flat antigo, o app sobe com defaults e paywall/API quebram.**
+
+### 5.2 Tabela de substituição de leituras (plant-ai — adapte ao app)
+
+| Código legado | Código novo |
+|---------------|-------------|
+| `global.remoteConfigs?.api_url` | `global.remoteConfigScreens?.api_url` |
+| `global.remoteConfigs?.paywall_data.*` | `global.remoteConfigScreens?.paywall?.*` |
+| `global.remoteConfigs?.free_limits` | `global.remoteConfigScreens?.free_limits` |
+| `global.remoteConfigs?.is_paywall_enabled` | `global.remoteConfigScreens?.is_paywall_enabled` |
+| `global.remoteConfigs?.store_ratings_type` | `global.remoteConfigUtils?.review_type` |
+
+**Arquivos tocados no plant (lista real):**
+
+- `src/services/plant-api.ts`
+- `src/app/paywall.tsx`
+- `src/app/result.tsx`
+- `src/app/(tabs)/index.tsx`
+- `src/app/(tabs)/diagnostic.tsx`
+- `src/app/(tabs)/my-garden.tsx`
+- `src/app/(tabs)/settings.tsx`
+- `src/app/(tabs)/_layout.tsx`
+- `src/utils/plant-storage.ts`
+
+### 5.3 Exemplo de JSON `screens` (plant)
+
+```json
+{
+  "api_url": "https://…",
+  "is_paywall_enabled": true,
+  "free_limits": {
+    "total_identifications": 3,
+    "total_diagnoses": 3,
+    "max_history": 20,
+    "max_group": 2
+  },
+  "cross_promo": {
+    "enabled": true,
+    "title": "…",
+    "app_name": "…",
+    "subtitle": "…",
+    "cta": "…",
+    "ios_url": "https://apps.apple.com/…",
+    "android_url": "https://play.google.com/…",
+    "screens": ["home"]
+  },
+  "paywall": {
+    "selected_product": "…",
+    "close_button_delay": 5000,
+    "primary_button_text": "…",
+    "disclaimer_text": "…",
+    "list_of_products": [ /* … */ ],
+    "extras": { "show_arrow": true }
+  }
+}
+```
+
+**`cross_promo` é campo OBRIGATÓRIO do `RemoteConfigScreensType` (`utils/types.ts`)** — todo app do portfólio deve ter cross-promo implementado em algum lugar. O card pronto é o `CrossPromoCard` (`utils/cross-promo-card.tsx`); sem a key no Remote Config o app monta `remoteConfigScreens` incompleto e o typecheck acusa.
+
+### 5.4 Exemplo mínimo `utils`
+
+```json
+{
+  "is_ads_enabled": true,
+  "min_version": 0,
+  "ios_app_id": "",
+  "review_type": "store-review",
+  "review_type_delay": 0,
+  "review_show_delay": 0,
+  "repeat_ads_count": 3,
+  "ad_blocklist": [],
+  "promotional": { "enabled": false },
+  "clarity_id": "",
+  "trends_tracking_url": ""
+}
+```
+
+Valores de `review_type`: `"store-review"` | `"popup"` | `"dialog"`.
+
+### 5.5 Optional chaining
+
+Sempre use `?.` em `paywall`, `free_limits`, `extras` — se `screens` vier `{}` no boot, **não pode crashar**.
+
+---
+
+## 6. Premium unificado
+
+### 6.1 Problema
+
+Código local duplicava lógica do RevenueCat e podia divergir de banners/app-open/interstitial (que usam a lib).
+
+### 6.2 Correção
+
+```ts
+// plant-storage.ts (ou util equivalente)
+import {PremiumUtils} from "expo-utils/utils/PremiumUtils";
+
+export async function checkPremiumStatus(): Promise<boolean> {
+  return PremiumUtils.getIsPremiumStatus();
+}
+```
+
+**Por que path profundo `expo-utils/utils/PremiumUtils`?**  
+O `index.d.ts` da 1.2.5 pode estar **desatualizado** em relação ao `index.ts` (que exporta `PremiumUtils`). O deep import evita erro TS/`Did you mean default import`.
+
+### 6.3 Escrita de premium (paywall)
+
+```ts
+await PremiumUtils.setIsPremiumStatus(true);
+// em vez de AsyncStorage.setItem("@isPremium", "true")
+```
+
+### 6.4 Comportamento da lib (não reimplementar)
+
+- **DEV:** lê `@isPremium === "true"` (toggle)
+- **PROD:** sempre RevenueCat via `isRevenueCatActive()`; storage **não** é fonte de verdade
+- `willRenew` + `unsubscribeDetectedAt` controlam opt-out (exceto flag RC `is_opted_out_trial_enabled`)
+
+Key AsyncStorage: `@isPremium` (mesmo valor que muitos apps já usam em `STORAGE_KEYS.PREMIUM_STATUS`).
+
+---
+
+## 7. Breaking changes de APIs do Expo 57 / RN 0.86
+
+### 7.1 `expo-file-system`
+
+**Sintoma TS:**
+
+```text
+Property 'FileSystemUploadType' does not exist on type 'typeof import("expo-file-system")'
+```
+
+**Correção:** importar o legacy:
+
+```ts
+import * as FileSystem from "expo-file-system/legacy";
+// uploadAsync, FileSystemUploadType, FileSystemSessionType, getInfoAsync continuam iguais
+```
+
+O import principal do pacote **joga** nas APIs deprecadas em runtime se usado sem `/legacy`.
+
+### 7.2 `ColorSchemeName` inclui `"unspecified"`
+
+**Sintoma TS:**
+
+```text
+Element implicitly has an 'any' type because expression of type 'ColorSchemeName'
+can't be used to index type { light: …; dark: … }
+Property 'unspecified' does not exist…
+```
+
+**Correção (feita no plant):**
+
+```ts
+// Colors.ts
+export function getColors(scheme?: string | null) {
+  return Colors[scheme === "dark" ? "dark" : "light"];
+}
+```
+
+Substituir **todas** as ocorrências:
+
+```ts
+// ANTES
+const colors = Colors[colorScheme ?? "light"];
+// DEPOIS
+const colors = getColors(colorScheme);
+```
+
+E em props que aceitam só `"light" | "dark"`:
+
+```tsx
+appearance={colorScheme === "dark" ? "dark" : "light"}
+```
+
+Arquivos plant com `getColors`: todos os screens/components que usavam `Colors[colorScheme ?? "light"]` (~17 arquivos).
+
+### 7.3 Reanimated 4
+
+Sem `react-native-worklets` o bundle quebra. Instale na versão pedida pelo `expo install`.
+
+### 7.4 HotUpdater API
+
+Não use mais:
+
+```ts
+HotUpdater.wrap({ source: getUpdateSource(url, { updateStrategy: "appVersion" }) })(RootLayout)
+```
+
+Use URL em `appStrings.hotUpdaterUrl` + `initHotUpdater` dentro do `ExpoUtilsLayout`.
+
+---
+
+## 8. Ads / review (mínimo a validar)
+
+- Manter imports:
+  - `expo-utils/utils/banner-ad`
+  - `expo-utils/utils/LoadAdsManager`
+  - `expo-utils/utils/styles` (ExpoUtilsStyles)
+- `LoadAdsManager.showInterstitial()` — na lib nova **não pendura** (sempre resolve)
+- Review local do app pode coexistir com overlay da lib — controle via `review_type` no RC para não double-prompt
+- `global.isAdsEnabled` / store gate: se `disableAdsIfBuildIsNewerThanStore: true`, ads desligam em build mais nova que a loja
+
+---
+
+## 9. Ordem de execução (copy-paste mental)
+
+```text
+1.  Ler expo-utils package.json (versão + peers)
+2.  Ler meclivros (package/app.json/_layout/Strings) como moldes
+3.  Grep legado no app-alvo (seção 1.2)
+4.  Reescrever package.json (core + peers + product packages)
+5.  npm pack expo-utils 1.2.5 + npm install
+6.  npx expo install --fix
+7.  Reescrever app.json (SKAd out, plugins limpos, forceStaticLinking, flags utils)
+8.  Strings.ts → AppStrings
+9.  _layout.tsx → ExpoUtilsLayout + Stack existente
+10. babel → @hot-updater/expo/babel-plugin
+11. Migrar todas as leituras remoteConfig* (grep até zero legado)
+12. PremiumUtils em checkPremium / set premium
+13. expo-file-system/legacy se uploadAsync/getInfoAsync
+14. getColors se Colors[colorScheme]
+15. npx tsc --noEmit  (corrigir até zero erros DO APP)
+16. npx expo-doctor   (schema app.json limpo)
+17. Firebase Console: migrar keys utils + screens  (HUMANO / ops)
+18. npx expo run:ios / run:android  (primeira build demora: gRPC/Firestore)
+19. Smoke test telas
+```
+
+---
+
+## 10. Checklist de verificação (pass/fail)
+
+### 10.1 Instalação / types
+
+- [ ] `npm install` (ou bun) sem erro fatal
+- [ ] `npx tsc --noEmit` → **exit 0** no app (erros só em `../expo-utils` se symlink = trocar por tarball)
+- [ ] Não há `global.remoteConfigs?.paywall_data` nem `store_ratings_type` no src
+- [ ] Não há `HotUpdater.wrap` nem `Utils.prepare` no `_layout`
+- [ ] `babel.config.js` usa `@hot-updater/expo/babel-plugin`
+- [ ] Existe `react-native-worklets` no package.json
+- [ ] Todos `@react-native-firebase/*` na mesma versão
+
+### 10.2 app.json
+
+- [ ] Zero `SKAdNetworkItems` no app.json
+- [ ] Um único `expo-build-properties` com `forceStaticLinking` RNFB*
+- [ ] Plugin `expo-utils` com flags
+- [ ] Plugin `@hot-updater/react-native`
+- [ ] Sem bloco `updates` se Hot Updater
+- [ ] `UIBackgroundModes` inclui `remote-notification`
+- [ ] AdMob / Facebook IDs do **produto**
+
+### 10.3 Runtime (device/simulador)
+
+- [ ] App passa do splash (não fica preto infinito)
+- [ ] Onboarding / index navega
+- [ ] Tabs renderizam
+- [ ] Banner não crasha se sem unitId
+- [ ] Paywall abre se `screens.paywall` + rckey válidos
+- [ ] Identificação/API se `screens.api_url` válido
+- [ ] Interstitial não trava o fluxo
+- [ ] Premium dev toggle / compra grava e `checkPremiumStatus` reflete
+
+### 10.4 Expo doctor
+
+- [ ] Schema app.json sem propriedades inválidas
+- [ ] Avisos de Directory (`react-native-fs` unmaintained) são **esperados** (peer do utils) — não bloqueiam
+
+---
+
+## 11. Armadilhas reais encontradas neste projeto
+
+| # | Armadilha | Sintoma | Correção |
+|---|-----------|---------|----------|
+| 1 | `Utils.prepare(..., adUnits, revenueKeys)` | RC key errada / RevenueCat não configura | AppStrings com `rckey` + `adUnits` |
+| 2 | SKAd no app.json | arquivo monstro, IDs duplicados | remover; plugin prebuild |
+| 3 | Plugins duplicados | prebuild confuso | um de cada |
+| 4 | Remote Config flat | paywall/API undefined | keys `utils` + `screens` + rewrites |
+| 5 | `paywall_data` nome | UI vazia | renomear para `paywall` em screens |
+| 6 | `store_ratings_type` | review nunca no modo certo | `review_type` em utils |
+| 7 | HotUpdater.wrap legado | API 0.20 | ExpoUtilsLayout + hotUpdaterUrl |
+| 8 | babel `hot-updater/babel-plugin` | OTA plugin errado | `@hot-updater/expo/babel-plugin` |
+| 9 | Sem worklets | crash Reanimated 4 | `react-native-worklets` |
+| 10 | Firebase 23 + Expo 57 | pods/native mismatch | Firebase 25 monorepo pin |
+| 11 | `file:../expo-utils` symlink | tsc errora em peers do utils | tarball `.tgz` |
+| 12 | `index.d.ts` sem PremiumUtils | TS2614 | import `expo-utils/utils/PremiumUtils` |
+| 13 | FileSystem v57 | TS + runtime throw | `expo-file-system/legacy` |
+| 14 | ColorScheme `unspecified` | TS7053 em 15+ arquivos | `getColors()` |
+| 15 | Interstitial Android `…/0000` | ads mortos | restaurar unit ID real |
+| 16 | `edgeToEdgeEnabled` no android | expo-doctor schema fail | remover do app.json |
+| 17 | Root key `react-native-google-mobile-ads` | warning schema | ok manter + plugin |
+| 18 | Primeira `expo run:ios` | “travado” em gRPC-Core | normal 10–30+ min; é compile |
+| 19 | `smctl` | comando não existe | usar `xcrun simctl` (+ screenshots/maestro) |
+| 20 | Premium local vs ads | usuário premium ainda vê ads | `PremiumUtils` fonte única |
+
+---
+
+## 12. O que NÃO reescrever (escopo)
+
+A menos que o usuário peça:
+
+- UI visual das telas (layout, cores de marca)
+- Lógica de negócio específica (API de plantas, storage de garden, onboarding steps)
+- `server/` PHP ou backend
+- Trocar i18n local (`i18n-js`) pelo i18n do utils (opcional; plant manteve o local)
+- Migrar paywall custom → `usePaywall` (opcional; plant manteve UI custom, só mudou fonte RC)
+
+---
+
+## 13. Comandos úteis pós-migração
+
+```bash
+# Types
+npx tsc --noEmit
+
+# Doctor
+npx expo-doctor
+
+# iOS (primeira build nativa demora)
+npx expo run:ios --device "iPhone 16 Pro"
+
+# Android
+npx expo run:android
+
+# Simulador screenshots (em vez de smctl)
+xcrun simctl io booted screenshot /tmp/screen.png
+xcrun simctl openurl booted "expoplantai://"
+
+# Grep anti-regressão
+rg -n "paywall_data|store_ratings_type|HotUpdater\.wrap|Utils\.prepare\(|hot-updater/babel-plugin|Colors\[colorScheme" src package.json babel.config.js || echo "OK limpo"
+```
+
+---
+
+## 14. Mapa de arquivos alterados no expo-plant-ai (referência)
+
+| Arquivo | Tipo de mudança |
+|---------|-----------------|
+| `package.json` / lock | Expo 57 + utils 1.2.5 + peers |
+| `app.json` | limpeza SKAd, plugins, experiments |
+| `babel.config.js` | plugin hot-updater novo |
+| `src/constants/Strings.ts` | AppStrings |
+| `src/constants/Colors.ts` | `getColors()` |
+| `src/app/_layout.tsx` | ExpoUtilsLayout |
+| `src/utils/plant-storage.ts` | PremiumUtils + free_limits path |
+| `src/services/plant-api.ts` | remoteConfigScreens + file-system/legacy |
+| `src/app/paywall.tsx` | screens.paywall + PremiumUtils.set |
+| `src/app/result.tsx` | review_type + getColors + appearance |
+| `src/app/(tabs)/*` | remoteConfigScreens / Utils + getColors |
+| `src/components/*` | getColors |
+| `hot-updater.config.ts` | deps ok (já formato novo) |
+
+---
+
+## 15. Prompt mínimo para outra IA
+
+Cole isto no início da tarefa:
+
+```text
+Migre este app Expo legado para Expo SDK 57 + expo-utils 1.2.5.
+
+Siga o arquivo docs/UPGRADE-EXPO57-EXPO-UTILS.md do zero ao fim, sem pular checklist.
+
+Use como referência:
+- ../expo-utils (package.json peers, templates/RootLayout.tsx, templates/Strings.ts)
+- ../expo-meclivros (package.json, app.json, _layout, Strings)
+
+Regras:
+1. ExpoUtilsLayout no root; sem HotUpdater.wrap legado.
+2. Strings = { hotUpdaterUrl, rckey, adUnits } por plataforma.
+3. Firebase RC keys utils + screens; reescrever todas as leituras no código.
+4. PremiumUtils para premium.
+5. Remover SKAdNetworkItems do app.json.
+6. babel: @hot-updater/expo/babel-plugin.
+7. Reanimated 4 + react-native-worklets.
+8. expo-file-system/legacy se usar uploadAsync/getInfoAsync.
+9. getColors() se Colors[colorScheme] quebrar com "unspecified".
+10. npx tsc --noEmit limpo; npx expo install --fix; não commitar secrets .env.hotupdater.
+11. NÃO reescrever UI de features; só stack + contrato utils + breaking APIs.
+12. Ao final, listar o que falta no Firebase Console (humano).
+```
+
+---
+
+## 16. Status Firebase (ação humana, fora do repo)
+
+Após o código, alguém com acesso ao Firebase Remote Config do app deve:
+
+1. Criar/atualizar parâmetro **`utils`** (JSON) — ads/review/promo.
+2. Criar/atualizar parâmetro **`screens`** (JSON) — api_url, free_limits, paywall, flags.
+3. Remover dependência do JSON flat antigo (ou deixar de ler).
+4. Publicar RC para os apps iOS/Android corretos.
+
+Sem isso o app “compila e abre”, mas paywall/limites/API podem ficar vazios.
+
+---
+
+*Gerado a partir da migração real do expo-plant-ai (Expo 53 → 57 + expo-utils 1.2.5). Atualize este doc se o expo-utils mudar peers ou contrato de prepare/layout.*

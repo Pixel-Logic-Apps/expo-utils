@@ -982,17 +982,20 @@ function handleConstantsFlag() {
 }
 
 function handleClaudeMdFlag() {
-    const srcPath = path.join(moduleDir, "CLAUDE.md");
-    const destPath = path.join(projectRoot, "CLAUDE.md");
+    // AGENTS.md tem o conteúdo; CLAUDE.md é só o ponteiro `@AGENTS.md`.
+    ["AGENTS.md", "CLAUDE.md"].forEach((fileName) => {
+        const srcPath = path.join(moduleDir, "templates", fileName);
+        const destPath = path.join(projectRoot, fileName);
 
-    if (!fs.existsSync(srcPath)) return;
+        if (!fs.existsSync(srcPath)) return;
 
-    if (!fs.existsSync(destPath)) {
-        fs.copyFileSync(srcPath, destPath);
-        console.log(chalk.green("📄 Created CLAUDE.md in project root."));
-    } else {
-        console.log(chalk.yellow("📄 CLAUDE.md already exists. Skipping."));
-    }
+        if (!fs.existsSync(destPath)) {
+            fs.copyFileSync(srcPath, destPath);
+            console.log(chalk.green(`📄 Created ${fileName} in project root.`));
+        } else {
+            console.log(chalk.yellow(`📄 ${fileName} already exists. Skipping.`));
+        }
+    });
 }
 
 function handleGitignoreFlag() {

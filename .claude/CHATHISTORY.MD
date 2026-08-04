@@ -1306,3 +1306,16 @@ await askForReview(undefined, undefined, 3000); // override local
 
 **Resultado:** Sucesso — `expo-utils@1.2.1` no npm (`latest`), `main` em `6f87d1d`.
 
+
+---
+
+# 2026-07-31 — Store-Ready Playbook copiado do expo-eleicao-1
+
+**Pedido:** Copiar o playbook que está em eleição para dentro do expo-utils.
+
+**Ação:**
+- Origem: `expo-eleicao-1/fastlane/STORE-READY-PLAYBOOK.md` (665 linhas)
+- Destino: `expo-utils/docs/STORE-READY-PLAYBOOK.md`
+
+Playbook operacional (pldev + Fastlane + AI) para deixar app Expo store-ready com gate humano passo a passo. Ainda **não commitado** no repo expo-utils nesta sessão (só copiado).
+

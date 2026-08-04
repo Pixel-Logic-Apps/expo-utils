@@ -95,6 +95,36 @@ export interface RemoteConfigUtilsType {
 }
 
 /**
+ * Config do cross-promo de portfólio (card que anuncia outro app da casa).
+ * Lida de `remoteConfigScreens.cross_promo` — ver `CrossPromoCard`.
+ */
+export type CrossPromoConfig = {
+    enabled?: boolean;
+    title?: string;
+    app_name?: string;
+    subtitle?: string;
+    icon_url?: string;
+    cta?: string;
+    url?: string;
+    ios_url?: string;
+    android_url?: string;
+    screens?: string[];
+};
+
+/**
+ * Mapa da key `screens` do Remote Config (features/telas configuráveis do app).
+ *
+ * `cross_promo` é OBRIGATÓRIO: todo app do portfólio deve ter cross-promo
+ * implementado em algum lugar (home, resultado, histórico, settings…). O type
+ * força a presença da config; apps que montarem o objeto na mão sem a key
+ * quebram no typecheck — é a enforcement da regra de portfólio.
+ */
+export interface RemoteConfigScreensType {
+    cross_promo: CrossPromoConfig;
+    [key: string]: any;
+}
+
+/**
  * Augmentação global injetada pela própria lib. Como este arquivo é importado em toda a cadeia
  * que usa o expo-utils (Utils -> ./types, o template, o index), o TypeScript carrega esta
  * declaração automaticamente no projeto que instala o pacote — o dev NÃO precisa criar nenhum
@@ -109,7 +139,7 @@ declare global {
     // Alias de remoteConfigUtils (mesmo objeto), setado pelo setupGlobalConfigs — nome
     // documentado no CLAUDE.md; o store gate e apps legados leem/escrevem por ele.
     var remoteConfigs: RemoteConfigUtilsType;
-    var remoteConfigScreens: any;
+    var remoteConfigScreens: RemoteConfigScreensType;
     var isAdsEnabled: boolean;
     // Setada (true) pelo gate fail-closed de versão da loja (Utils.disableAdsIfBuildIsNewerThanStore)
     // quando ele bloqueia os ads. Flag própria do gate — o prepare() não encosta nela; apps podem

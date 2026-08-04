@@ -1,4 +1,37 @@
-# AGENTS.md - Instrucoes para checksum MD5 do Remote Config
+# AGENTS.md - Instrucoes para agentes que trabalham no expo-utils
+
+## Docs de upgrade (OBRIGATORIO manter atualizado)
+
+Playbook para migrar apps legados (Expo 53 + API antiga) → stack atual:
+
+- **`docs/UPGRADE-EXPO57-EXPO-UTILS.md`**
+
+**Regra:** sempre que este repositorio mudar algo que afete a migracao de um app host, **atualize esse arquivo na mesma tarefa** (nao deixe para depois, nao abra so PR de codigo).
+
+Atualize o doc se voce alterar qualquer um destes:
+
+- `package.json` peers / versoes alvo (Expo, RN, React, Firebase, hot-updater, purchases, admob, reanimated/worklets, etc.)
+- Contrato de boot: `Utils.prepare`, `ExpoUtilsLayout`, `initHotUpdater`, `AppStrings` / `templates/Strings.ts` / `templates/RootLayout.tsx`
+- Remote Config: keys `utils` / `screens`, shape de `RemoteConfigUtilsType`, nomes de campos legados vs novos
+- Premium: `PremiumUtils`, regras DEV/prod, exports em `index.ts` / `index.d.ts`
+- Config plugin (`app.plugin.js`): SKAdNetwork, ATT, usage descriptions, forceStaticLinking, flags documentadas
+- CLI (`bin/install.js`): flags novas/renomeadas/comportamento de `--new`, `--skadnetwork`, `--hot-updater`, etc.
+- Breaking changes de runtime (ads, paywall, ATT, babel plugin path, file-system legacy, etc.)
+- Armadilhas novas descobertas ao migrar um app real
+
+O doc e o roteiro que **qualquer IA** segue para upgrade. Se o codigo mudar e o doc nao, o upgrade quebra na mao de quem copiar o checklist.
+
+Tambem: se `index.ts` exportar API publica nova, mantenha `index.d.ts` em sync (o playbook cita deep import quando o `.d.ts` fica atrasado).
+
+
+## Cross-promo (OBRIGATORIO em todo app)
+
+- Todo app do portfólio deve ter cross-promo implementado em algum lugar (home, resultado, histórico, settings…). Sem exceção.
+- O card pronto é `utils/cross-promo-card.tsx` (`CrossPromoCard`), que lê `remoteConfigScreens.cross_promo` (`CrossPromoConfig`).
+- `cross_promo` é campo OBRIGATÓRIO do `RemoteConfigScreensType` (`utils/types.ts`) — app que montar `remoteConfigScreens` sem a key quebra no typecheck. É a enforcement da regra.
+
+
+# Checksum MD5 do Remote Config
 
 Este documento descreve como implementar (em um app Expo que consome o `expo-utils`)
 um checksum MD5 de alguns campos do Remote Config e enviar para o Firebase Analytics,

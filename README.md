@@ -1286,7 +1286,8 @@ declare global {
 - `_layout.tsx` - Layout principal com inicialização completa
 - `index.tsx` - Tela inicial básica
 - `Strings.ts` - Template de constantes do app (copiado para src/constants/)
-- `CLAUDE.md` - Instruções para Claude Code (copiado para raiz do projeto)
+- `AGENTS.md` - Instruções para agentes de IA (copiado para raiz do projeto)
+- `CLAUDE.md` - Ponteiro `@AGENTS.md` para o Claude Code (copiado para raiz do projeto)
 - `google-services.json` - Placeholder Firebase Android
 - `GoogleService-Info.plist` - Placeholder Firebase iOS
 - `babel.config.js` - Config com Hot Updater plugin

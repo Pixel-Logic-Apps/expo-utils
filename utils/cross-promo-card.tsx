@@ -11,18 +11,11 @@ import {
     type ViewStyle,
 } from "react-native";
 
-export type CrossPromoConfig = {
-    enabled?: boolean;
-    title?: string;
-    app_name?: string;
-    subtitle?: string;
-    icon_url?: string;
-    cta?: string;
-    url?: string;
-    ios_url?: string;
-    android_url?: string;
-    screens?: string[];
-};
+import type {CrossPromoConfig} from "./types";
+
+// Re-export: a fonte do type é o types.ts (onde o cross_promo é obrigatório no
+// RemoteConfigScreensType). Mantido aqui para não quebrar imports existentes.
+export type {CrossPromoConfig};
 
 export type CrossPromoColors = {
     backgroundElement: string;
