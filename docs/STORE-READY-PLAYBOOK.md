@@ -381,6 +381,14 @@ fastlane ios push all
 # opções comuns: skip_iap:true | skip_policy:true | force_all:true
 ```
 
+> **Rodando de dentro de `fastlane/ios`, use a forma do namespace.** Lá o
+> `platform :ios` tem uma lane `push` que é **metadata sem screenshots nem
+> binário** — `fastlane ios push all` vira essa lane com um argumento solto,
+> termina com exit 0 e **nenhum screenshot sobe**. O erro só aparece na
+> submissão, como `App screenshot missing (APP_IPHONE_65)`. Confira com
+> `bundle exec fastlane lanes`: o que existe ali é `ios push`, `ios push_all` e
+> o namespace `push` (`push all`, `push screenshots`, …).
+
 - Se IAP ainda sem fotos: `skip_iap:true` no push de listing, **depois** I.1 + `push iap`.
 - Inclui metadata + screenshots + privacy + IAP (quando catálogo ativo), conforme kit.
 - **App Privacy Details** pode ser **pulado** pelo kit se o JSON declara tracking e o ASC já tem privacy — ver **Etapa M.1**.
