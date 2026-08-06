@@ -519,6 +519,57 @@ pldev project hotupdater -a <conta>
 Controles do script: R2/D1 com o **mesmo nome** na conta → reutiliza `(ja existia)`; se faltam → cria.  
 `.env.hotupdater` + `hotUpdaterUrl` no `Strings.ts` são **reescritos**. `hot-updater.config.ts` se já existe é **preservado**. Não apaga o stack da conta antiga.
 
+**Provisionar não é testar.** O stack pode subir inteiro e o OTA nunca chegar no app — URL errada, canal errado, `updateStrategy` divergente. Faça a Etapa O.2 antes de submeter.
+
+### Etapa O.2 — Validar o OTA ponta a ponta (obrigatória)
+
+**Onde testar.** Se o app ainda está `PREPARE_FOR_SUBMISSION`, pode usar o canal `production`: não há revisor nem usuário para receber o bundle. Depois de submetido, **não** — o revisor baixa o que estiver no canal. Aí use outro canal (o canal é assado no binário: `HOT_UPDATER_CHANNEL` no `Info.plist`).
+
+**1. O endpoint responde?** O SDK monta a URL assim (`DefaultResolver.ts`):
+
+```
+{hotUpdaterUrl}/app-version/{platform}/{appVersion}/{channel}/{minBundleId}/{bundleId}/{cohort}
+```
+
+```bash
+NIL=00000000-0000-0000-0000-000000000000
+curl -s "<hotUpdaterUrl>/app-version/ios/1.0.0/production/$NIL/$NIL/50"
+```
+
+`null` = nada a fazer. `200` com `null` já prova que a rota existe — 404 aqui significa `hotUpdaterUrl` errada no `Strings.ts`.
+
+> **Cohort é 1–1000** (ou slug minúsculo). Mandar `0` devolve `null` **silenciosamente**, e você perde tempo achando que o bundle não subiu. Um `null` é ambíguo: pode ser sem bundle, já atualizado, ou cohort inválido.
+
+**2. Publica um bundle com marcador visível.** OTA só roda em **release** (`initHotUpdater` sai cedo em `__DEV__`), então precisa do build release instalado — o mesmo binário do teste, sem reinstalar.
+
+```bash
+# marque algo inequívoco no app (ex.: Texts.ts → title: "Documentos OTA ✅")
+bunx hot-updater deploy -p ios -t 1.0.0 -c production -f -m "teste de OTA (temporario)"
+```
+
+`-f` (force update) faz o app recarregar na hora — o marcador aparece num único launch, sem precisar abrir duas vezes.
+
+**3. Confirma no app.** Encerre e abra: o marcador tem que estar lá, **com o binário intocado**. Se aparecer, o caminho todo funciona: Worker → D1 → R2 → download → reload.
+
+**4. Testa o rollback** — é a alavanca de emergência, e ninguém descobre que ela está quebrada numa hora boa:
+
+```bash
+bunx hot-updater bundle disable <bundle-id> -y   # em shell não-TTY o -y é obrigatório
+```
+
+O endpoint passa a devolver `{"status":"ROLLBACK","id":"<NIL>","shouldForceUpdate":true}` para quem está no bundle, e o app volta ao embutido no próximo launch. `bundle delete` devolve `ROLLBACK` igual — deletar não deixa ninguém preso no bundle removido.
+
+**5. Limpa antes de submeter:**
+
+```bash
+bunx hot-updater bundle delete <bundle-id> -y
+bunx hot-updater bundle list          # tem que dizer "(no bundles)"
+```
+
+E reverta o marcador no código. O `deploy` também acrescenta `.hot-updater/output` ao `.gitignore` — isso é para ficar.
+
+**Sucesso:** marcador apareceu sem reinstalar o app, rollback voltou ao embutido, `bundle list` vazio e canal limpo.
+
 ### Etapa O.1 — Firebase Remote Config: utils + screens (**rehome / conta alvo**)
 
 Arquivos locais (contrato do app):
@@ -649,6 +700,7 @@ Não dá para “subir a loja” só com pldev: o **`fastlane ios push all`** é
 - [ ] **App Privacy Details** publicados no ASC (force + senha + SMS se preciso — Etapa M.1)
 - [ ] RevenueCat com keys + **`fastlane revenuecat sync iap`**
 - [ ] Hot Updater na conta alvo (`hotUpdaterUrl` sem conta antiga)
+- [ ] Hot Updater **validado ponta a ponta** (Etapa O.2): update aplicou no binário instalado, rollback voltou, `bundle list` vazio
 - [ ] Remote Config **utils + screens** no Firebase da conta alvo (condições do app atual)
 - [ ] Build+submit se no escopo
 - [ ] Sem leftovers óbvios da conta antiga (grep)
