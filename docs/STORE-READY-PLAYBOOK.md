@@ -167,6 +167,83 @@ Anotar leftovers da conta antiga (email, pub-id AdMob, blogspot, rckey, product 
 
 ---
 
+## 2.1 Gate de credenciais (bloqueante — **não** é read-only)
+
+**Se iOS está no escopo, isto roda antes da Etapa A.** Falhou aqui, o job não começa.
+
+Android-only, ou iOS fora do escopo e sem credencial preenchida: pular a seção inteira.
+
+**Por que existe**
+
+`pldev fastlane auth status` é uma checagem de **presença**, campo a campo, toda offline:
+
+```js
+// eas-login-cli/commands/fastlane.js
+printStatusLine('Senha Apple ID', present(apple.password), 'salva');
+```
+
+“salva” **não** quer dizer “correta”. E a única etapa que usa a senha é a **M.1**, lá no
+fim. Uma senha errada ou vencida no cache só aparece depois de metadata, IAP, screenshots,
+RevenueCat e build prontos — quando corrigir custa uma ida ao usuário e o job trava.
+
+**1. Presença**
+
+```bash
+pldev fastlane auth status
+```
+
+Com iOS no escopo, **todas** as linhas Apple têm de estar `ok`: Apple ID, Senha, Team ID,
+ASC Key ID, ASC Issuer ID, AuthKey .p8, IAP Key ID, IAP .p8, Vendor number, Shared secret.
+Qualquer `faltando` → resolver antes (`pldev fastlane auth apply` / `save`,
+`pldev automation appstore`).
+
+**2. Onde a senha mora**
+
+`eas-accounts.json` → `accounts[].fastlane.apple.password`.
+
+> **Cuidado:** o mesmo objeto tem `fastlane.revenuecat.password`, que é **outra** senha e
+> costuma ser parecida — num caso real as duas diferiam por **um único caractere no fim**.
+> Pegar a errada gasta tentativa de login à toa. Conferir a chave, não a semelhança.
+
+Nunca imprimir a senha no chat nem no log.
+
+**3. Validar de verdade**
+
+```bash
+export FASTLANE_USER="<apple id da conta>"
+export FASTLANE_PASSWORD="<do cache — nunca imprimir>"
+export SPACESHIP_2FA_SMS_DEFAULT_PHONE_NUMBER="+55DDDNUMERO"   # número confiável, completo
+bundle exec fastlane spaceship spaceauth -u "$FASTLANE_USER"
+```
+
+`spaceauth` faz `Spaceship::Tunes.login` e mais nada: valida usuário + senha + 2FA **sem**
+depender do app existir no ASC. Sucesso = `Successfully logged in to App Store Connect`.
+
+Efeito colateral que vale ouro: grava `~/.fastlane/spaceship/<user>/cookie`, válido ~30
+dias. Com o gate feito, **a Etapa M.1 depois não pede 2FA**.
+
+**4. O 2FA**
+
+- `pldev sms code` espera o próximo código (`--last` pega o mais recente);
+  `pldev sms watch` fica observando ao lado do fastlane.
+- Pool: <https://theblueboxapps.com/sms/> · API `…/sms/index.php?api=sms`.
+- `SPACESHIP_2FA_SMS_DEFAULT_PHONE_NUMBER` **dispensa o menu de escolha de telefone** —
+  é justamente ali que se queima tentativa por casar regex na linha de ajuda
+  (`select a trusted phone number to send the code as a text message`) em vez do prompt real.
+- Se cair no prompt de dispositivo confiável (`Please enter the 6 digit code:`), responder
+  `sms` é **escape**, não tentativa — não gasta código.
+
+**5. Teto de tentativas**
+
+**No máximo 2 tentativas de senha.** Errar mais bloqueia o Apple ID e derruba todos os apps
+da conta. Duas falhas: parar e perguntar ao usuário. Nunca inventar código, nunca mandar
+2FA vazio em loop.
+
+**Sucesso:** `auth status` sem `faltando` no bloco da plataforma em escopo + `spaceauth`
+logado. Só então seguir para a Etapa A.
+
+---
+
 ## 3. Ordem canônica (1 etapa = 1 OK)
 
 ### 3.0 Ordem preferida no fechamento (ads-only / app novo sem IAP)
@@ -178,9 +255,18 @@ privacy, credenciais ASC/Play, metadata, screenshots), a cauda **obrigatória** 
 |---|--------|---------|
 | 1 | **Firebase Remote Config** (utils + screens) — O.1 | Config de runtime antes do binário de produção |
 | 2 | **Hot Updater** — O | OTA na conta alvo; `hotUpdaterUrl` no binário |
-| 3 | **Build + submit** — P | Cria app record no ASC se faltar; sobe binário iOS/Android |
-| 4 | **Push store** — M (+ M.1 privacy se precisar) | Listing só depois do app existir; **`skip_iap:true`** se sem IAP |
-| 5 | **Checklist + CHATHISTORY** — Q | Grep leftovers e fechar o job |
+| 3 | **Validar o OTA** — O.2 | Provisionar não é testar; exige um build **release** (local ou EAS) |
+| 4 | **Build + submit** — P | Cria app record no ASC se faltar; sobe binário iOS/Android |
+| 5 | **Push store** — M (+ M.1 privacy se precisar) | Listing só depois do app existir; **`skip_iap:true`** se sem IAP |
+| 6 | **Checklist + CHATHISTORY** — Q | Grep leftovers e fechar o job |
+
+O.2 pode vir **antes** do P quando já houver build release local
+(`npx expo run:ios --configuration Release`); o que ele não aceita é rodar sem binário
+release nenhum, porque em dev o OTA nem é baixado.
+
+**Com IAP no escopo**, entram ainda: **H.1** (limpar localizações herdadas) logo após o app
+record existir, **I.2** (copy × catálogo) junto do catálogo, **L.1** (vídeo de review) junto
+dos screenshots, e **P.1** (anexar IAPs à revisão) entre P e Q.
 
 **Não** intercalar push listing antes do primeiro build em app **novo** na conta
 alvo (sem app record no ASC o push costuma falhar).
@@ -235,6 +321,14 @@ pldev admob pull      # Strings.ts adUnits + app.json iosAppId/androidAppId
 
 ### Etapa F — Política de privacidade (Blogger)
 
+**Antes de rodar:** `app.json` → `extra.accounts.blogger` tem de existir e apontar para a
+conta alvo. É de lá que o `pldev blogger pp` decide em qual blog publicar; **sem a chave ele
+abre na primeira conta da lista** e um Enter às cegas publica a política no blog de outro
+app. Já aconteceu — dois posts em blogs errados, que tiveram de ser apagados pela API.
+
+Corolário: em prompt interativo do pldev, **ler o que está selecionado antes de confirmar**.
+Nunca mandar Enter sem ver a linha do `❯`.
+
 ```bash
 pldev blogger pp      # conta alvo
 ```
@@ -262,10 +356,53 @@ pldev fastlane auth apply   # selecionar conta alvo
 - Se o app ainda não existir no ASC, **não bloqueie** o prepare local (metadata, IAP tree, RC); rode o **build** quando o binário for a etapa, e só então `fastlane ios push all` se o ASC ainda não aceitar uploads sem app.
 - Se o app **já** existir (bundle já no ASC), pode fazer `push all` antes do build.
 
+### Etapa H.1 — Limpar localizações herdadas do app record
+
+Assim que o app existir no ASC. O registro nasce com um **idioma default** (normalmente
+`en-US`) e um **nome placeholder** — tipo `Escanear Documentos (e14704)`, com o sufixo que o
+criador inventou para escapar de nome já reservado.
+
+Se o projeto mantém só um locale (ex.: `metadata/pt-BR/` e mais nada), essa localização
+órfã fica **vazia** e bloqueia a submissão com quatro erros de uma vez:
+
+```
+You must provide a value for the attribute 'description'
+You must provide a value for the attribute 'keywords'
+You must provide a value for the attribute 'supportUrl'
+You must provide a value for the attribute 'privacyPolicyUrl'
+```
+
+Procedimento:
+
+1. Conferir o `primaryLocale` do app (`GET /v1/apps/{id}`). A primária **não** se apaga.
+2. Listar `appInfoLocalizations` e `appStoreVersionLocalizations`.
+3. Para cada locale que não é a primária **e** não existe em `metadata/`: apagar o
+   `appInfoLocalization`. A deleção **cascateia** para o `appStoreVersionLocalization`
+   correspondente — não precisa apagar os dois.
+
+**Sucesso:** os locales no ASC são exatamente os que existem em `metadata/`.
+
 ### Etapa I — Catálogo IAP local
 
 - Product IDs = `<bundleId>.<sku>` (ver §0.5).
 - Subscription group + localizations + pricing coerentes com o kit.
+
+> ### ⚠️ Todo `iap_push` pode apagar arquivos do catálogo
+>
+> A lane `iap_push` chama o `export_iap_catalog` logo depois do push, e o export começa com
+> `FileUtils.rm_rf(output_dir)` — regenera a árvore inteira e só preserva `README.md` e
+> `.gitkeep`. O que ele não sabe reconstruir, **some**:
+>
+> - **metadata do RevenueCat** (`entitlement_id`, `offering_id`, `package_id`,
+>   `revenuecat_*`) quando `IAP_PULL_INCLUDE_INTERNAL_METADATA=false` — sem eles o
+>   `revenuecat sync iap` aborta;
+> - **`pricing/` dos IAPs não-consumíveis**, porque o export lista `inAppPurchasesV2` sem
+>   `include=iapPriceSchedule`; a API então omite o relacionamento, `price_schedule_id` sai
+>   `nil` e a chave `pricing` é descartada **sem nenhum warning**.
+>
+> Regra: **`git diff` no catálogo depois de todo `iap_push`** e restaurar o que sumiu
+> (`git checkout <commit> -- <path>`). O preço no ASC não é afetado — some só o arquivo
+> local, o que faz o próximo push parecer correto enquanto o catálogo já mente.
 
 ### Etapa I.1 — Review screenshots IAP (**OBRIGATÓRIO antes do primeiro IAP push**)
 
@@ -341,6 +478,35 @@ bundle exec fastlane ios push iap force_all:true skip_policy:true
 - pular o gate
 - `simctl screenshot` sem dismiss de alert (use Maestro)
 
+### Etapa I.2 — Copy do app × catálogo (consistência)
+
+O paywall e a descrição da loja prometem coisas que **têm de existir no App Store Connect**.
+Um app já foi para a fila anunciando “3 dias grátis” em três lugares do código e na
+descrição, com **zero** introductory offer configurada: quem assinasse era cobrado na hora.
+Isso é termo enganoso — rejeição provável, e prejuízo real se passar.
+
+```bash
+# promessas na copy
+grep -rn "grátis\|gratis\|trial\|dias\|R\$" src/constants/Texts.ts
+grep -rn "grátis\|gratis\|trial" fastlane/ios/fastlane/metadata/*/description.txt
+```
+
+Cruzar cada promessa com o catálogo:
+
+| Promessa na copy | Tem de existir |
+|------------------|----------------|
+| “X dias grátis” / “trial” | introductory offer `FREE_TRIAL` no produto |
+| preço citado em texto fixo | o mesmo preço no `pricing/` **e** no ASC |
+| “sem anúncios”, “ilimitado” | o entitlement realmente destravando isso |
+
+Se divergir: ou cria a oferta, ou tira a promessa. Não enviar torto.
+
+O kit **não** cobre introductory offers, e a API tem duas armadilhas: o relacionamento
+`territory` é **obrigatório** (não existe oferta “para todos” — é um recurso por território,
+`ALL` se resolve lendo a disponibilidade real do produto), e trocar `offerMode`/`duration`
+exige apagar e recriar. Referência com as duas actions prontas:
+`expo-docscanner/resources/fastlane-kit/introductory-offers.md`.
+
 ### Etapa J — RevenueCat projeto/apps/keys
 
 ```bash
@@ -367,8 +533,94 @@ Reescrever (não copiar listing de outra conta):
 
 ### Etapa L — Screenshots
 
-- Validar `fastlane/ios/fastlane/screenshots/<locale>/` (mín. família iPhone, ex. `0_APP_IPHONE_67_*.png`).
-- Regenerar só se o usuário pedir / qualidade insuficiente (prompts do kit).
+#### Os slots que a Apple realmente exige
+
+| Slot | Resoluções aceitas | Quando |
+|------|--------------------|--------|
+| `APP_IPHONE_65` | 1242×2688 ou 1284×2778 | sempre |
+| `APP_IPAD_PRO_3GEN_129` | 2048×2732 | `ios.supportsTablet: true` |
+
+**`APP_IPHONE_67` (1290×2796) não é exigido — e é o único que o gerador do kit produz.**
+Confiar no gerador e parar por aí é enviar sem nada do que a Apple pede; o erro só aparece
+na submissão:
+
+```
+App screenshot missing (APP_IPHONE_65)
+App screenshot missing (APP_IPAD_PRO_3GEN_129)
+```
+
+O slot é decidido pela **dimensão do arquivo**, não pelo nome — a tabela é
+`DEVICE_RESOLUTIONS` em `deliver/lib/deliver/app_screenshot.rb`. O prefixo
+`0_APP_IPHONE_65_` serve só para ordenar.
+
+#### Como cobrir o que falta
+
+- **6.5"**: derivar do 6.7" com resize para **1284×2778**. A proporção muda 0,18%
+  (0,4614 → 0,4622), imperceptível numa composição de fundo + aparelho.
+- **iPad 12.9"**: compor em 2048×2732 com a mesma direção de arte. Referência pronta:
+  `expo-docscanner/resources/review/compose_ipad.py`.
+
+#### Enviar e **conferir**
+
+```bash
+bundle exec fastlane push screenshots      # namespace push — ver o aviso da Etapa M
+```
+
+O deliver sobe em paralelo e **cria duplicatas**: um set de 4 pode virar 6 ou 7 imagens, com
+o mesmo `fileName` repetido. Depois de todo push, listar `appScreenshotSets` →
+`appScreenshots` por locale e conferir a contagem; havendo repetido, apagar
+(`DELETE /v1/appScreenshots/{id}`) e reordenar
+(`PATCH /v1/appScreenshotSets/{id}/relationships/appScreenshots`).
+
+**Sucesso:** cada slot exigido com exatamente o número de imagens do set local, na ordem.
+
+### Etapa L.1 — Vídeo de demonstração para a App Review (**obrigatório**)
+
+Todo app enviado leva um vídeo anexado nas review notes: uma gravação de tela do build
+**release** percorrendo o fluxo inteiro. Ajuda a revisão e é a evidência que os gates de
+política de ATT pedem.
+
+#### Requisitos do vídeo
+
+1. **O primeiro frame é a splash.** Nunca pode aparecer a springboard — cortar exatamente
+   onde a splash começa e **conferir o frame inicial** antes de anexar.
+2. **O prompt de ATT tem de aparecer**, e a escolha é “Pedir ao App para Não Rastrear”: o
+   resto do vídeo então prova que recusar não trava nada.
+3. Esperas maiores que num flow de teste — o vídeo precisa ser legível por um humano.
+4. Comprimir (poucos MB) e citar o vídeo nas `metadata/review_information/notes.txt`.
+
+#### As armadilhas (todas custaram regravação)
+
+- **O status do ATT vive no TCC e sobrevive a `clearState` e à reinstalação.** Uma vez
+  concedido, o prompt nunca mais aparece. Só `xcrun simctl erase <UDID>` devolve
+  `notDetermined` — conferir `trackingAuthorizationStatus - 0` **antes** de gravar.
+- **Nunca `permissions: all: allow` no flow da demo.** Concede o ATT em silêncio; foi o que
+  fez o prompt sumir das primeiras gravações. E `simctl privacy` não tem serviço `tracking`,
+  então não dá para desfazer sem apagar o simulador.
+- O `simctl erase` **reseta o idioma** para inglês e quebra todo seletor em português —
+  regravar `AppleLanguages`/`AppleLocale` e reiniciar antes do flow.
+- **O iOS mostra um alerta de sistema por vez.** Notificações e ATT competem pela mesma
+  janela e não saem os dois na mesma tomada; priorizar o ATT.
+- **Não escrever timestamp que você não conferiu frame a frame.** Descrever a ordem das
+  telas é mais seguro que citar segundos — uma linha do tempo inventada já foi parar nas
+  notes e teve de ser refeita.
+
+#### Anexar
+
+O kit não expõe `app_review_attachment_file`. Vai por um `Deliverfile` (**não** gerenciado
+pelo kit, então sobrevive ao `pldev fastlane update`):
+
+```ruby
+# fastlane/ios/fastlane/Deliverfile
+app_review_attachment_file "/caminho/ABSOLUTO/para/app-demo.mp4"
+```
+
+Caminho **absoluto e literal**, de propósito: relativo quebra porque o fastlane troca de
+diretório durante o upload, e `__FILE__` não serve porque o FastlaneCore avalia o arquivo
+com `eval` — o caminho vira `(eval at fastlane_core/...)`.
+
+**Sucesso:** log com `Uploading review attachment file to App Store Connect`; primeiro frame
+verificado; ATT visível.
 
 ### Etapa M — Push store (obrigatório)
 
@@ -463,6 +715,31 @@ O `privacy_url` (Blogger) **não** é isso. Aqui é o questionário **App Privac
 
 1. Kit **não envia** privacy se o JSON tem `DATA_USED_TO_TRACK_YOU` e o remoto ASC **já** tem declarações (evita apagar/recriar). Forçar: `force_privacy_upload:true`.
 2. A action `upload_app_privacy_details_to_app_store` do Fastlane **não usa a API key `.p8`**. Usa **login de sessão** (Apple ID + senha + **2FA SMS**). A API key **não** expõe `appDataUsages` (`resource v1/appDataUsages does not exist`).
+
+#### Antes de tudo: o gate §2.1 já resolveu isto
+
+Com o **gate de credenciais** feito no início do job, a senha já foi validada por
+`spaceauth` e `~/.fastlane/spaceship/<user>/cookie` está quente (~30 dias) —
+**a M.1 roda sem pedir 2FA**. Se o gate não foi feito, faça agora antes de seguir.
+
+Três correções sobre o que vem abaixo, aprendidas na marra:
+
+- A senha está em `eas-accounts.json` → `accounts[].fastlane.apple.password`. O **mesmo
+  objeto** tem `fastlane.revenuecat.password`, que é outra senha e costuma ser parecida.
+  Pegar a errada gasta tentativa de login: num caso real as duas diferiam por um único
+  caractere no fim.
+- **Ler esta etapa antes de executá-la.** Trabalhar de resumo de sessão é como se pede ao
+  usuário uma senha que está no disco — foi exatamente o que aconteceu.
+- O 2FA tem comando pronto: **`pldev sms code`** (espera o próximo) / `pldev sms watch`.
+  Não reimplemente polling do pool.
+- **`SPACESHIP_2FA_SMS_DEFAULT_PHONE_NUMBER=+55DDDNUMERO`** faz o spaceship pedir o SMS
+  sozinho e **elimina o menu de escolha de telefone**, que é onde se queima tentativa. Com
+  ele o único prompt é `Please enter the 6 digit code you received at …:` — string única,
+  que não colide com a linha de ajuda `select a trusted phone number to send the code as a
+  text message`. Casar regex nessa linha de ajuda já mandou `1` como se fosse código.
+- Responder `sms` ao prompt `Please enter the 6 digit code:` é **escape**, não tentativa.
+- **Teto de 2 tentativas de senha.** Mais que isso bloqueia o Apple ID e derruba a conta
+  inteira.
 
 #### O que a IA **deve** fazer (não deixar o usuário sozinho)
 
@@ -628,6 +905,38 @@ pldev eas build     # production iOS; auto-submit se o fluxo pldev oferecer
 
 Só **depois** do push all quando o objetivo for review com listing completo.
 
+### Etapa P.1 — Anexar IAPs (e o grupo) à review submission
+
+**Sem isto, numa primeira submissão a Apple não revisa os produtos** e o app estreia com o
+paywall vendendo IAP que não existe. Só um novo ciclo de revisão conserta — dias depois,
+com o app já no ar.
+
+O `add_build` e o `submit` do kit **não tocam nos IAPs**. O fluxo correto é:
+
+- `add_build` anexa o build **e** todo produto em `READY_TO_SUBMIT` à mesma review
+  submission;
+- `submit` manda o pacote inteiro.
+
+#### O que a API impõe
+
+- O item aponta para a **versão** do produto, não para o produto:
+  `inAppPurchaseVersion`, `subscriptionVersion` e `subscriptionGroupVersion`. Mandar
+  `inAppPurchaseV2` devolve `409 'inAppPurchaseV2' is not a relationship`.
+- **O grupo de assinatura é item separado, e é o mais fácil de esquecer.** O display name
+  que o usuário vê na tela de assinatura sai da localização do **grupo**, com ciclo de
+  revisão próprio. O gatilho é diferente: grupo não tem `READY_TO_SUBMIT` — é a versão dele
+  em `PREPARE_FOR_SUBMISSION`. Ao entrar na submission ela vira `READY_FOR_REVIEW` sozinha.
+- O `deliver` **recusa** submission que tenha itens que não foi ele que criou
+  (`user_error!` incondicional em `submit_for_review.rb`), então o submit passa pela API.
+- `reviewSubmissions` não aceita DELETE: para desfazer, remova os itens
+  (`DELETE /v1/reviewSubmissionItems/{id}`) ou cancele com `PATCH { canceled: true }`.
+
+Implementação pronta (2 actions + patch das lanes):
+`plapps-fastlane-kit/docs/iap-review-submission.md`.
+
+**Sucesso:** a submission tem a versão + N itens, **todos** `READY_FOR_REVIEW`, e depois do
+submit tudo fica `WAITING_FOR_REVIEW` — app, IAPs e grupo juntos.
+
 ### Etapa Q — Checklist final + CHATHISTORY
 
 Grep leftovers da conta antiga:
@@ -659,7 +968,9 @@ Atualizar `.Codex/CHATHISTORY.MD` (e `.claude/CHATHISTORY.MD` se o repo exigir) 
 | Automation ASC cache | `pldev automation appstore` / `status` |
 | Push ASC | `fastlane ios push all` |
 | App Privacy force (session+2FA) | `fastlane ios push privacy force_privacy_upload:true` + senha cache + SMS `theblueboxapps.com/sms` |
-| SMS OTP pool | `https://theblueboxapps.com/sms/` · API `…/sms/index.php?api=sms` · `pldevtools/lib/dolphin/sms.mjs` |
+| SMS OTP (código 2FA) | **`pldev sms code`** (espera o próximo) · `pldev sms watch` · `--last` para o mais recente |
+| SMS OTP pool (fonte) | `https://theblueboxapps.com/sms/` · API `…/sms/index.php?api=sms` · lib `lib/dolphin/sms.mjs` |
+| Validar senha Apple + aquecer sessão | `bundle exec fastlane spaceship spaceauth -u <apple id>` |
 | Sync RC IAP | `fastlane revenuecat sync iap` |
 
 ---
@@ -695,6 +1006,7 @@ Não dá para “subir a loja” só com pldev: o **`fastlane ios push all`** é
 
 ## 7. Critérios de sucesso (Definition of Done)
 
+- [ ] **Gate §2.1 verde antes de começar**: `auth status` sem `faltando` na plataforma em escopo + senha validada por `spaceauth`
 - [ ] Bundle/product IDs novos (se pedido) consistentes em app + IAP + paywall
 - [ ] EAS projectId da **conta alvo** (não da conta antiga; não placeholder)
 - [ ] Firebase plist da conta alvo
@@ -702,7 +1014,10 @@ Não dá para “subir a loja” só com pldev: o **`fastlane ios push all`** é
 - [ ] Privacy URL nova no app + metadata
 - [ ] `pldev fastlane auth apply` (ou use) com conta alvo; `.env` sem APPLE_ID da conta antiga
 - [ ] Metadados reescritos (anti-spam)
-- [ ] Screenshots no lugar
+- [ ] Screenshots nos slots **exigidos** (6.5" + iPad 12.9 se `supportsTablet`), sem duplicatas no ASC
+- [ ] **Vídeo de review** anexado (Etapa L.1): primeiro frame = splash, ATT visível, citado nas notes
+- [ ] Localizações herdadas do app record limpas (Etapa H.1) — só os locales de `metadata/`
+- [ ] Copy do app coerente com o catálogo: trial prometido = oferta existente (Etapa I.2)
 - [ ] **IAP review screenshots** em todos os products ativos (Etapa I.1)
 - [ ] **`fastlane ios push all`** (ou metadata + `push iap`) concluído sem Missing Metadata por falta de foto
 - [ ] **App Privacy Details** publicados no ASC (force + senha + SMS se preciso — Etapa M.1)
@@ -711,6 +1026,7 @@ Não dá para “subir a loja” só com pldev: o **`fastlane ios push all`** é
 - [ ] Hot Updater **validado ponta a ponta** (Etapa O.2): update aplicou no binário instalado, rollback voltou, `bundle list` vazio
 - [ ] Remote Config **utils + screens** no Firebase da conta alvo (condições do app atual)
 - [ ] Build+submit se no escopo
+- [ ] **IAPs e o grupo da assinatura na review submission** (Etapa P.1), todos `READY_FOR_REVIEW` antes do submit
 - [ ] Sem leftovers óbvios da conta antiga (grep)
 - [ ] CHATHISTORY atualizado
 
@@ -747,3 +1063,25 @@ Preciso do seu OK para executar. Pode confirmar? (e responder: <dados se houver>
 - `fastlane/PROMPT_SCREENSHOTS_*.md` — screenshots
 - expo-utils: placeholder EAS `df0dc510-fafe-4076-9ea7-6926d54cb2ab`
 - pldevtools: `pldev fastlane auth apply`, `pldev eas create`
+- `plapps-fastlane-kit/docs/iap-review-submission.md` — IAPs e grupo na revisão (Etapa P.1)
+- `expo-docscanner/resources/fastlane-kit/introductory-offers.md` — trial grátis no catálogo (Etapa I.2)
+
+---
+
+## 11. Custos conhecidos (armadilhas fora do fluxo)
+
+Coisas que não são etapa, mas já comeram horas:
+
+- **Log de build do EAS vem em Brotli**, não gzip. `gunzip`/`zlib` silenciosamente
+  produzem lixo e você fica lendo bytes tortos achando que o erro é outro. Descomprimir com
+  `zlib.brotliDecompressSync`. (O erro real embaixo era um `Cannot find module 'dotenv'` —
+  dependência usada por `hot-updater.config.ts` que passava localmente por transitividade e
+  quebrava o prebuild no EAS. Dependência que um plugin carrega tem de estar declarada.)
+- **`experiments.buildCacheProvider: "eas"` no `app.json`** faz `npx expo run:ios` **baixar
+  um dev-client cacheado** em vez de compilar o que você acabou de mudar. Quando precisar de
+  build local de verdade, remover a chave temporariamente e restaurar depois.
+- **Plist do Firebase errado** (de outro bundle) se resolve com `npx expo prebuild --platform
+  ios`. Nunca editando `ios/` à mão — ver §0.6.
+- **Navegação por posição em prompt interativo do pldev é frágil**: a ordem da lista muda
+  entre execuções. Se automatizar com `expect`, descer procurando o **conteúdo** do item
+  (regex no `❯`) e abortar se não achar — nunca contar “desce 3 e Enter”.
