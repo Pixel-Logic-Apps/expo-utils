@@ -2,6 +2,7 @@ import {memo, useEffect, useState} from "react";
 import {BannerAd, BannerAdSize, TestIds} from "react-native-google-mobile-ads";
 import Utils, {expoUtilsLog} from "./Utils";
 import {PremiumUtils} from "./PremiumUtils";
+import {logAdRevenue} from "./ad-revenue";
 
 /**
  * Banner protegido contra o erro “The specified child already has a parent…”.
@@ -11,7 +12,14 @@ import {PremiumUtils} from "./PremiumUtils";
  *  • troca o unitId automaticamente em modo DEV.
  */
 const SafeBanner = memo(({unitId}: {unitId: string | undefined}) => {
-    return <BannerAd unitId={__DEV__ ? TestIds.BANNER : unitId!} size={BannerAdSize.ANCHORED_ADAPTIVE_BANNER} />;
+    return (
+        <BannerAd
+            unitId={__DEV__ ? TestIds.BANNER : unitId!}
+            size={BannerAdSize.ANCHORED_ADAPTIVE_BANNER}
+            // ILRD: receita da impressão (valor/moeda/precisão) — ver utils/ad-revenue.ts.
+            onPaid={(e) => logAdRevenue("banner", "safe-banner", e)}
+        />
+    );
 });
 
 export default function BannerAdComponent({unitId}: {unitId?: string}) {
@@ -34,7 +42,11 @@ export default function BannerAdComponent({unitId}: {unitId?: string}) {
             const remote = await Utils.getRemoteConfigUtils();
             expoUtilsLog("remote.is_ads_enabled", remote.is_ads_enabled);
 
-            if (global.isAdsEnabled !== false) {
+            if (global.isAdsEnabled === true) {
+                // Ligado EXPLICITAMENTE (toggle "Ads" do dev-menu, app de teste) vence o default
+                // do Remote Config (is_ads_enabled=false em DEV). Mesma regra do banner-ad.
+                setIsAdsEnabled(true);
+            } else if (global.isAdsEnabled !== false) {
                 setIsAdsEnabled(remote.is_ads_enabled);
             }
 

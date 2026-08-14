@@ -143,4 +143,144 @@ O `react-native-screens` acha a content ScrollView andando por **`subviews[0]`, 
 - `ios.deploymentTarget: "16.4"` no `app.json` (o campo do `expo-build-properties` está deprecated desde o SDK 56), New Architecture, `react-native-screens ^4.26`. Nenhum config plugin é necessário.
 - **`UIDesignRequiresCompatibility` fica FORA do app.json** — é exatamente o que desligaria o Liquid Glass (e a Apple remove no iOS 27).
 - Envolver a árvore no `ThemeProvider` do expo-router com `DarkTheme`/`DefaultTheme` conforme `useColorScheme()` — fix oficial do flash branco entre telas e dos botões de vidro piscando em dark mode.
+
+────────────────────────
+
+## REGRA 4 — Cross-promo (lugares estratégicos)
+
+**Cross-promo entra em ponto estratégico e visível. Não em toda tela, e nunca escondido.**
+**O componente JÁ EXISTE no `expo-utils` (`CrossPromoCard`, desde a 1.1.21). Não crie o seu.**
+
+### O teste de placement (as duas condições, juntas)
+
+1. **Visível sem rolar.** Se o bloco só aparece depois de dar scroll, o placement está errado.
+2. **Não polui.** Não empurra para baixo nem disputa espaço com o conteúdo que o usuário abriu o app para ver.
+
+**Referência:** home, logo abaixo do bloco principal, ainda acima da dobra. Outros pontos são decisão sua **desde que passem nos dois testes** — a referência é guia, não gaiola. Um ponto bom vale mais que cinco espalhados.
+
+### Placement PROIBIDO
+
+| Proibido                               | Por quê                                                                                                                                                                                 |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Fim de scroll, rodapé, fim de lista    | **Nunca.** Quase ninguém rola até lá. Parece o lugar seguro justamente porque não atrapalha nada — e é exatamente por isso que não rende nada. É o instinto errado padrão; não caia nele. |
+| Qualquer coisa abaixo da dobra         | Mesmo motivo: se precisa rolar para ver, não conta.                                                                                                                                    |
+| Tela de baixo tráfego como único ponto | "Sobre", "aviso legal" e afins. Se for o único lugar, na prática o app não tem cross-promo.                                                                                             |
+
+### Como usar
+
+`screen` é **string literal INLINE** no JSX — pode repetir a mesma string em telas diferentes. `colors` exige 6 chaves; mapeie os tokens do app **inline**, sem const no topo do arquivo (aceita também um mapa `{light, dark}` completo).
+
+```tsx
+import {CrossPromoCard} from "expo-utils";
+
+<CrossPromoCard
+  screen="inicio"
+  colors={{
+    backgroundElement: colors.surfaceContainer,
+    backgroundSelected: colors.surfaceContainerHigh,
+    accent: colors.accent,
+    onAccent: colors.onAccent,
+    text: colors.text,
+    textSecondary: colors.textSecondary,
+  }}
+/>
+```
+
+O componente lê `global.remoteConfigScreens?.cross_promo` e retorna `null` sozinho se `!enabled || !url || !screens.includes(screen)`. Sem RC configurado não aparece e não quebra nada — mas isso **não** é licença para espalhar bloco por toda tela.
+
+### PROIBIDO
+
+| Proibido                                   | Exemplos de cheiro                                                                             |
+| ------------------------------------------ | ---------------------------------------------------------------------------------------------- |
+| Criar componente próprio de cross-promo    | `components/cross-promo.tsx`, `PromoCard` caseiro                                               |
+| Constante / mapa de `screen`               | `const PROMO_SCREEN = "inicio"`, `CROSS_PROMO_SCREENS`, enum — escreva `screen="inicio"` no JSX |
+| Hook/service que embrulha o card           | `useCrossPromo()`, `services/promo.ts`, `<PromoSlot />` que resolve screen por dentro           |
+| Freio inventado                            | "1x por sessão", `jaViuCrossPromo` no AsyncStorage, cooldown, dismiss persistido, cap diário    |
+| Gate próprio duplicando o do componente    | `if (cfg.enabled)` na tela, `useState` de visibilidade — o componente **já** faz isso           |
+| Cortar o cross-promo alegando "polui a UI" | Poluição decide **onde**, não **se**. Não achou ponto visível e limpo? Procure outro.           |
+
+### Remote Config (parâmetro `screens`, chave `cross_promo`)
+
+Quem preenche é o **dono**, no Firebase:
+
+```json
+{
+  "cross_promo": {
+    "enabled": true,
+    "title": "Conheça também",
+    "app_name": "...",
+    "subtitle": "...",
+    "icon_url": "...",
+    "cta": "Ver",
+    "url": "...",
+    "ios_url": "...",
+    "android_url": "...",
+    "screens": ["inicio", "guias"]
+  }
+}
+```
+
+`ios_url`/`android_url` resolvem por plataforma, com fallback pro `url`. O array `screens` casa com a prop `screen` de cada call site.
+
+**Default: um ponto estratégico e visível.** Na dúvida de onde → acima da dobra na home. Se a resposta for "no rodapé" → não é lugar.
 - Validar em **device físico / simulador iOS 26**: rolar deve minimizar a tab bar numa pílula, colapsar o large title e desfocar o conteúdo sob a nav bar.
+## REGRA 5 — Ads: mediation, consentimento e o que NÃO fazer no app
+
+O expo-utils já entrega o AdMob com **mediation ligada** (AppLovin, Meta, Unity e Pangle por
+padrão) e cuida do consentimento. O app **não** implementa nada disso. Outras redes do catálogo
+(liftoff, mintegral, bidmachine, moloco, bigo) entram só se listadas explicitamente.
+
+**PROIBIDO no app:**
+
+- Editar `ios/Podfile`, `android/app/build.gradle` ou criar `plugins/with-*` para adicionar
+  adapter/repositório de rede — o prebuild do expo-utils faz isso e sobrescreve.
+- Chamar `mobileAds().initialize()` ou `AdsConsent.*` no boot: `Utils.prepare()` já roda o
+  UMP **antes** do ATT e inicializa o SDK quando o consentimento permite.
+- Disparar evento próprio de receita por impressão — banner/interstitial/rewarded/app-open já
+  mandam `ad_revenue` (e o `ad_impression` com a rede vem do próprio AdMob, via console).
+
+**Permitido/esperado no app:**
+
+- `["expo-utils", { "mediation": false }]` (ou `["applovin", "meta"]`) só quando houver motivo
+  real — peso de build, rede não aprovada na conta.
+- Botão **"Privacidade dos anúncios"** nos ajustes chamando `Utils.showPrivacyOptionsForm()`
+  (obrigatório para usuário da EEA reabrir o formulário do UMP). **Renderize o botão só quando
+  `await Utils.isPrivacyOptionsRequired()` for true** — fora da EEA não existe formulário e o
+  botão fica "sem fazer nada". O retorno é `{shown, reason}`; `reason: "not-required"` significa
+  exatamente isso. O form leva 1–3s carregando: mostre estado de loading.
+- QA do formulário fora da Europa: `"umpDebugGeography": "EEA"` + `"umpTestDeviceIds"` no
+  app.json — **fora** antes de publicar.
+
+**Lembrete:** adapter no build não serve ad sozinho. Cada rede precisa de conta própria, app
+cadastrado, `app-ads.txt` publicado e grupo de mediação configurado na UI do AdMob.
+
+────────────────────────
+
+## REGRA 6 — POLICY CHECKS: ler `.claude/POLICY-CHECKS.md`
+
+Arquivo **`.claude/POLICY-CHECKS.md`** — lista de regras de review que **já derrubaram build de
+verdade** (Apple/Google), cada uma com app, versão e data da rejeição. Vem do `expo-utils` e
+**cresce com o tempo**: releia sempre, o que você lembra dele está desatualizado por definição.
+
+### Quando ler (não é opcional)
+
+| Momento                                                                                    | O quê                                                       |
+| ------------------------------------------------------------------------------------------ | ----------------------------------------------------------- |
+| **Antes de todo build de submissão** (`eas build --profile production`, `fastlane`, bump de versão) | Ler o arquivo **inteiro** e conferir item por item no app     |
+| **Antes de escrever/alterar** um fluxo coberto por um item (permissão, paywall, ads…)       | Ler o item **antes** do código, não depois da rejeição        |
+| Rejeição nova chegou                                                                        | Corrigir o app **e** adicionar a regra no repo `expo-utils`   |
+
+**Nunca** marque uma etapa de build/submissão como concluída sem ter lido o arquivo **nesta
+sessão.** Não edite a cópia local: ela é sobrescrita pelo `expo-utils-install` — regra nova vai
+em `templates/POLICY-CHECKS.md` no repo do `expo-utils`.
+
+### Índice atual (o texto completo, com exemplos e greps, está no arquivo)
+
+| ID    | Regra                                                                     | Loja            |
+| ----- | ------------------------------------------------------------------------- | --------------- |
+| P-001 | Pre-prompt de permissão: sem botão "Permitir", sem saída que adie o pedido | Apple 5.1.1(iv) |
+
+Resumo do P-001, porque é o mais fácil de violar sem perceber: tela custom antes do diálogo do
+sistema pode **explicar**, nunca **decidir**. Botão de avanço neutro (`Continuar` / `Próximo` —
+nunca `Permitir acesso`) e **nenhuma** saída que pule o pedido (sem `Cancelar`, sem X, sem swipe,
+sem overlay clicável). Na dúvida, **não faça pre-prompt**: chame a permissão direto no gesto.

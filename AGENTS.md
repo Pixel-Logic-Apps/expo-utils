@@ -152,6 +152,7 @@ The detected PM controls both the install command (`bun add`, `yarn add`, etc.) 
     - `--hot-updater`: Setup Hot Updater (babel.config.js, .env files, dependencies)
     - `--sort-plugins`: Reorder app.json `plugins` so string plugins come first, then array (`[name, config]`) plugins (stable within each group). Also runs automatically at the end of `--config` and `--new`.
     - `--pin-deps`: Pin every project dependency in `package.json` to an **exact** version so installs are identical across machines. Strips range operators (`^`, `~`, `>=`, `>`, `<=`, `<`, `=`) from `dependencies`/`devDependencies`/`optionalDependencies` and, whenever the package is installed, rewrites the spec to the version actually resolved in `node_modules` (otherwise falls back to the range's floor). Non-registry specs are **preserved untouched** — git/GitHub (incl. shorthand `owner/repo`), `file:`/`link:`/`workspace:`/`npm:` and tarball/URL/path specs (anything containing `:` or `/`), so e.g. `expo-utils` installed via a GitHub link is never overwritten. Composite ranges (`>=1 <2`) on not-installed packages are left as-is. Runs automatically near the end of `--new` (after all handlers that modify `package.json`).
+    - `--policy-checks`: Sync `templates/POLICY-CHECKS.md` → the app's `.claude/POLICY-CHECKS.md` — the list of store-review rules that already got a real build rejected (Apple/Google), each with app, version and rejection date. It's a **generated** file: unlike `AGENTS.md`/`CLAUDE.md` (copied only when missing), it is **overwritten** whenever the content differs, so the list never freezes at the version the app was scaffolded with — that's the whole point of it. It also appends a tagged pointer block (`<!-- expo-utils:policy-checks -->`) to the app's `AGENTS.md` when that file exists and doesn't already mention `POLICY-CHECKS.md` (additive and idempotent — apps scaffolded before this flag keep their own AGENTS.md, so without the pointer the agent would never read the list). Runs automatically in `--new`, right after `handleClaudeMdFlag()`. **New rule goes in `templates/POLICY-CHECKS.md` — never in an app's copy** (it gets overwritten), and the index in `templates/AGENTS.md` (REGRA 6) must be updated in the same task.
 
 ## Architecture
 
@@ -180,8 +181,9 @@ Central initialization module with a `prepare()` function that:
 - Requests iOS tracking permissions
 - Checks for required app updates
 - Subscribes to Firebase topic based on app slug
+- Loga um evento cujo **nome é o slug do app**, 1x por instalação, via `Utils.logFirstOpenOnce()` — flag `@first_open_logged` no AsyncStorage; roda no bloco não-bloqueante do boot (não atrasa o splash). O slug passa por `.replace(/\W/g, "_").slice(0, 40)` porque nome de evento GA4 só aceita `[A-Za-z0-9_]` e no máximo 40 chars — `titulo-eleitor` vira `titulo_eleitor`.
 
-**Important**: Uses dynamic imports with fallbacks for optional dependencies to avoid crashes when packages aren't installed.
+**Important**: dependencias (inclusive as opcionais) entram como `import` no topo do arquivo — ver "Imports (REGRA OBRIGATORIA)" em Common Patterns. A protecao contra pacote ausente/erro de SDK e o try/catch em volta da chamada, nunca import tardio.
 
 **Global Variables Set by prepare()**:
 
@@ -256,7 +258,42 @@ The plugin also injects **iOS privacy purpose strings** into the Info.plist at *
 
 **Android AdMob / Kotlin (default on):** `androidKotlinAdsFix` injects at **prebuild** (1) `-Xskip-metadata-version-check` on all `KotlinCompile` tasks in the project `build.gradle` (tag `expo-utils-android-kotlin-ads-fix`) and (2) `org.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m` in `gradle.properties`. Reason: `play-services-ads` (via `react-native-google-mobile-ads`) ships Kotlin metadata **2.3.0** while Expo SDK 57 still compiles with Kotlin **~2.1.x**, which fails `:react-native-google-mobile-ads:compile*Kotlin` with "metadata is 2.3.0, expected version is 2.1.0". Heap bump avoids OOM on large Firebase+ads+fbsdk graphs. Does **not** pin Gradle version. Opt out: `["expo-utils", { "androidKotlinAdsFix": false }]`. Apps should **not** keep a local `plugins/with-*-gradle*` for this — it belongs here so every app stays clean.
 
+**AdMob Mediation (default on):** `mediation` liga as **4 redes padrao** do catalogo `data/mediation_adapters.json` — AppLovin, Meta, Unity e Pangle. O catalogo tem mais 5 marcadas com `"default": false` (liftoff/vungle, mintegral, bidmachine/appodeal, moloco, bigo) que **so entram quando o app pede pelo nome**, para o build nao crescer sozinho a cada rede nova no catalogo. No **prebuild** o plugin faz tres coisas, todas idempotentes via tag `@generated`:
+
+1. `withAndroidMediationAdapters` — `implementation("com.google.ads.mediation:<art>:<ver>")` dentro do `dependencies {` do `android/app/build.gradle` (tag `expo-utils-admob-mediation`). `expo-build-properties` **nao** serve aqui: ele so tem `extraMavenRepos`/`extraPods`, nao tem chave de dependencia Gradle (o exemplo `android.dependencies` da doc do RNGMA nao existe no plugin).
+2. `withAndroidMediationRepos` — bloco `allprojects { repositories { … } }` no fim do `android/build.gradle` (tag `expo-utils-admob-mediation-repos`) para Mintegral (`dl-maven-android.mintegral.com/...`) e Pangle (`artifact.bytedance.com/repository/pangle`): esses dois SDKs (`mbridge_android_sdk`, `pag-sdk`) **nao estao** no Maven Central nem no Google Maven. Blocos `allprojects` extras somam — o template do Expo 57 nao usa `dependencyResolutionManagement`.
+3. `withIosMediationPods` — `pod '<Adapter>', '<ver>'` logo apos `use_expo_modules!` no Podfile (mesma tag do item 1).
+
+Versoes **pinadas de proposito**: cada podspec declara `Google-Mobile-Ads-SDK ~> X` e o RNGMA 16.4.0 traz o **13.5.0** — pod sem versao pode resolver um adapter que exige 13.6+ e derrubar o `pod install` (caso real: `GoogleMobileAdsMediationPangle` 8.2.0.7+ exige `~> 13.6`, por isso pinamos 8.2.0.3.0). Os adapters Android sao compilados contra `play-services-ads:25.4.0`, que e o pin do RNGMA 16.4.0 — por isso o **minimo e 16.4.0**. Ao subir o RNGMA, revalidar o catalogo inteiro. Os SKAdNetworkIDs dessas redes ja estao em `data/skadnetwork_ids.json`. Opt out: `{ "mediation": false }`; subset: `{ "mediation": ["applovin", "meta"] }`. Apps **nao** devem manter plugin local pra isso.
+
+**Escotilha para rede fora do catalogo:** o valor de uma chave pode ser a definicao inteira — `{"moloco": {"android": {"artifact": "…", "version": "…", "mavenRepo": "…"}, "ios": {"pod": "…", "version": "…"}}}`. `resolveMediationNetworks` distingue pelo TIPO (string = versao, objeto com `artifact`/`pod` = definicao) e faz merge quando a chave existe no catalogo. Definicao de uma plataforma so injeta naquela plataforma. Regra ao usar: validar a restricao `Google-Mobile-Ads-SDK ~> X` do podspec contra o pin do RNGMA antes de fixar a versao do pod. Coordenadas ja conferidas (14/08/2026, compativeis com GMA 13.5): BidMachine `bidmachine:3.7.1.1` / pod `3.7.1.0.1`; Moloco `moloco:4.11.0.0` / pod `4.9.0.0`; BIGO `bigo:5.10.1.0` / pod `5.3.0.0`; ironSource `ironsource:9.5.0.0` / pod `9.5.0.0.0`.
+
+**Exclusao condicional (`excludeWhenPackage`)**: o SDK do Pangle embute uma copia do TikTok Business SDK (`com.pangle.global:tiktok-business-android-sdk-comp:1.6.1`) que colide com o `expo-tiktok-ads-events` (`com.github.tiktok:tiktok-business-android-sdk:1.6.0`) — `checkReleaseDuplicateClasses` falha com "Duplicate class com.tiktok.TikTokBusinessSdk". O catalogo declara a exclusao e `resolveAndroidExcludes()` so a aplica quando o pacote npm conflitante existe no app (`node_modules/<pkg>`), gerando `implementation(...) { exclude group: ..., module: ... }`. Medido em app real (APK release universal): **127,5 MB sem mediation → 140,5 MB com 6 redes → 148,8 MB com 9**.
+
+**Runtime de ads (`Utils.setupMobileAds`)**: chamado no inicio de `requestTrackingWhenActive`, ou seja **UMP antes do ATT** (ordem do Google; iOS so mostra um modal de sistema por vez). Roda `AdsConsent.gatherConsent()` com timeout de 20s (contrato do arquivo: nunca pendura) e, se `canRequestAds !== false`, chama `mobileAds().initialize()` logando o `AdapterStatus[]` — e assim que se confirma que os adapters subiram. Sai cedo em premium / `is_ads_enabled: false`. QA fora da Europa: `{ "umpDebugGeography": "EEA", "umpTestDeviceIds": [...] }` (lidos em RUNTIME via `getExpoUtilsOption`). `Utils.isPrivacyOptionsRequired()`, `Utils.showPrivacyOptionsForm()` e `Utils.resetAdsConsent()` sao a superficie publica do UMP. **`showPrivacyOptionsForm` retorna `{shown, reason}`, nao boolean**: o `showPrivacyOptionsForm` do SDK nao exibe nada quando `privacyOptionsRequirementStatus !== REQUIRED` (fora da EEA, ou antes do consentimento), e em build release o `console` e removido — sem o `reason` isso vira "o botao nao faz nada". A regra do app e esconder o botao com `isPrivacyOptionsRequired()`.
+
+**ILRD (`utils/ad-revenue.ts`)**: banner/interstitial/rewarded/app-open disparam `ad_revenue` (formato, placement, value, currency, precision). O payload do SDK **nao tem a rede** que serviu — atribuicao por rede vem do `ad_impression` automatico do AdMob (requer ILRD ligado no console + link AdMob↔Firebase). Nao duplicar essa telemetria em app.
+
 ## Common Patterns
+
+### Envio de relatorios por email (REGRA)
+
+Sempre para **bruno.vmartins2@gmail.com**, sempre pela **API da Resend** (`POST https://api.resend.com/emails`,
+`Authorization: Bearer <chave>`), nunca por Outlook/Mail. Chave e remetente ficam em
+`~/Documents/projetos/pixel-analytics/api/.env` (`PIXEL_REPORT_RESEND_API_KEY`, `DAILY_AI_REPORT_EMAIL_FROM`);
+o worker do `expo-caloria` tem o exemplo de uso. Anexo vai em base64 no campo `attachments`. Use `curl` com
+User-Agent normal — o Cloudflare da Resend bloqueia o UA padrao do `urllib` com HTTP 403 (erro 1010).
+
+### Imports (REGRA OBRIGATORIA)
+
+**Sempre `import` no topo do arquivo. Nunca `require()` no meio do codigo.** Vale para tudo:
+peer dependencies opcionais, modulos internos da lib, tudo. Import tardio/condicional so
+esconde dependencia, quebra tree-shaking e tipagem, e deixa o arquivo com duas convencoes.
+
+- Ciclo de import (ex.: `Utils.ts` <-> `PremiumUtils.ts`) nao e motivo para `require`: o uso
+  acontece dentro de funcao, entao o ciclo resolve em runtime sem problema.
+- Peer dependency opcional tambem entra no header — se o app nao instalou o pacote, o erro
+  aparece no build/bundle (onde deve aparecer), nao escondido num caminho de execucao raro.
 
 ### Adding a New CLI Flag
 
@@ -269,7 +306,7 @@ The plugin also injects **iOS privacy purpose strings** into the Info.plist at *
 
 1. Add to existing utility files in `/utils` or create a new one
 2. Export from `index.ts` if it should be public API
-3. Use dynamic imports for any peer dependencies
+3. Import every dependency (inclusive peer deps) no topo do arquivo — ver "Imports" acima
 4. Add proper TypeScript types in `types.ts` or inline
 
 ### Modifying app.json via CLI

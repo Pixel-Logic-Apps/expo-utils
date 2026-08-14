@@ -3,6 +3,7 @@ import {BannerAd, BannerAdSize} from "react-native-google-mobile-ads";
 import Utils, {expoUtilsLog} from "./Utils";
 import {generatePlacementId, isPlacementBlocked} from "./AdPlacementTracker";
 import {PremiumUtils} from "./PremiumUtils";
+import {logAdRevenue} from "./ad-revenue";
 
 export default function BannerAdComponent({unitId, tag}: {unitId?: string; tag?: string}) {
     const [IS_ADS_ENABLED, setIsAdsEnabled] = useState(global.isAdsEnabled);
@@ -36,7 +37,12 @@ export default function BannerAdComponent({unitId, tag}: {unitId?: string; tag?:
             // Memoizado no Utils — todos os banners compartilham o fetch do prepare().
             const remoteConfigSettings = await Utils.getRemoteConfigUtils();
             expoUtilsLog("isAdsEnabled", global.isAdsEnabled);
-            if (global.isAdsEnabled !== false) {
+            if (global.isAdsEnabled === true) {
+                // Ligado EXPLICITAMENTE (toggle "Ads" do dev-menu, app de teste): vence o
+                // default do Remote Config, que em DEV é is_ads_enabled=false — senão o toggle
+                // não conseguia ligar banner nenhum em debug build.
+                setIsAdsEnabled(true);
+            } else if (global.isAdsEnabled !== false) {
                 setIsAdsEnabled(remoteConfigSettings.is_ads_enabled);
             }
             expoUtilsLog("bannerUnitIds", bannerUnitId);
@@ -63,6 +69,8 @@ export default function BannerAdComponent({unitId, tag}: {unitId?: string; tag?:
                     },
                 }}
                 unitId={bannerUnitId}
+                // ILRD: receita da impressão (valor/moeda/precisão) — ver utils/ad-revenue.ts.
+                onPaid={(e) => logAdRevenue("banner", placementId, e)}
             />
         )
     );

@@ -263,6 +263,7 @@ npx expo-utils-install --new
 | `--hot-updater`           | Configura Hot Updater (babel, .env, deps)       |
 | `--sort-plugins`          | Ordena os plugins do app.json (strings primeiro, depois os com config) |
 | `--pin-deps`              | Fixa todas as deps do `package.json` em versão exata (remove `^`/`~`/`>=`, usa a versão instalada). Preserva git/GitHub/`file:`/tarball. Roda também no `--new` |
+| `--policy-checks`         | Sincroniza `.claude/POLICY-CHECKS.md` (regras de review que já derrubaram build). Arquivo **gerado**: sobrescreve a cópia local. Se o `AGENTS.md` do app não citar o arquivo, adiciona um ponteiro no fim. Roda também no `--new` |
 
 ## 📱 Configuração do Projeto
 
@@ -469,6 +470,44 @@ await AsyncStorage.removeItem("@isPremium");
 - Usa unit IDs do `AppStrings` local (`global.adUnits`)
 - Permite override via parâmetro
 - Configuração por plataforma (iOS/Android)
+
+### Mediation, consentimento (UMP) e receita por impressão
+
+**Mediation vem ligada** — o plugin injeta os adapters das 4 redes padrão (AppLovin, Meta, Unity e Pangle) no build (veja a opção
+`mediation` em [Configuração do Plugin](#-configuração-do-plugin-opcional)). O que o app faz em
+runtime, sozinho, dentro do `Utils.prepare()` → `requestTrackingWhenActive()`:
+
+1. **UMP antes do ATT** — `AdsConsent.gatherConsent()` roda primeiro (ordem recomendada pelo
+   Google; o iOS só mostra um modal de sistema por vez). Fora de EEA/UK/estados regulados dos
+   EUA não exibe nada.
+2. **`mobileAds().initialize()`** — só quando o consentimento permite (`canRequestAds`). O log
+   mostra o `AdapterStatus` de cada rede (`ready` / `NOT_READY`): é a checagem rápida de que a
+   mediação está mesmo no build.
+3. **Nada disso roda** para usuário premium nem com `is_ads_enabled: false`.
+
+```typescript
+import Utils from "expo-utils";
+
+// Só mostre o botão quando existir formulário para abrir (EEA/UK/US regulado que já consentiu).
+const mostrarBotao = await Utils.isPrivacyOptionsRequired();
+
+const {shown, reason} = await Utils.showPrivacyOptionsForm();
+// shown=false + reason="not-required" → não há form nesta região/estado; nada a exibir.
+// O form leva 1–3s para carregar (vem da rede): deixe o botão em loading.
+
+Utils.resetAdsConsent(); // QA: zera o UMP e força o formulário no próximo boot
+```
+
+⚠️ **Botão que "não faz nada"**: `showPrivacyOptionsForm()` do SDK só abre algo quando
+`privacyOptionsRequirementStatus === REQUIRED`. Fora da EEA (ou antes do consentimento ser
+coletado) não existe formulário — por isso use `isPrivacyOptionsRequired()` para esconder o botão,
+e o `reason` do retorno para logar o motivo quando ele mesmo assim não abrir.
+
+**Receita por impressão (ILRD)**: banner, interstitial, rewarded e app-open já disparam o evento
+`ad_revenue` no Analytics com formato, placement, valor, moeda e precisão. A **rede que serviu**
+não vem nesse payload — ligue o *Impression-level ad revenue* no console do AdMob + o link
+AdMob↔Firebase e o próprio AdMob passa a enviar o `ad_impression` com `ad_source`. Os dois juntos
+dão rede × placement, que é o dado que resolve discussão de eCPM.
 
 ## 🌍 Sistema de Internacionalização
 
@@ -1288,6 +1327,7 @@ declare global {
 - `Strings.ts` - Template de constantes do app (copiado para src/constants/)
 - `AGENTS.md` - Instruções para agentes de IA (copiado para raiz do projeto)
 - `CLAUDE.md` - Ponteiro `@AGENTS.md` para o Claude Code (copiado para raiz do projeto)
+- `POLICY-CHECKS.md` - Regras de review que já derrubaram build, com app/versão/data da rejeição (copiado para `.claude/` do projeto e **ressincronizado** a cada install; a REGRA 6 do `AGENTS.md` manda ler antes de todo build de submissão)
 - `google-services.json` - Placeholder Firebase Android
 - `GoogleService-Info.plist` - Placeholder Firebase iOS
 - `babel.config.js` - Config com Hot Updater plugin
@@ -1344,6 +1384,28 @@ Para suprimir warnings e/ou logs do expo-utils, adicione a configuração no seu
 - `firebaseLogLevel: "error"` - **Opt-in.** Cala o log **nativo** do Firebase SDK no iOS (ex.: `[FirebaseAnalytics][I-ACS...]`). No **prebuild** o plugin gera/mergeia `react-native.app_log_level` num `firebase.json` na raiz do projeto — você **não precisa criar esse arquivo na mão**. Valores: `"error" | "warn" | "info" | "debug"` (ou `true` = `"error"`). Preserva outras chaves do `firebase.json` e não sobrescreve um `app_log_level` definido manualmente. _Não_ silencia os logs `RNFB...[Line N]` (esses são debug-only e somem em release).
 - `analyticsAdSupport` - **Ligado por padrão** (apps ads-first). No **prebuild** injeta `$RNFirebaseAnalyticsEnableAdSupport = true` no `Podfile` iOS → linka `AdSupport.framework`, dando ao Firebase Analytics acesso ao IDFA (demografia/interesses no iOS, como no Android). ⚠️ Coleta IDFA em **produção**: precisa de ATT (expo-utils já pede) + IDFA declarado no privacy manifest/App Store. Inócuo em apps com AdMob (IDFA já coletado). **Desligue num app sem ads** com `"analyticsAdSupport": false`. Precisa `prebuild --clean` + rebuild.
 - `analyticsOnDeviceConversion` - **Ligado por padrão.** No **prebuild** injeta `$RNFirebaseAnalyticsGoogleAppMeasurementOnDeviceConversion = true` no `Podfile` iOS → adiciona o pod `GoogleAdsOnDeviceConversion` (resolve o log `[FirebaseAnalytics] Failed to initiate on-device conversion measurement... dependency does not support this feature`). Desligue com `"analyticsOnDeviceConversion": false`. _Obs.:_ feito via Podfile (não via config plugin do `@react-native-firebase/analytics`, que **não existe na v24** e quebraria o prebuild). Precisa `prebuild --clean` + rebuild.
+- `mediation` - **Ligado por padrão com 4 redes**: **AppLovin, Meta Audience Network, Unity Ads e Pangle**. O catálogo tem outras 5 disponíveis que **só entram se você pedir pelo nome** — `liftoff` (alias `vungle`), `mintegral`, `bidmachine` (alias `appodeal`), `moloco` e `bigo` —, para o build não engordar sozinho quando o catálogo crescer. No **prebuild** injeta os adapters no `android/app/build.gradle`, os repositórios Maven de Mintegral/Pangle no `android/build.gradle` e os pods no `ios/Podfile` — nada de mexer em Podfile/Gradle na mão nem plugin local no app. As versões vêm de `data/mediation_adapters.json` e são **pinadas** (o pod do Pangle 8.2.0.7+ exige `Google-Mobile-Ads-SDK ~> 13.6` e quebraria o `pod install` com o 13.5.0 do RNGMA 16.4.0). Desligue com `"mediation": false`, escolha as redes com `"mediation": ["applovin", "meta"]` ou troque versão com `"mediation": {"applovin": "13.6.3.0"}` (string vale pras duas plataformas; use `{"ios": "…", "android": "…"}` pra separar).
+
+**Rede fora do catálogo:** defina inteira no `app.json` — não precisa mexer na lib. Vale para qualquer ad source do AdMob, e definição só de uma plataforma é aceita (injeta só nela):
+
+```jsonc
+["expo-utils", {
+  "mediation": {
+    "applovin": "13.6.3.0",                                  // do catálogo
+    "moloco": {                                              // rede nova
+      "android": {"artifact": "com.google.ads.mediation:moloco", "version": "4.11.0.0"},
+      "ios": {"pod": "GoogleMobileAdsMediationMoloco", "version": "4.9.0.0"}
+    },
+    "mintegral_privado": {                                   // com repositório próprio
+      "android": {"artifact": "com.exemplo:adapter", "version": "1.0.0", "mavenRepo": "https://repo.exemplo.com/maven"}
+    }
+  }
+}]
+```
+
+Antes de fixar a versão do **pod**, confira a restrição `Google-Mobile-Ads-SDK ~> X` dele: o RNGMA 16.4.0 traz o **13.5.0**, então precisa ser um adapter da família `~> 13.3`/`~> 13.5` — foi assim que o Pangle 8.2.0.7+ (que exige `~> 13.6`) derrubaria o `pod install`. Requer `react-native-google-mobile-ads >= 16.4.0` e `prebuild --clean` + rebuild. No Android o plugin também exclui automaticamente a cópia do TikTok Business SDK que o Pangle embute quando o app tem `expo-tiktok-ads-events` (senão o build morre em `checkReleaseDuplicateClasses`). ⚠️ **Adapter no build não serve ad sozinho**: cada rede precisa de conta própria + grupo de mediação configurado na UI do AdMob; sem isso só pesa o build. **Custo medido** em app real (APK release universal): 127,5 MB sem mediation → 140,5 MB com 6 redes → 148,8 MB com 9. As 4 do default ficam em torno de **+9 MB**.
+- `firebaseDisableSPM` - **Ligado por padrão.** Injeta `$RNFirebaseDisableSPM = true` no `Podfile`. Do RNFirebase **v25+** o Firebase iOS vem por Swift Package, e com `useFrameworks: "static"` (que o CLI configura) o `pod install` **aborta**: _"[react-native-firebase] SPM + static linkage is not supported"_. Só desligue (`"firebaseDisableSPM": false`) se o app for para `useFrameworks: "dynamic"`.
+- `umpDebugGeography` / `umpTestDeviceIds` - **Opt-in, só para QA.** Força o formulário de consentimento do UMP a aparecer fora da Europa: `"umpDebugGeography": "EEA"` (ou `"REGULATED_US_STATE"`, `"OTHER"`, `"DISABLED"`) + `"umpTestDeviceIds": ["<id do device no log do SDK>"]`. Em produção deixe fora do app.json.
 - `usageDescriptions` - **Ligado por padrão.** No **prebuild** injeta no `Info.plist` as purpose strings de privacidade que SDKs comuns exigem (`expo-image`/`expo-video`/`expo-file-system` e o `FBSDKShareKit` referenciam a galeria) — resolve o **ITMS-90683** ("Missing purpose string") na submissão à App Store. Adiciona `NSPhotoLibraryUsageDescription`, `NSPhotoLibraryAddUsageDescription` e `NSCameraUsageDescription` **só se você ainda não definiu** (preserva o que está no `app.json` `ios.infoPlist`). Texto base em **inglês**; a tradução por idioma vem do `--languages` (via `expo.locales` → `InfoPlist.strings`). Desligue tudo com `"usageDescriptions": false`, ou por chave: `"usageDescriptions": { "NSCameraUsageDescription": false }` (ou passe uma string pra trocar o texto). **Android não tem equivalente** — o ITMS-90683 é só do iOS.
 
 **Nota**: O plugin expo-utils é completamente opcional. O projeto funciona normalmente sem ele.

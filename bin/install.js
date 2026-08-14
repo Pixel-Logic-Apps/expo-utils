@@ -998,6 +998,51 @@ function handleClaudeMdFlag() {
     });
 }
 
+// Bloco aditivo para apps que já tinham AGENTS.md próprio (handleClaudeMdFlag não sobrescreve):
+// sem o ponteiro, o agente nunca fica sabendo do arquivo de policies.
+const POLICY_CHECKS_POINTER = `<!-- expo-utils:policy-checks -->
+## POLICY CHECKS — ler \`.claude/POLICY-CHECKS.md\`
+
+Lista de regras de review que **já derrubaram build de verdade** (Apple/Google), mantida pelo
+\`expo-utils\` e atualizada com o tempo. **Ler o arquivo inteiro antes de todo build de submissão**
+(\`eas build --profile production\`, \`fastlane\`, bump de versão) e antes de escrever/alterar
+qualquer fluxo que ele cubra (permissões, paywall, ads). Nunca dê uma submissão como pronta sem
+essa leitura nesta sessão.
+
+Não edite a cópia local — ela é sobrescrita pelo \`expo-utils-install\`. Regra nova vai em
+\`templates/POLICY-CHECKS.md\`, no repo do \`expo-utils\`.
+<!-- /expo-utils:policy-checks -->`;
+
+function handlePolicyChecksFlag() {
+    const srcPath = path.join(moduleDir, "templates", "POLICY-CHECKS.md");
+    if (!fs.existsSync(srcPath)) return;
+
+    // Arquivo GERADO (não editável no app): sempre sincroniza, senão a lista congela na
+    // versão em que o app foi criado — que é justamente o que a lista existe para evitar.
+    const claudeDir = path.join(projectRoot, ".claude");
+    ensureDirExists(claudeDir);
+    const destPath = path.join(claudeDir, "POLICY-CHECKS.md");
+    const source = fs.readFileSync(srcPath, "utf8");
+    const current = fs.existsSync(destPath) ? fs.readFileSync(destPath, "utf8") : null;
+
+    if (current === source) {
+        console.log(chalk.gray("📄 .claude/POLICY-CHECKS.md já está atualizado."));
+    } else {
+        fs.writeFileSync(destPath, source);
+        console.log(
+            chalk.green(`📄 ${current === null ? "Created" : "Updated"} .claude/POLICY-CHECKS.md.`),
+        );
+    }
+
+    const agentsPath = path.join(projectRoot, "AGENTS.md");
+    if (!fs.existsSync(agentsPath)) return;
+    const agents = fs.readFileSync(agentsPath, "utf8");
+    if (agents.includes("POLICY-CHECKS.md")) return; // template novo já cita (REGRA 6)
+
+    fs.writeFileSync(agentsPath, `${agents.replace(/\s*$/, "")}\n\n${POLICY_CHECKS_POINTER}\n`);
+    console.log(chalk.green("  -> AGENTS.md: adicionado ponteiro para .claude/POLICY-CHECKS.md."));
+}
+
 function handleGitignoreFlag() {
     console.log(chalk.cyan("📁 Atualizando .gitignore..."));
     const gitignorePath = path.join(projectRoot, ".gitignore");
@@ -1386,6 +1431,7 @@ async function main() {
         handleHotUpdaterFlag(); // Setup hot-updater
         handlePinDepsFlag(); // Fixa as versões das deps (após todos os handlers que mexem em package.json)
         handleClaudeMdFlag();
+        handlePolicyChecksFlag(); // Após o AGENTS.md: o template novo já cita o arquivo (REGRA 6)
         handleSortPluginsFlag(); // Ordena os plugins por último (após todos os handlers que adicionam plugins)
 
         const rl = readline.createInterface({input: process.stdin, output: process.stdout});
@@ -1437,6 +1483,7 @@ async function main() {
         if (args.includes("--gitignore")) handleGitignoreFlag(); // Nova flag para atualizar .gitignore
         if (args.includes("--hot-updater")) handleHotUpdaterFlag(); // Setup hot-updater
         if (args.includes("--pin-deps")) handlePinDepsFlag(); // Fixa versões das deps (remove ^, ~, >=)
+        if (args.includes("--policy-checks")) handlePolicyChecksFlag(); // Sincroniza .claude/POLICY-CHECKS.md
         console.log(chalk.bold.magenta("\n✨ All done! ✨"));
     }
 }
@@ -1448,5 +1495,11 @@ if (require.main === module) {
     });
 } else {
     // Exporta helpers para testes/uso programático sem disparar o CLI.
-    module.exports = {fixBrokenIosIcon, dedupeInfoPlistArrays, handleLanguagesFlag, handlePinDepsFlag};
+    module.exports = {
+        fixBrokenIosIcon,
+        dedupeInfoPlistArrays,
+        handleLanguagesFlag,
+        handlePinDepsFlag,
+        handlePolicyChecksFlag,
+    };
 }

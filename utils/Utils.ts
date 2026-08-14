@@ -50,6 +50,7 @@ const safeGetLocales = (): Array<{languageCode?: string | null; regionCode?: str
 // Static imports for runtime dependencies
 import {requestTrackingPermissionsAsync, getTrackingPermissionsAsync} from "expo-tracking-transparency";
 import * as Application from "expo-application";
+import * as Device from "expo-device";
 import * as SplashScreen from "expo-splash-screen";
 import * as Clarity from "@microsoft/react-native-clarity";
 import {AppEventsLogger, Settings as FbsdkSettings} from "react-native-fbsdk-next";
@@ -58,8 +59,10 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import {Alert, AppState, Platform, Linking, LogBox, DevSettings, PermissionsAndroid} from "react-native";
 import {registerDevMenuItems} from "expo-dev-menu";
 import {HotUpdater} from "@hot-updater/react-native";
+import mobileAds, {AdsConsent, AdsConsentDebugGeography} from "react-native-google-mobile-ads";
 import {reportConfigIntegrity} from "./config-integrity";
 import {setBlocklist} from "./AdPlacementTracker";
+import {PremiumUtils} from "./PremiumUtils";
 
 // Importações modulares do Firebase
 import {
@@ -140,6 +143,17 @@ function getExpoUtilsDisableAdsIfBuildIsNewerThanStore(appConfig?: any): boolean
         }
     }
     return false;
+}
+
+// Lê uma opção qualquer do ["expo-utils", {...}] do app.json em RUNTIME (mesma ideia dos
+// getters acima, sem precisar de um getter novo por chave). Usado pelas flags de QA do UMP.
+function getExpoUtilsOption(appConfig: any, key: string): any {
+    const plugins = appConfig?.expo?.plugins;
+    if (!Array.isArray(plugins)) return undefined;
+    for (const plugin of plugins) {
+        if (Array.isArray(plugin) && plugin[0] === "expo-utils") return plugin[1]?.[key];
+    }
+    return undefined;
 }
 
 export async function initHotUpdater(baseURL?: string) {
@@ -248,6 +262,8 @@ export const waitAttFlowDone = (timeoutMs = 15000): Promise<void> => {
 // Memos de boot: Remote Config compartilhado entre prepare() e banners; prepare roda 1x.
 let remoteConfigUtilsPromise: Promise<RemoteConfigUtilsType> | null = null;
 let preparePromise: Promise<void> | null = null;
+// UMP + mobileAds().initialize() rodam UMA vez por sessão (o fluxo do ATT pode ser reentrante).
+let mobileAdsSetupPromise: Promise<void> | null = null;
 
 // Compara versões "a.b.c": >0 se current > store, 0 se iguais, <0 se current < store.
 const compareVersions = (current: string, store: string): number => {
@@ -423,6 +439,7 @@ const runPrepare = async (appConfig?: any, appStrings?: AppStrings): Promise<voi
 
         //Trabalho NÃO-tracking que pode rodar sem consentimento (push topics + clarity).
         (async () => {
+            try { await Utils.logFirstOpenOnce(appConfig); }                        catch (e) { expoUtilsWarn("logFirstOpenOnce:", e); }
             try { await Utils.setupClarity(remoteConfigs); }                        catch (e) { expoUtilsWarn("setupClarity:", e); }
             try { await Utils.requestFCMToken(); }                                  catch (e) { expoUtilsWarn("requestFCMToken:", e); }
             try { await Utils.setupMessagingTopics(appConfig, rckey); }             catch (e) { expoUtilsWarn("setupMessagingTopics:", e); }
@@ -614,13 +631,10 @@ const Utils = {
                 // Em simulador/emulador o APNS NUNCA chega — pulamos o poll INTEIRO. Isso zera o
                 // spam nativo "getAPNSToken - Simulator without APNS support" (cada getAPNSToken
                 // que chamaríamos viraria 1 linha no console DEBUG) e não trava 10s no boot.
-                // expo-device é peer OPCIONAL: o require em try/catch faz o Metro tratá-lo como
-                // dependência opcional (não quebra o bundle de quem não instalou). Sem ele, assume
-                // device físico e mantém o backoff (comportamento anterior, ~7-8 linhas).
+                // Em device físico segue o backoff normal abaixo.
                 let isSimulator = false;
                 try {
-                    const Device = require("expo-device");
-                    isSimulator = Device?.isDevice === false; // false só em simulador/emulador
+                    isSimulator = Device.isDevice === false; // false só em simulador/emulador
                 } catch {}
                 if (isSimulator) {
                     expoUtilsWarn("Simulador/emulador sem APNS — pulando FCM token/tópicos.");
@@ -633,7 +647,7 @@ const Utils = {
                 }
                 // Poll com BACKOFF (300→600→1200→…→2000ms): em DEVICE FÍSICO o APNS chega em <1-2s
                 // e é capturado nas 1ªs tentativas. (No simulador nem chega aqui — saiu acima.)
-                // É o fallback p/ quem não tem expo-device ou device com APNS lento.
+                // É o fallback p/ device com APNS lento.
                 const start = Date.now();
                 let apnsToken = await getAPNSToken(messaging);
                 let pollDelay = 300;
@@ -862,15 +876,130 @@ const Utils = {
     },
 
     /**
+     * UMP (consentimento de ads) + `mobileAds().initialize()`, UMA vez por sessão.
+     *
+     * Ordem importa: o formulário do UMP vem ANTES do ATT (recomendação do Google, e o iOS só
+     * mostra um modal de sistema por vez) e o SDK só inicializa quando `canRequestAds` permite.
+     * Inicializar explicitamente é o que faz os ADAPTERS de mediation subirem cedo — o retorno
+     * (`AdapterStatus[]`) é logado e é a prova em runtime de que cada rede está no build.
+     *
+     * Fora de EEA/UK/estados regulados dos EUA o gatherConsent resolve sem exibir nada.
+     * Sem ads (premium / is_ads_enabled=false) não roda: não há consentimento a coletar.
+     * Nunca lança e nunca pendura (timeout no passo de consentimento).
+     *
+     * QA fora da Europa: `["expo-utils", {"umpDebugGeography": "EEA", "umpTestDeviceIds": ["..."]}]`.
+     */
+    setupMobileAds: async (appConfig?: any): Promise<void> => {
+        if (mobileAdsSetupPromise) return mobileAdsSetupPromise;
+
+        mobileAdsSetupPromise = (async () => {
+            try {
+                if ((global as any).isAdsEnabled === false || (global as any).remoteConfigUtils?.is_ads_enabled === false) return;
+                if (await PremiumUtils.getIsPremiumStatus()) return;
+
+                const debugGeography = getExpoUtilsOption(appConfig, "umpDebugGeography");
+                const testDeviceIdentifiers = getExpoUtilsOption(appConfig, "umpTestDeviceIds");
+                const consentOptions: any = {};
+                if (typeof debugGeography === "string" && debugGeography in AdsConsentDebugGeography) {
+                    consentOptions.debugGeography = (AdsConsentDebugGeography as any)[debugGeography];
+                }
+                if (Array.isArray(testDeviceIdentifiers)) consentOptions.testDeviceIdentifiers = testDeviceIdentifiers;
+
+                // Timeout só do passo de consentimento: se o requestInfoUpdate travar (rede ruim),
+                // o boot segue para ATT/push em vez de ficar preso — contrato do resto do arquivo.
+                const consentInfo = await Promise.race([
+                    AdsConsent.gatherConsent(consentOptions),
+                    new Promise<null>((resolve) => setTimeout(() => resolve(null), 20000)),
+                ]);
+                if (!consentInfo) expoUtilsWarn("setupMobileAds: gatherConsent não respondeu em 20s — seguindo.");
+                if (consentInfo && consentInfo.canRequestAds === false) {
+                    expoUtilsLog("[expo-utils] UMP: consentimento nega ads nesta sessão (canRequestAds=false).");
+                    return;
+                }
+
+                const statuses = await mobileAds().initialize();
+                expoUtilsLog(
+                    "[expo-utils] mobileAds().initialize():",
+                    (statuses || [])
+                        .map((s: any) => `${s.name}=${s.state === 1 ? "ready" : "NOT_READY"}${s.description ? ` (${s.description})` : ""}`)
+                        .join(" | ") || "sem adapters",
+                );
+            } catch (e) {
+                expoUtilsWarn("setupMobileAds:", e);
+            }
+        })();
+
+        return mobileAdsSetupPromise;
+    },
+
+    /**
+     * O botão "Privacidade dos anúncios" deve existir na tela de ajustes? Só quando o UMP diz
+     * que as opções de privacidade são exigidas (usuário de EEA/UK/US regulado que já consentiu).
+     * Fora disso NÃO existe formulário para abrir e o botão deve ficar escondido — é o que o
+     * Google recomenda e evita o botão que "não faz nada".
+     */
+    isPrivacyOptionsRequired: async (): Promise<boolean> => {
+        try {
+            const info = await AdsConsent.getConsentInfo();
+            return String(info?.privacyOptionsRequirementStatus) === "REQUIRED";
+        } catch (e) {
+            expoUtilsWarn("isPrivacyOptionsRequired:", e);
+            return false;
+        }
+    },
+
+    /**
+     * Reabre o formulário de opções de privacidade do UMP. Nunca lança e SEMPRE diz o porquê
+     * quando não abre — o `showPrivacyOptionsForm` do SDK não exibe nada quando o formulário não
+     * é exigido, o que na tela vira "o botão não faz nada".
+     *
+     * Retorna `{shown:true}` quando o usuário viu (e fechou) o formulário; `{shown:false, reason}`
+     * com "not-required" (nada a exibir nesta região/estado de consentimento) ou com o código e a
+     * mensagem do SDK. Ex.: `const {shown, reason} = await Utils.showPrivacyOptionsForm();`
+     *
+     * O carregamento leva 1–3s (o form vem da rede): mostre um loading no botão.
+     */
+    showPrivacyOptionsForm: async (): Promise<{shown: boolean; reason?: string}> => {
+        try {
+            if (!(await Utils.isPrivacyOptionsRequired())) {
+                expoUtilsLog("[expo-utils] UMP: privacy options não são exigidas — nada a exibir.");
+                return {shown: false, reason: "not-required"};
+            }
+            await AdsConsent.showPrivacyOptionsForm();
+            return {shown: true};
+        } catch (e: any) {
+            const reason = `${e?.code ?? "erro"}: ${e?.message ?? String(e)}`;
+            expoUtilsWarn("showPrivacyOptionsForm:", reason);
+            return {shown: false, reason};
+        }
+    },
+
+    /**
+     * Zera o estado do UMP (só faz sentido em QA: força o formulário a aparecer de novo no
+     * próximo setupMobileAds/reload). Libera também o memo de sessão.
+     */
+    resetAdsConsent: (): void => {
+        try {
+            AdsConsent.reset();
+            mobileAdsSetupPromise = null;
+        } catch (e) {
+            expoUtilsWarn("resetAdsConsent:", e);
+        }
+    },
+
+    /**
      * Orquestra, DEPOIS do primeiro frame, toda a etapa que depende de consentimento. Deve ser
      * chamada uma única vez pelo RootLayout (no effect de appIsReady), nunca durante o boot.
      *
      * Ordem de execução:
-     *   1. ATT (somente iOS): garante app em foreground/active antes de requestTrackingAuthorization
+     *   1. UMP + init do Google Mobile Ads (setupMobileAds): consentimento de ads vem ANTES do
+     *      ATT — ordem recomendada pelo Google e o iOS só exibe um modal de sistema por vez.
+     *      Fora de EEA/UK/US regulado não mostra nada e sai rápido.
+     *   2. ATT (somente iOS): garante app em foreground/active antes de requestTrackingAuthorization
      *      — requisito do iOS 15+, senão o prompt é descartado silenciosamente. Pré-checa o status
      *      e só pede quando 'undetermined'. A espera por foreground tem timeout (NÃO trava o app).
-     *   2. Push permission (iOS + Android), se fcmTrackingAllowed.
-     *   3. SDKs de tracking (FB, TikTok, link-in-bio, atribuição) — rodam APÓS o prompt. O
+     *   3. Push permission (iOS + Android), se fcmTrackingAllowed.
+     *   4. SDKs de tracking (FB, TikTok, link-in-bio, atribuição) — rodam APÓS o prompt. O
      *      advertiser/IDFA do FB recebe o resultado REAL do ATT (granted); sem consentimento o
      *      IDFA fica zerado/desligado.
      *
@@ -881,6 +1010,9 @@ const Utils = {
      */
     requestTrackingWhenActive: async (appConfig?: any, appStrings?: AppStrings, fcmTrackingAllowed: boolean = true): Promise<boolean> => {
         let granted = true;
+
+        // UMP antes do ATT (ver ordem no comentário acima). Memoizado e com timeout próprio.
+        await Utils.setupMobileAds(appConfig ?? bootAppConfig);
 
         if (Platform.OS === "ios") {
             try {
@@ -945,6 +1077,14 @@ const Utils = {
         try { await Utils.setupAttribution(rckey, granted); }                catch (e) { expoUtilsWarn("setupAttribution:", e); }
 
         return granted;
+    },
+
+    // Nome do evento = slug do app, 1x por instalação (flag no AsyncStorage). O replace é
+    // obrigatório: nome de evento GA4 só aceita [A-Za-z0-9_] (máx. 40) e todo slug tem hífen.
+    logFirstOpenOnce: async (appConfig?: AppConfig) => {
+        if (await AsyncStorage.getItem("@first_open_logged")) return;
+        await AsyncStorage.setItem("@first_open_logged", "true");
+        await logEvent(getAnalytics(getApp()), (appConfig?.expo?.slug || "unknown").replace(/\W/g, "_").slice(0, 40));
     },
 
     initLinkInBioTracking: async (remoteConfig: RemoteConfigUtilsType, appConfig: AppConfig) => {

@@ -1,0 +1,148 @@
+{
+    "_notes": [
+        "Catálogo de adapters de AdMob Mediation consumido por app.plugin.js (opção `mediation`).",
+        "Android: todos os adapters abaixo são compilados contra play-services-ads 25.4.0, que é exatamente o pin do react-native-google-mobile-ads 16.4.0. Ao subir o RNGMA, revalidar.",
+        "iOS: as versões são PINADAS de propósito. Cada podspec declara uma restrição `Google-Mobile-Ads-SDK ~> X` e o RNGMA 16.4.0 traz o 13.5.0 — pod sem versão pode resolver um adapter que exige 13.6+ e quebrar o pod install. Ex.: GoogleMobileAdsMediationPangle 8.2.0.7+ exige ~> 13.6, por isso ficamos no 8.2.0.3.0 (~> 13.3).",
+        "mavenRepo só existe para as redes cujo SDK NÃO está no Maven Central nem no Google Maven (Mintegral, Pangle e BidMachine). Moloco e BIGO estão no Maven Central, então não precisam.",
+        "\"default\": false = rede NO catálogo mas FORA do conjunto padrão: `mediation: true` não a inclui (senão todo app do portfólio engordaria sozinho). Ligue por nome: `mediation: [\"applovin\", \"moloco\"]`.",
+        "Os SKAdNetworkIDs de todas estas redes já estão em data/skadnetwork_ids.json (injetado pelo plugin no Info.plist).",
+        "Versões conferidas em 2026-08-14 contra maven.google.com e o CocoaPods trunk."
+    ],
+    "networks": {
+        "applovin": {
+            "label": "AppLovin",
+            "aliases": [],
+            "android": {
+                "artifact": "com.google.ads.mediation:applovin",
+                "version": "13.6.3.0"
+            },
+            "ios": {
+                "pod": "GoogleMobileAdsMediationAppLovin",
+                "version": "13.6.3.0"
+            }
+        },
+        "meta": {
+            "label": "Meta Audience Network",
+            "aliases": [
+                "facebook"
+            ],
+            "android": {
+                "artifact": "com.google.ads.mediation:facebook",
+                "version": "6.22.0.0"
+            },
+            "ios": {
+                "pod": "GoogleMobileAdsMediationFacebook",
+                "version": "6.22.0.0"
+            }
+        },
+        "unity": {
+            "label": "Unity Ads",
+            "aliases": [
+                "unityads"
+            ],
+            "android": {
+                "artifact": "com.google.ads.mediation:unity",
+                "version": "4.19.0.0"
+            },
+            "ios": {
+                "pod": "GoogleMobileAdsMediationUnity",
+                "version": "4.19.0.0"
+            }
+        },
+        "liftoff": {
+            "label": "Liftoff Monetize (Vungle)",
+            "aliases": [
+                "vungle"
+            ],
+            "default": false,
+            "android": {
+                "artifact": "com.google.ads.mediation:vungle",
+                "version": "7.7.7.0"
+            },
+            "ios": {
+                "pod": "GoogleMobileAdsMediationVungle",
+                "version": "7.7.6.0"
+            }
+        },
+        "mintegral": {
+            "label": "Mintegral",
+            "aliases": [],
+            "default": false,
+            "android": {
+                "artifact": "com.google.ads.mediation:mintegral",
+                "version": "17.1.71.0",
+                "mavenRepo": "https://dl-maven-android.mintegral.com/repository/mbridge_android_sdk_oversea"
+            },
+            "ios": {
+                "pod": "GoogleMobileAdsMediationMintegral",
+                "version": "8.1.6.0"
+            }
+        },
+        "bidmachine": {
+            "label": "BidMachine",
+            "aliases": [
+                "appodeal"
+            ],
+            "default": false,
+            "android": {
+                "artifact": "com.google.ads.mediation:bidmachine",
+                "version": "3.7.1.1",
+                "mavenRepo": "https://artifactory.bidmachine.io/bidmachine"
+            },
+            "ios": {
+                "pod": "GoogleMobileAdsMediationBidMachine",
+                "version": "3.7.1.0.1"
+            }
+        },
+        "moloco": {
+            "label": "Moloco",
+            "aliases": [],
+            "default": false,
+            "android": {
+                "artifact": "com.google.ads.mediation:moloco",
+                "version": "4.11.0.0"
+            },
+            "ios": {
+                "pod": "GoogleMobileAdsMediationMoloco",
+                "version": "4.9.0.0"
+            }
+        },
+        "bigo": {
+            "label": "BIGO Ads",
+            "aliases": [
+                "bigoads"
+            ],
+            "default": false,
+            "android": {
+                "artifact": "com.google.ads.mediation:bigo",
+                "version": "5.10.1.0"
+            },
+            "ios": {
+                "pod": "GoogleMobileAdsMediationBigo",
+                "version": "5.3.0.0"
+            }
+        },
+        "pangle": {
+            "label": "Pangle",
+            "aliases": [],
+            "android": {
+                "artifact": "com.google.ads.mediation:pangle",
+                "version": "8.2.0.4.0",
+                "mavenRepo": "https://artifact.bytedance.com/repository/pangle",
+                "excludeWhenPackage": {
+                    "expo-tiktok-ads-events": [
+                        {
+                            "group": "com.pangle.global",
+                            "module": "tiktok-business-android-sdk-comp",
+                            "reason": "O SDK do Pangle embute uma cópia do TikTok Business SDK (1.6.1). Com o expo-tiktok-ads-events no app (com.github.tiktok:tiktok-business-android-sdk:1.6.0) o build morre em checkReleaseDuplicateClasses: 'Duplicate class com.tiktok.TikTokBusinessSdk'. Excluímos a cópia do Pangle e ficamos com o SDK real, que o app já usa em runtime."
+                        }
+                    ]
+                }
+            },
+            "ios": {
+                "pod": "GoogleMobileAdsMediationPangle",
+                "version": "8.2.0.3.0"
+            }
+        }
+    }
+}

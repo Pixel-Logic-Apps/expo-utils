@@ -10,6 +10,7 @@ import {getApp} from "@react-native-firebase/app";
 import {expoUtilsWarn, expoUtilsLog} from "./Utils";
 import {generatePlacementId, isPlacementBlocked} from "./AdPlacementTracker";
 import {PremiumUtils} from "./PremiumUtils";
+import {logAdRevenue} from "./ad-revenue";
 
 type LoadAdsManagerType = {
     showInterstitial: (unitId?: string, tag?: string) => Promise<boolean>;
@@ -87,6 +88,10 @@ const LoadAdsManager: LoadAdsManagerType = {
                     logAdEvent(analytics, "AdERROR", e, request.placementId);
                     resolve(false);
                 });
+                // ILRD: receita da impressão (valor/moeda/precisão) — ver utils/ad-revenue.ts.
+                interstitial.addAdEventListener(AdEventType.PAID, (e) => {
+                    logAdRevenue("interstitial", request.placementId, e);
+                });
                 interstitial.load();
             });
         } catch (e) {
@@ -123,6 +128,10 @@ const LoadAdsManager: LoadAdsManagerType = {
                 ad.addAdEventListener(AdEventType.ERROR, (e) => {
                     logAdEvent(analytics, "AdERROR", e, request.placementId);
                     resolve(false);
+                });
+                // ILRD: receita da impressão (valor/moeda/precisão) — ver utils/ad-revenue.ts.
+                ad.addAdEventListener(AdEventType.PAID, (e) => {
+                    logAdRevenue("rewarded", request.placementId, e);
                 });
                 ad.load();
             });

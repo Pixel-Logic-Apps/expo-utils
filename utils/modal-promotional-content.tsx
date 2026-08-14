@@ -9,39 +9,21 @@ import {Animated, Dimensions, Image, Modal, PanResponder, Pressable, StyleSheet,
 import {useSafeAreaInsets} from "react-native-safe-area-context";
 import {getAnalytics, logEvent} from "@react-native-firebase/analytics";
 import {getApp} from "@react-native-firebase/app";
+import {useVideoPlayer, VideoView} from "expo-video";
 import {expoUtilsWarn, waitAttFlowDone} from "./Utils";
 import type {PromotionalConfig, PromotionalShadow} from "./types";
 export type {PromotionalShadow};
 
-// expo-video é peerDep (instalado pelo CLI), mas o require é LAZY e guardado: app que
-// atualizou a lib sem rodar o CLI (sem expo-video no node_modules) não pode quebrar o
-// bundle inteiro por causa do promo de vídeo — só o vídeo deixa de renderizar.
-let videoModule: typeof import("expo-video") | null | undefined;
-function getVideoModule() {
-    if (videoModule === undefined) {
-        try {
-            videoModule = require("expo-video");
-        } catch {
-            videoModule = null;
-            expoUtilsWarn("expo-video não instalado — promo de vídeo não será exibido.");
-        }
-    }
-    return videoModule;
-}
-
-// PromoVideo precisa ser componente próprio por causa das regras de hooks
-// (useVideoPlayer é chamado incondicionalmente). O early-return de módulo ausente é estável
-// pela sessão inteira (require nunca passa a existir depois), então não viola as regras.
+// PromoVideo é componente próprio por causa das regras de hooks (useVideoPlayer precisa ser
+// chamado incondicionalmente). expo-video é peerDep instalado pelo CLI.
 function PromoVideo({uri}: {uri: string}) {
-    const video = getVideoModule();
-    if (!video) return null;
-    const player = video.useVideoPlayer(uri, (p) => {
+    const player = useVideoPlayer(uri, (p) => {
         p.loop = true;
         p.muted = false;
         p.play();
     });
     return (
-        <video.VideoView
+        <VideoView
             style={StyleSheet.absoluteFill}
             player={player}
             contentFit="cover"

@@ -123,6 +123,26 @@ Atualizar em lockstep:
 
 Só criar/reconfigurar Facebook se o usuário **pedir explicitamente**. Default: não criar app FB novo.
 
+### 0.8 Policy checks — ler ANTES do build de submissão
+
+Antes de qualquer build que vá para a loja (etapa de build/submit), **ler o arquivo inteiro**
+`.claude/POLICY-CHECKS.md` do app e conferir item por item contra o código. É a lista de regras
+que **já derrubaram build de verdade** (Apple/Google), com app, versão e data da rejeição.
+
+```bash
+# se o app ainda não tem o arquivo (ou está desatualizado — ele é gerado pelo expo-utils):
+npx expo-utils-install --policy-checks
+```
+
+Regras: não confiar na memória (a lista cresce a cada rejeição); não editar a cópia do app (é
+sobrescrita — regra nova vai em `templates/POLICY-CHECKS.md` no repo `expo-utils`); rejeição nova
+que chegar vira item novo lá, na mesma tarefa em que o app é corrigido.
+
+Hoje o item mais fácil de violar sem perceber é o **P-001** (Apple 5.1.1(iv)): tela custom antes
+de um pedido de permissão só pode **explicar**, nunca **decidir** — botão de avanço neutro
+(`Continuar`, nunca `Permitir acesso`) e **nenhuma** saída que adie o pedido (`Cancelar`, X, swipe,
+overlay). Caso real: *Escanear Documentos* 1.0 (6), 14/08/2026.
+
 ---
 
 ## 1. Inputs a coletar no início
@@ -318,6 +338,49 @@ pldev admob pull      # Strings.ts adUnits + app.json iosAppId/androidAppId
 ```
 
 **Sucesso:** `ca-app-pub-<pub-da-conta-alvo>~…` e units no `Strings.ts`.
+
+### Etapa E.1 — Mediation (contas das redes + grupos no AdMob)
+
+O build já sai com os adapters das 4 redes padrão — AppLovin, Meta, Unity e Pangle (expo-utils,
+opção `mediation`, ligada por padrão). Liftoff, Mintegral, BidMachine, Moloco e BIGO existem no
+catálogo e entram se listadas: `"mediation": ["applovin","meta","unity","pangle","moloco"]`.
+**Adapter no build não serve ad**: sem conta na rede e grupo de mediação no AdMob, é só peso.
+
+Pré-requisitos (uma vez por app):
+
+1. App publicado (ou com store URL) — a maioria das redes recusa aprovação sem listing.
+2. **`app-ads.txt`** no blog da conta (o mesmo domínio da política de privacidade) com a linha
+   do AdMob **e a de cada rede**. Sem isso o bidder derruba ou zera o lance — é o item que mais
+   custa receita silenciosamente. Validar no AdMob → Apps → app-ads.txt.
+3. Dados fiscais/bancários preenchidos em **cada** rede (conta "pending" não serve ads).
+4. `bundleIdentifier` / `package` idênticos aos das lojas.
+
+Fluxo por rede (sempre o mesmo): criar conta → cadastrar o app (iOS e Android são apps
+separados) → criar placements por formato → copiar IDs + chave de reporting → no AdMob:
+**Mediation → Create mediation group → Add ad source** → colar os campos → mapear o ad unit.
+
+| rede | portal | o que criar lá | o que o AdMob pede | modo |
+| --- | --- | --- | --- | --- |
+| AppLovin | dash.applovin.com | app + zones (só p/ waterfall) | SDK Key, Report Key, Zone ID (waterfall) | bidding + waterfall |
+| Meta Audience Network | business.facebook.com → Monetization Manager | propriedade + placements; ligar o AdMob como parceiro de bidding | App ID, Placement ID | **bidding only** |
+| Unity Ads | dashboard.unity.com → Unity Ads Monetization | projeto/app + placements | Game ID (por plataforma), Placement ID, Organization Core ID + API Key | bidding + waterfall |
+| Liftoff Monetize | publisher.vungle.com | app + placements | App ID, Placement Reference ID, Reporting API Key | bidding + waterfall |
+| Mintegral | portal do publisher Mintegral | app + placement + ad unit | App ID, App Key, Placement ID, Unit ID, Skey/Secret | bidding + waterfall |
+| Pangle | partner.pangleglobal.com | app + ad slots | App ID, Slot ID, chave de reporting | bidding + waterfall |
+
+Os nomes dos campos mudam com o tempo — **o wizard "Add ad source" do AdMob é a fonte da
+verdade**. A chave de reporting é o que liga o *ad source optimization* (eCPM automático por
+país); sem ela a rede fica com eCPM manual.
+
+Montagem recomendada: **1 grupo por formato** (app open / banner / interstitial / rewarded),
+todas as fontes do build em **bidding**, waterfall só como complemento com floor. Ligar também o
+*Impression-level ad revenue* + link AdMob↔Firebase (é o que traz `ad_impression` com
+`ad_source` para o Firebase — sem isso não dá para comparar rede por rede depois).
+
+Nenhuma credencial de rede entra no app: o binário só tem o AdMob app id (`app.json`) e os ad
+units (`Strings.ts`).
+
+**Sucesso:** Ad Inspector no dev build listando as fontes configuradas e servindo ad de teste em cada uma.
 
 ### Etapa F — Política de privacidade (Blogger)
 
@@ -1057,6 +1120,7 @@ Preciso do seu OK para executar. Pode confirmar? (e responder: <dados se houver>
 
 ## 10. Referências no repo
 
+- `.claude/POLICY-CHECKS.md` (no app) / `templates/POLICY-CHECKS.md` (no expo-utils) — regras de review que já derrubaram build (§0.8)
 - `fastlane/README.md` — mapa do kit
 - `fastlane/ios/README.md` — push/pull privacy/IAP/screenshots
 - `fastlane/PROMPT_STORE_METADATA.md` — metadados

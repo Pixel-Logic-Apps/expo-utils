@@ -407,10 +407,18 @@ Nota: o Expo 57 pode avisar que a chave root não é do schema `expo` — ainda 
 ```bash
 npx expo-utils-install
 npx expo-utils-install --skadnetwork --sort-plugins --fix-ios-build --eas-config --hot-updater
+npx expo-utils-install --policy-checks   # SEMPRE (também em app já migrado)
 # Opcional: --languages  (purpose strings iOS localizadas)
 ```
 
 **Não rode `--layout` se o app já tem Stack custom** — reescreva o layout manualmente (seção 4).
+
+**`--policy-checks` é obrigatório no upgrade** (e barato: só escreve doc). Ele sincroniza
+`.claude/POLICY-CHECKS.md` — a lista de regras de review que já derrubaram build de verdade
+(Apple/Google) — e, se o `AGENTS.md` do app não citar o arquivo, adiciona o ponteiro no fim dele.
+O arquivo é **gerado**: é sobrescrito a cada install, para o app nunca ficar com a lista da versão
+em que foi criado. Regra nova vai em `templates/POLICY-CHECKS.md` do repo `expo-utils`, nunca na
+cópia do app. Rode de novo a cada bump do expo-utils, para o app pegar as regras novas.
 
 ---
 

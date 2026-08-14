@@ -3,6 +3,7 @@ import {AppOpenAd, AdEventType} from "react-native-google-mobile-ads";
 import {generatePlacementId, isPlacementBlocked} from "./AdPlacementTracker";
 import {expoUtilsLog, expoUtilsWarn} from "./Utils";
 import {PremiumUtils} from "./PremiumUtils";
+import {logAdRevenue} from "./ad-revenue";
 
 let canShowAppOpenAgain = true;
 let listenerRegistered = false;
@@ -52,6 +53,10 @@ export const setupAppOpenListener = (adUnitId?: string) => {
                 });
                 appOpenAd.addAdEventListener(AdEventType.ERROR, () => {
                     canShowAppOpenAgain = true;
+                });
+                // ILRD: receita da impressão (valor/moeda/precisão) — ver utils/ad-revenue.ts.
+                appOpenAd.addAdEventListener(AdEventType.PAID, (e) => {
+                    logAdRevenue("appopen", placementId, e);
                 });
                 appOpenAd.load();
             } catch (e) {

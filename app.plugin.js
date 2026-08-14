@@ -2,20 +2,28 @@ const {
     withInfoPlist,
     withAppDelegate,
     withMainApplication,
+    withAppBuildGradle,
     withDangerousMod,
     withProjectBuildGradle,
     withGradleProperties,
     createRunOncePlugin,
 } = require("@expo/config-plugins");
-const {mergeContents} = require("@expo/config-plugins/build/utils/generateCode");
+const {
+    mergeContents,
+    removeContents,
+    createGeneratedHeaderComment,
+} = require("@expo/config-plugins/build/utils/generateCode");
 const fs = require("fs");
 const path = require("path");
 
 const pkg = require("./package.json");
 const SKADNETWORK_IDS = require("./data/skadnetwork_ids.json");
+const MEDIATION_ADAPTERS = require("./data/mediation_adapters.json");
 
 const DEVMENU_TAG = "skip-devmenu-onboarding";
 const KOTLIN_ADS_FIX_TAG = "expo-utils-android-kotlin-ads-fix";
+const MEDIATION_TAG = "expo-utils-admob-mediation";
+const MEDIATION_REPOS_TAG = "expo-utils-admob-mediation-repos";
 const FIREBASE_LOG_LEVELS = ["error", "warn", "info", "debug"];
 const ANDROID_GRADLE_JVMARGS = "-Xmx4096m -XX:MaxMetaspaceSize=1024m";
 const KOTLIN_SKIP_METADATA_FLAG = "-Xskip-metadata-version-check";
@@ -185,8 +193,14 @@ function withFirebaseLogLevel(config, level) {
 const RNFB_ANALYTICS_PODFILE_TAG = "rnfirebase-analytics-podfile-globals";
 
 /**
- * Injeta variáveis GLOBAIS do RNFirebase Analytics no Podfile iOS no prebuild. O
- * RNFBAnalytics.podspec lê essas globais no pod install (confirmado na v24):
+ * Injeta variáveis GLOBAIS do RNFirebase no Podfile iOS no prebuild. Os podspecs do RNFB leem
+ * essas globais no pod install:
+ *   - `$RNFirebaseDisableSPM` → força resolução do firebase-ios-sdk por CocoaPods. **Obrigatório
+ *     no stack**: o CLI configura `useFrameworks: "static"` e, do RNFB v25+ em diante, o Firebase
+ *     vem por Swift Package (produtos de linkagem automática). Com pods estáticos cada pod do RNFB
+ *     embute a sua cópia e o `pod install` ABORTA: "[react-native-firebase] SPM + static linkage
+ *     is not supported". Desligue com `{ firebaseDisableSPM: false }` (só faz sentido se o app
+ *     também trocar para `useFrameworks: "dynamic"`).
  *   - `$RNFirebaseAnalyticsEnableAdSupport` → linka `AdSupport.framework` (IDFA → audiência/
  *     demografia no iOS, como no Android).
  *   - `$RNFirebaseAnalyticsGoogleAppMeasurementOnDeviceConversion` → add pod
@@ -273,6 +287,230 @@ function withAndroidGradleHeap(config) {
 }
 
 /**
+ * Resolve a opção `mediation` do app.json numa lista de redes do catálogo
+ * (data/mediation_adapters.json). Nunca lança: nome desconhecido vira warn e é ignorado.
+ *
+ * Aceita:
+ *   true                                   → TODAS as redes do catálogo (default)
+ *   ["applovin", "meta"]                   → só as listadas (aliases valem: "facebook" = meta,
+ *                                            "vungle" = liftoff)
+ *   {applovin: "13.6.3.0", pangle: false}  → override de versão / desliga rede a rede.
+ *                                            String troca as DUAS plataformas; use
+ *                                            {ios: "…", android: "…"} pra separar.
+ *   {bigo: {android: {artifact, version, mavenRepo?}, ios: {pod, version}}}
+ *                                          → rede QUE NÃO ESTÁ NO CATÁLOGO, definida inteira no
+ *                                            app.json (escotilha: dá pra ligar qualquer ad source
+ *                                            do AdMob sem mexer na lib). A mesma forma também
+ *                                            sobrescreve campos de uma rede do catálogo.
+ *
+ * Definição parcial é válida: rede só com `android` (ou só com `ios`) é injetada só naquela
+ * plataforma — útil para adapter que não existe nas duas.
+ */
+function resolveMediationNetworks(option) {
+    const catalog = MEDIATION_ADAPTERS.networks;
+    const keys = Object.keys(catalog);
+
+    const normalize = (name) => String(name).toLowerCase().replace(/[^a-z0-9]/g, "");
+    const findKey = (name) => {
+        const wanted = normalize(name);
+        return keys.find((key) => [key, ...(catalog[key].aliases || [])].some((n) => normalize(n) === wanted));
+    };
+    // Definição completa (rede nova) vs override de versão: o que distingue é o TIPO — string é
+    // versão, objeto com artifact/pod é definição.
+    const isDefinition = (value) =>
+        !!value && typeof value === "object" && (value.android?.artifact || value.ios?.pod);
+
+    // `default: false` no catálogo = rede disponível mas FORA do conjunto padrão (só entra se o
+    // app pedir pelo nome). Evita engordar todo app sempre que o catálogo cresce.
+    let requested = keys.filter((key) => catalog[key].default !== false).map((key) => [key, undefined]);
+    if (Array.isArray(option)) {
+        requested = option.map((name) => [name, undefined]);
+    } else if (option && typeof option === "object") {
+        requested = Object.entries(option).filter(([, value]) => value !== false);
+    }
+
+    const networks = [];
+    for (const [name, override] of requested) {
+        const key = findKey(name);
+        const definition = isDefinition(override);
+        if (!key && !definition) {
+            console.warn(
+                `[expo-utils] mediation: rede desconhecida "${name}" — ignorada. Use uma do catálogo ` +
+                    `(${keys.join(", ")}) ou defina inteira: {"${name}": {"android": {"artifact": "…", "version": "…"}, "ios": {"pod": "…", "version": "…"}}}.`,
+            );
+            continue;
+        }
+        const id = key || normalize(name);
+        if (networks.some((n) => n.key === id)) continue;
+
+        const base = key ? catalog[key] : {label: String(name)};
+        const versionOf = (platform) => {
+            if (typeof override === "string") return override;
+            const value = override && override[platform];
+            if (typeof value === "string") return value;
+            if (value && typeof value === "object" && value.version) return value.version;
+            return base[platform]?.version;
+        };
+        const merged = (platform) => {
+            const custom = definition && override[platform] && typeof override[platform] === "object" ? override[platform] : null;
+            const merge = {...(base[platform] || {}), ...(custom || {}), version: versionOf(platform)};
+            const valid = platform === "android" ? merge.artifact : merge.pod;
+            if (!valid) return null;
+            if (platform === "android" && !merge.version) {
+                console.warn(`[expo-utils] mediation: "${name}" sem versão no Android — ignorado (Gradle exige versão).`);
+                return null;
+            }
+            return merge;
+        };
+
+        const android = merged("android");
+        const ios = merged("ios");
+        if (!android && !ios) {
+            console.warn(`[expo-utils] mediation: "${name}" sem definição válida de Android nem iOS — ignorada.`);
+            continue;
+        }
+        networks.push({key: id, label: base.label || String(name), android, ios});
+    }
+    return networks;
+}
+
+/**
+ * Exclusões Gradle CONDICIONAIS de um adapter: só entram quando o app tem o pacote npm que
+ * causa o conflito. Hoje resolve o caso do Pangle, que embute uma cópia do TikTok Business SDK
+ * e quebra o `checkReleaseDuplicateClasses` em qualquer app do stack (que traz
+ * `expo-tiktok-ads-events`). Ver `excludeWhenPackage` em data/mediation_adapters.json.
+ */
+function resolveAndroidExcludes(network, projectRoot) {
+    const rules = network.android?.excludeWhenPackage;
+    if (!rules || !projectRoot) return [];
+    const out = [];
+    for (const [pkg, excludes] of Object.entries(rules)) {
+        if (!fs.existsSync(path.join(projectRoot, "node_modules", pkg))) continue;
+        for (const e of excludes) out.push({group: e.group, module: e.module, why: `conflita com ${pkg}`});
+    }
+    return out;
+}
+
+/**
+ * Android: injeta os adapters de mediation em `android/app/build.gradle`.
+ *
+ * Não dá pra usar `expo-build-properties` aqui — ele só expõe `extraMavenRepos`/`extraPods`,
+ * não tem chave para dependências Gradle (a doc do react-native-google-mobile-ads sugere
+ * `android.dependencies`, que não existe no plugin). Por isso o merge é feito aqui.
+ */
+function withAndroidMediationAdapters(config, networks) {
+    return withAppBuildGradle(config, (cfg) => {
+        if (cfg.modResults.language !== "groovy") {
+            console.warn(`[expo-utils] mediation: app/build.gradle em ${cfg.modResults.language}, pulando adapters Android.`);
+            return cfg;
+        }
+        const projectRoot = cfg.modRequest.projectRoot;
+        const androidNetworks = networks.filter((n) => n.android);
+        if (!androidNetworks.length) return cfg;
+        const newSrc = androidNetworks
+            .map((n) => {
+                const dep = `implementation("${n.android.artifact}:${n.android.version}")`;
+                const excludes = resolveAndroidExcludes(n, projectRoot);
+                if (!excludes.length) return `    ${dep} // ${n.label}`;
+                return [
+                    `    ${dep} { // ${n.label}`,
+                    ...excludes.map(
+                        (e) => `        exclude group: "${e.group}", module: "${e.module}" // ${e.why}`,
+                    ),
+                    "    }",
+                ].join("\n");
+            })
+            .join("\n");
+        try {
+            cfg.modResults.contents = mergeContents({
+                src: cfg.modResults.contents,
+                newSrc,
+                anchor: /^dependencies\s?\{/m,
+                offset: 1,
+                comment: "//",
+                tag: MEDIATION_TAG,
+            }).contents;
+        } catch (e) {
+            console.warn(`[expo-utils] mediation: não consegui injetar os adapters no app/build.gradle: ${e.message}`);
+        }
+        return cfg;
+    });
+}
+
+/**
+ * Android: repositórios Maven das redes que NÃO publicam o SDK no Maven Central nem no
+ * Google Maven (hoje Mintegral e Pangle). Sem isso o Gradle não resolve `mbridge_android_sdk`
+ * / `pag-sdk` e o build quebra.
+ *
+ * Escreve no fim do build.gradle do PROJETO (blocos `allprojects` extras somam; o template do
+ * Expo 57 não usa `dependencyResolutionManagement`), com header/footer @generated para que
+ * mudar a lista de redes atualize o bloco em vez de duplicar.
+ */
+function withAndroidMediationRepos(config, networks) {
+    return withProjectBuildGradle(config, (cfg) => {
+        const repos = networks.filter((n) => n.android?.mavenRepo);
+        let contents = removeContents({src: cfg.modResults.contents, tag: MEDIATION_REPOS_TAG}).contents;
+
+        if (repos.length) {
+            const body = [
+                "allprojects {",
+                "    repositories {",
+                ...repos.map((n) => `        maven { url '${n.android.mavenRepo}' } // ${n.label}`),
+                "    }",
+                "}",
+            ].join("\n");
+            const header = createGeneratedHeaderComment(body, MEDIATION_REPOS_TAG, "//");
+            contents = `${contents.replace(/\s+$/, "")}\n\n${header}\n${body}\n// @generated end ${MEDIATION_REPOS_TAG}\n`;
+        }
+
+        cfg.modResults.contents = contents;
+        return cfg;
+    });
+}
+
+/**
+ * iOS: injeta os pods dos adapters DENTRO do target do app (âncora `use_expo_modules!`).
+ *
+ * As versões são PINADAS (data/mediation_adapters.json) de propósito: cada adapter declara
+ * `Google-Mobile-Ads-SDK ~> X` e o RNGMA 16.4.0 traz o 13.5.0 — pod sem versão pode resolver
+ * um adapter que exige 13.6+ e derrubar o `pod install`.
+ */
+function withIosMediationPods(config, networks) {
+    return withDangerousMod(config, [
+        "ios",
+        (cfg) => {
+            const podfile = path.join(cfg.modRequest.platformProjectRoot, "Podfile");
+            const iosNetworks = networks.filter((n) => n.ios);
+            if (!iosNetworks.length) return cfg;
+            try {
+                const src = fs.readFileSync(podfile, "utf8");
+                const newSrc = iosNetworks
+                    .map((n) =>
+                        // pod sem versão é permitido (o CocoaPods resolve a mais nova), mas o
+                        // catálogo pina de propósito — ver comentário do arquivo de catálogo.
+                        n.ios.version
+                            ? `  pod '${n.ios.pod}', '${n.ios.version}' # ${n.label}`
+                            : `  pod '${n.ios.pod}' # ${n.label}`,
+                    )
+                    .join("\n");
+                const merged = mergeContents({
+                    src,
+                    newSrc,
+                    anchor: /use_expo_modules!/, // primeira linha dentro do `target ... do`
+                    offset: 1,
+                    comment: "#",
+                    tag: MEDIATION_TAG,
+                });
+                if (merged.didMerge) fs.writeFileSync(podfile, merged.contents);
+            } catch (e) {
+                console.warn(`[expo-utils] mediation: não consegui injetar os pods no Podfile: ${e.message}`);
+            }
+            return cfg;
+        },
+    ]);
+}
+
+/**
  * Config plugin do expo-utils.
  *
  * `options.disableWarnings`/`disableLogs` são lidos em RUNTIME do app.json
@@ -290,6 +528,10 @@ function withAndroidGradleHeap(config) {
  * (`$RNFirebaseAnalyticsEnableAdSupport` / `...GoogleAppMeasurementOnDeviceConversion`).
  * Desligue cada uma com `{ analyticsAdSupport: false }` / `{ analyticsOnDeviceConversion: false }`.
  *
+ * `options.firebaseDisableSPM` LIGADO por padrão: injeta `$RNFirebaseDisableSPM = true` no Podfile.
+ * Sem isso, RNFB v25+ (Firebase via Swift Package) + `useFrameworks: "static"` — que o CLI
+ * configura — faz o `pod install` abortar com "SPM + static linkage is not supported".
+ *
  * `options.usageDescriptions` LIGADO por padrão: injeta NS*UsageDescription (Photo Library
  * read/add + Camera) no Info.plist se faltarem, resolvendo o ITMS-90683 disparado por SDKs
  * (FBSDK, expo-image/video/file-system). Desligue com `{ usageDescriptions: false }` ou ajuste
@@ -299,6 +541,13 @@ function withAndroidGradleHeap(config) {
  * `-Xskip-metadata-version-check` no KotlinCompile (play-services-ads 2.3 vs Kotlin 2.1
  * do Expo) e sobe o heap do Gradle daemon pra 4G. Evita plugin local nos apps.
  * Desligue com `{ androidKotlinAdsFix: false }`.
+ *
+ * `options.mediation` LIGADO por padrão com TODAS as redes do catálogo (AppLovin, Meta,
+ * Unity, Liftoff, Mintegral, Pangle): no PREBUILD injeta os adapters no `app/build.gradle`,
+ * os repositórios Maven de Mintegral/Pangle no build.gradle do projeto e os pods no Podfile.
+ * Desligue com `{ mediation: false }`, ou escolha as redes: `{ mediation: ["applovin", "meta"] }`.
+ * ⚠️ Adapter só serve ad depois de configurar a fonte na UI do AdMob (grupo de mediação +
+ * ad unit mapeado); sem isso só pesa o build.
  */
 function withExpoUtils(config, options = {}) {
     let result = withSkAdNetworkItems(config);
@@ -313,18 +562,31 @@ function withExpoUtils(config, options = {}) {
     if (typeof level === "string" && FIREBASE_LOG_LEVELS.includes(level)) {
         result = withFirebaseLogLevel(result, level);
     }
-    const analyticsGlobals = [];
+    const podfileGlobals = [];
+    if (options?.firebaseDisableSPM !== false) {
+        // Precisa vir ANTES dos targets — o anchor `require 'json'` garante isso.
+        podfileGlobals.push("$RNFirebaseDisableSPM = true");
+    }
     if (options?.analyticsAdSupport !== false) {
-        analyticsGlobals.push("$RNFirebaseAnalyticsEnableAdSupport = true");
+        podfileGlobals.push("$RNFirebaseAnalyticsEnableAdSupport = true");
     }
     if (options?.analyticsOnDeviceConversion !== false) {
-        analyticsGlobals.push("$RNFirebaseAnalyticsGoogleAppMeasurementOnDeviceConversion = true");
+        podfileGlobals.push("$RNFirebaseAnalyticsGoogleAppMeasurementOnDeviceConversion = true");
     }
-    if (analyticsGlobals.length) {
-        result = withAnalyticsPodfileGlobals(result, analyticsGlobals);
+    if (podfileGlobals.length) {
+        result = withAnalyticsPodfileGlobals(result, podfileGlobals);
     }
     if (options?.androidKotlinAdsFix !== false) {
         result = withAndroidGradleHeap(withAndroidKotlinMetadataSkip(result));
+    }
+    if (options?.mediation !== false) {
+        const networks = resolveMediationNetworks(options?.mediation);
+        if (networks.length) {
+            result = withIosMediationPods(
+                withAndroidMediationRepos(withAndroidMediationAdapters(result, networks), networks),
+                networks,
+            );
+        }
     }
     return result;
 }
