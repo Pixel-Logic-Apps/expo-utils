@@ -31,6 +31,14 @@ Tambem: se `index.ts` exportar API publica nova, mantenha `index.d.ts` em sync (
 - `cross_promo` é campo OBRIGATÓRIO do `RemoteConfigScreensType` (`utils/types.ts`) — app que montar `remoteConfigScreens` sem a key quebra no typecheck. É a enforcement da regra.
 
 
+## Gerador de JSON promo (`docs/index.html` — site do GitHub Pages)
+
+- `docs/` é a fonte do GitHub Pages (Settings → Pages → `main` + `/docs`): `docs/index.html` abre em `https://pixel-logic-apps.github.io/expo-utils/`. É um HTML único, sem build e sem dependência — cola o link da App Store/Google Play e ele gera o JSON de `promotional` / `appmodal` (parâmetro `utils`) ou `cross_promo` (parâmetro `screens`).
+- **Ele espelha `PromotionalConfig` e `CrossPromoConfig` (`utils/types.ts`).** Mudou campo, default ou em quais `type` um campo vale (`utils/modal-promotional-content.tsx`, `utils/cross-promo-card.tsx`) → atualize a lista `FIELDS` do `docs/index.html` **na mesma tarefa**, senão o gerador passa a emitir JSON desatualizado sem ninguém perceber.
+- `docs/.nojekyll` é proposital: sem ele o Pages roda Jekyll nos `.md` da pasta, e a sintaxe `{{ }}`/`{% %}` dos playbooks quebra o build do site. Não remova.
+- Só a App Store tem API pública com CORS (iTunes lookup). O Google Play não tem — por isso link só-Play é resolvido buscando o mesmo `bundleId` na App Store. Proxy CORS público foi testado e descartado (todos instáveis); não reintroduza.
+
+
 # Checksum MD5 do Remote Config
 
 Este documento descreve como implementar (em um app Expo que consome o `expo-utils`)

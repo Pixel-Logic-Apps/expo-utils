@@ -863,6 +863,8 @@ O objeto `promotional` fica dentro da key `utils` do Firebase Remote Config:
 
 > **Backward compatibility**: a chave `appmodal` continua funcionando como fallback. Se `promotional` não existir, o sistema lê `appmodal` automaticamente.
 
+> **Gerador de JSON**: em vez de montar à mão, use o [gerador](https://pixel-logic-apps.github.io/expo-utils/) (`docs/index.html`) — cole o link da App Store/Google Play e ele preenche nome, ícone, descrição, URLs e cores, e gera o JSON de `promotional`, `appmodal` ou `cross_promo`.
+
 ### Campos da Configuração
 
 | Campo | Tipo | Descrição |

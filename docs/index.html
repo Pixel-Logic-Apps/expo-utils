@@ -1,0 +1,597 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Gerador de JSON promo · expo-utils</title>
+<style>
+    :root { color-scheme: light dark; --line: #8886; --soft: #8882; --blue: #2563eb; }
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    body { font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; max-width: 820px; margin: 0 auto; padding: 24px 16px 64px; }
+    h1 { font-size: 22px; margin: 0 0 4px; }
+    h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .07em; opacity: .6; margin: 30px 0 10px; }
+    p { margin: 0 0 12px; }
+    a { color: var(--blue); }
+    code { font: 13px ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .muted { opacity: .65; font-size: 13px; }
+    input, select, textarea, button { font: inherit; }
+    input[type=text], input[type=url], input[type=number], select, textarea {
+        width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: Field; color: FieldText;
+    }
+    textarea { resize: vertical; display: block; }
+    button { padding: 8px 14px; border: 1px solid var(--line); border-radius: 8px; background: ButtonFace; color: ButtonText; cursor: pointer; }
+    button.primary { background: var(--blue); border-color: var(--blue); color: #fff; font-weight: 600; }
+    button.small { padding: 3px 10px; font-size: 13px; }
+    button:disabled { opacity: .5; cursor: default; }
+    .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    .row.top { margin-top: 10px; }
+    #country { width: 64px; text-align: center; }
+    #status.err { color: #dc2626; }
+    #status.ok { color: #16a34a; }
+    #notes { margin: 8px 0 0; padding-left: 18px; font-size: 13px; }
+    .seg label { padding: 6px 12px; border: 1px solid var(--line); border-radius: 999px; cursor: pointer; }
+    .seg input { position: absolute; opacity: 0; }
+    .seg label:has(input:checked) { background: var(--blue); border-color: var(--blue); color: #fff; }
+    .seg label:has(input:focus-visible) { outline: 2px solid var(--blue); outline-offset: 2px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .wide { grid-column: 1 / -1; }
+    .f > label { display: flex; gap: 6px; align-items: baseline; margin-bottom: 4px; }
+    .f > label a { margin-left: auto; font-size: 13px; white-space: nowrap; }
+    .color { display: inline-flex; gap: 6px; align-items: center; }
+    .color input[type=color] { width: 40px; height: 36px; padding: 2px; border: 1px solid var(--line); border-radius: 8px; background: none; }
+    .color input[type=text] { width: 104px; font-family: ui-monospace, Menlo, monospace; }
+    .shots { display: flex; gap: 8px; overflow-x: auto; padding: 8px 0 2px; }
+    .shots img { height: 120px; border-radius: 8px; border: 1px solid var(--line); cursor: pointer; }
+    #warn { margin: 12px 0 0; padding-left: 18px; font-size: 13px; color: #b45309; }
+    #out { font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre; tab-size: 2; }
+
+    /* Prévia aproximada */
+    #preview { display: flex; justify-content: center; padding: 18px; border-radius: 14px; background: var(--soft); }
+    .pv { width: 300px; border-radius: 18px; overflow: hidden; background: #fff; color: #1f2937; box-shadow: 0 6px 24px #0003; }
+    .pv-top { position: relative; height: 130px; display: flex; align-items: center; justify-content: center; }
+    .pv-bg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+    .pv-icon { position: relative; width: 72px; height: 72px; border-radius: 18px; background: #fff; box-shadow: 0 4px 14px #0004; object-fit: cover; }
+    .pv-body { padding: 16px; text-align: center; }
+    .pv-body b { font-size: 17px; display: block; }
+    .pv-body p { color: #6b7280; font-size: 13px; margin: 6px 0 14px; }
+    .pv-btn { display: block; padding: 11px; border-radius: 12px; color: #fff; font-weight: 700; }
+    .cp { width: 360px; max-width: 100%; display: flex; align-items: center; gap: 12px; padding: 14px; border-radius: 14px; background: #fff; color: #111827; box-shadow: 0 2px 10px #0002; }
+    .cp-icon { width: 52px; height: 52px; border-radius: 12px; background: #e5e7eb; object-fit: cover; flex: none; }
+    .cp-copy { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+    .cp-copy small { font-size: 11px; font-weight: 800; color: var(--blue); text-transform: uppercase; letter-spacing: .04em; }
+    .cp-copy b, .cp-copy span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .cp-copy span { font-size: 12px; color: #6b7280; }
+    .cp-cta { padding: 8px 12px; border-radius: 999px; background: var(--blue); color: #fff; font-size: 12px; font-weight: 700; }
+
+    @media (max-width: 620px) { .grid { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+
+<h1>Gerador de JSON promo</h1>
+<p class="muted">Cole o link do app → os campos se preenchem → copie o JSON para o Remote Config.</p>
+
+<h2>1 · Link do app</h2>
+<textarea id="links" rows="2" spellcheck="false" placeholder="https://apps.apple.com/br/app/meu-app/id123456789&#10;https://play.google.com/store/apps/details?id=com.exemplo.app   (opcional — pode colar os dois)"></textarea>
+<div class="row top">
+    <button id="fill" class="primary">Preencher</button>
+    <label class="muted">país <input id="country" type="text" maxlength="2" placeholder="auto"></label>
+    <span id="status" class="muted"></span>
+</div>
+<ul id="notes" hidden></ul>
+
+<h2>2 · Qual JSON</h2>
+<div class="row seg">
+    <label><input type="radio" name="kind" value="promotional" checked> promotional</label>
+    <label><input type="radio" name="kind" value="appmodal"> appmodal <span class="muted">(legado)</span></label>
+    <label><input type="radio" name="kind" value="cross_promo"> cross_promo</label>
+</div>
+
+<h2>3 · Campos</h2>
+<div id="fields" class="grid"></div>
+
+<h2>Prévia aproximada</h2>
+<div id="preview"></div>
+<p id="previewNote" class="muted" style="margin-top:6px"></p>
+
+<h2>4 · JSON</h2>
+<textarea id="out" rows="18" readonly spellcheck="false"></textarea>
+<div class="row top">
+    <button id="copy" class="primary">Copiar</button>
+    <label><input id="withKey" type="checkbox" checked> incluir a chave</label>
+    <span id="where" class="muted"></span>
+</div>
+<ul id="warn" hidden></ul>
+
+<p class="muted" style="margin-top:40px">
+    Formatos: <code>PromotionalConfig</code> e <code>CrossPromoConfig</code> em
+    <a href="https://github.com/Pixel-Logic-Apps/expo-utils/blob/main/utils/types.ts" target="_blank" rel="noopener">utils/types.ts</a>.
+    Nada é enviado a servidor nenhum — a página só consulta a API pública da App Store.
+</p>
+
+<script>
+// Espelha PromotionalConfig e CrossPromoConfig (utils/types.ts).
+// Campo novo lá = uma linha nova em FIELDS aqui. Campos `on`/`not` só aparecem (e só saem no JSON)
+// para os `type` em que a lib realmente os usa.
+const TYPES = ["bottom-sheet", "card-banner-bottom", "notification", "fullscreen", "banner"];
+const FIELDS = {
+    promotional: [
+        {k: "enabled", t: "bool", d: true},
+        {k: "type", t: "select", opts: TYPES, d: "bottom-sheet"},
+        {k: "name", t: "text"},
+        {k: "buttonText", t: "text", ph: "vazio = tradução automática (Baixar Agora, Download Now…)"},
+        {k: "description", t: "area"},
+        {k: "icon", t: "url"},
+        {k: "storeUrl", t: "url", hint: "um link só — iOS ≠ Android: use condição de plataforma no Remote Config"},
+        {k: "primaryColor", t: "color", d: "#22C55E", hint: "botão"},
+        {k: "gradientColors", t: "colors", d: ["#22C55E", "#16A34A"]},
+        {k: "imageUrl", t: "url", hint: "substitui o gradiente"},
+        {k: "videoUrl", t: "url", hint: "tem prioridade sobre imageUrl", on: ["fullscreen"]},
+        {k: "bannerHeight", t: "num", ph: "200", not: ["fullscreen"]},
+        {k: "delayMs", t: "num", d: "5000", hint: "ms até aparecer", not: ["banner"]},
+        {k: "closeBtnDelayMs", t: "num", ph: "5000", hint: "ms até o X aparecer", on: ["fullscreen"]},
+        {k: "notificationTitle", t: "text", ph: "vazio = name", on: ["notification"]},
+        {k: "notificationBody", t: "text", ph: "vazio = description", on: ["notification"]},
+        {k: "position", t: "select", opts: ["", "top", "bottom"], ph: "padrão (bottom)", on: ["notification"]},
+        {k: "notificationCompact", t: "select", opts: ["", "true", "false"], ph: "padrão (true)", on: ["notification"]},
+        {k: "targetScreens", t: "list", ph: "/settings, /details — vazio = qualquer tela", not: ["banner"]},
+        {k: "nthImpression", t: "text", ph: "1 · 2n · 1+2n — vazio = sempre", not: ["banner"]},
+        {k: "showDontShowAgain", t: "bool", d: false, hint: "quem tocar em “Não mostrar novamente” não vê mais NENHUM promo"},
+        {k: "__extra", t: "area", label: "extra", hint: "JSON mesclado no resultado", ph: '{"shadow": {"offsetY": 6, "opacity": 0.2}}'},
+    ],
+    cross_promo: [
+        {k: "enabled", t: "bool", d: true},
+        {k: "screens", t: "list", d: "home", hint: "igual à prop screen do <CrossPromoCard>"},
+        {k: "title", t: "text", d: "Conheça também"},
+        {k: "cta", t: "text", d: "Ver"},
+        {k: "app_name", t: "text"},
+        {k: "subtitle", t: "text", hint: "1 linha"},
+        {k: "icon_url", t: "url"},
+        {k: "ios_url", t: "url"},
+        {k: "android_url", t: "url"},
+        {k: "url", t: "url", hint: "fallback da plataforma sem link — pode ficar vazio"},
+        {k: "__extra", t: "area", label: "extra", hint: "JSON mesclado no resultado"},
+    ],
+};
+const WIDE = new Set(["area", "url", "colors", "list"]);
+
+const state = {promotional: {}, cross_promo: {}};
+for (const s in FIELDS) for (const f of FIELDS[s]) state[s][f.k] = f.d ?? (f.t === "bool" ? false : "");
+let kind = "promotional"; // promotional | appmodal | cross_promo
+let app = {}; // último app buscado: {iosUrl, androidUrl, shots}
+let seq = 0;
+let extraError = "";
+
+const $ = (id) => document.getElementById(id);
+const shape = () => (kind === "cross_promo" ? "cross_promo" : "promotional");
+const isHttp = (v) => /^https?:\/\//i.test(v || "");
+const visible = (f) => {
+    const type = state.promotional.type;
+    return shape() === "cross_promo" || ((!f.on || f.on.includes(type)) && !(f.not && f.not.includes(type)));
+};
+
+function mk(tag, props, ...kids) {
+    const el = Object.assign(document.createElement(tag), props);
+    el.append(...kids.filter((k) => k !== null && k !== undefined && k !== ""));
+    return el;
+}
+
+// ─── Lojas ──────────────────────────────────────────────────────────────────
+
+function parseLinks(text) {
+    const L = {};
+    for (const tok of text.split(/\s+/).filter(Boolean)) {
+        let u = null;
+        try {
+            u = new URL(/^https?:/i.test(tok) ? tok : "https://" + tok);
+        } catch {}
+        if (u && /(^|\.)apple\.com$/i.test(u.hostname)) {
+            const id = u.pathname.match(/\/id(\d+)/);
+            const cc = u.pathname.match(/^\/([a-z]{2})\//i);
+            if (id) L.iosId = id[1];
+            if (cc) L.country = cc[1].toLowerCase();
+        } else if (u && /(^|\.)play\.google\.com$/i.test(u.hostname)) {
+            const id = u.searchParams.get("id");
+            const gl = u.searchParams.get("gl");
+            if (id) L.pkg = id;
+            if (gl && !L.country) L.country = gl.toLowerCase();
+        } else if (/^(id)?\d{6,}$/i.test(tok)) L.iosId = tok.replace(/\D/g, "");
+        else if (/^[a-z][\w-]*(\.[\w-]+)+$/i.test(tok)) L.pkg = tok;
+    }
+    return L;
+}
+
+const playUrl = (pkg) => "https://play.google.com/store/apps/details?id=" + encodeURIComponent(pkg);
+
+// JSONP é o plano B: o CDN da Apple às vezes devolve resposta em cache sem o header de CORS.
+function jsonp(url) {
+    return new Promise((resolve, reject) => {
+        const cb = "__itunes" + Date.now() + Math.floor(Math.random() * 1e6);
+        const s = document.createElement("script");
+        const end = (fn, v) => {
+            clearTimeout(timer);
+            window[cb] = () => {};
+            s.remove();
+            fn(v);
+        };
+        const timer = setTimeout(() => end(reject, new Error("tempo esgotado")), 12000);
+        window[cb] = (data) => end(resolve, data);
+        s.onerror = () => end(reject, new Error("sem resposta da App Store"));
+        s.src = url + "&callback=" + cb;
+        document.head.append(s);
+    });
+}
+
+async function itunes(params) {
+    const url = "https://itunes.apple.com/lookup?" + new URLSearchParams(params);
+    try {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(String(res.status));
+        return await res.json();
+    } catch {
+        return jsonp(url);
+    }
+}
+
+// Tenta o país pedido e depois US (app publicado fora do BR não aparece no storefront br).
+async function lookup(params, cc) {
+    for (const country of new Set([cc, "us"])) {
+        const data = await itunes({...params, country});
+        const r = (data.results || []).find((x) => x.trackName && x.bundleId);
+        if (r) return {r, country};
+    }
+    return null;
+}
+
+// "Título de Eleitor: Consulta" → ["Título de Eleitor", "Consulta"]
+function splitName(name) {
+    const m = (name || "").match(/^(.+?)(?:\s+[-–—|]\s+|:\s+)(.+)$/);
+    return m ? [m[1].trim(), m[2].trim()] : [(name || "").trim(), ""];
+}
+
+function firstSentence(text, max) {
+    const line = (text || "").split("\n").map((s) => s.trim()).find(Boolean) || "";
+    const m = line.match(/^.*?[.!?](?=\s|$)/);
+    let s = (m ? m[0] : line).trim();
+    if (s.length > max) s = s.slice(0, max).replace(/\s+\S*$/, "") + "…";
+    return s;
+}
+
+// Tudo que é DO APP é sobrescrito a cada busca — sobra do app anterior viraria JSON misturado.
+// O que é do app host (type, delayMs, screens, targetScreens, extra…) fica como está.
+function applyApp(a) {
+    const p = state.promotional;
+    const c = state.cross_promo;
+    const def = (k) => FIELDS.promotional.find((f) => f.k === k).d;
+    p.name = c.app_name = a.name || "";
+    p.description = a.description || "";
+    c.subtitle = a.subtitle || "";
+    p.icon = c.icon_url = a.icon || "";
+    p.storeUrl = a.storeUrl || "";
+    p.imageUrl = p.videoUrl = p.notificationTitle = p.notificationBody = c.url = "";
+    p.primaryColor = def("primaryColor");
+    p.gradientColors = [...def("gradientColors")];
+    c.ios_url = a.iosUrl || "";
+    c.android_url = a.androidUrl || "";
+    app = {iosUrl: a.iosUrl, androidUrl: a.androidUrl, shots: a.shots || []};
+}
+
+async function fill() {
+    const L = parseLinks($("links").value);
+    if (!L.iosId && !L.pkg) return say("Cole um link da App Store ou do Google Play.", "err");
+    const cc = ($("country").value.trim() || L.country || "br").toLowerCase();
+    const my = ++seq;
+    say("Buscando na App Store…");
+    $("fill").disabled = true;
+    try {
+        const hit = await lookup(L.iosId ? {id: L.iosId} : {bundleId: L.pkg}, cc);
+        if (my !== seq) return;
+        const notes = [];
+        if (!hit && L.iosId) return say(`App id${L.iosId} não encontrado na App Store (${cc}/us). Confira o link ou o país.`, "err");
+        if (!hit) {
+            // Só link do Google Play e nenhum app iOS com o mesmo bundleId: o Play não tem API
+            // pública nem CORS, então só dá para preencher as URLs.
+            applyApp({androidUrl: playUrl(L.pkg), storeUrl: playUrl(L.pkg)});
+            renderForm();
+            return say("O Google Play não tem API pública: só preenchi a URL. Cole também o link da App Store, ou preencha nome e ícone à mão.", "err");
+        }
+
+        const r = hit.r;
+        const [name, tagline] = splitName(r.trackName);
+        const iosUrl = "https://apps.apple.com/app/id" + r.trackId;
+        const androidUrl = playUrl(L.pkg || r.bundleId);
+        if (!L.pkg) notes.push({text: `android_url foi deduzida do bundleId (${r.bundleId}) — confira se o app existe no Google Play:`, url: androidUrl});
+        if (!L.iosId) notes.push({text: `ios_url veio da busca pelo bundleId ${L.pkg} na App Store — confira se é o mesmo app:`, url: iosUrl});
+        applyApp({
+            name,
+            description: firstSentence(r.description, 140) || tagline,
+            subtitle: tagline || firstSentence(r.description, 45) || r.primaryGenreName,
+            icon: r.artworkUrl512 || r.artworkUrl100,
+            iosUrl,
+            androidUrl,
+            storeUrl: L.iosId ? iosUrl : androidUrl, // o link que foi colado manda
+            shots: r.screenshotUrls && r.screenshotUrls.length ? r.screenshotUrls : r.ipadScreenshotUrls,
+        });
+
+        const rgb = await iconColors(state.promotional.icon);
+        if (my !== seq) return;
+        if (rgb) Object.assign(state.promotional, palette(rgb));
+        renderForm();
+        say(`✓ ${r.trackName} — App Store ${hit.country.toUpperCase()}${rgb ? " · cores tiradas do ícone" : ""}`, "ok", notes);
+    } catch (e) {
+        if (my === seq) say("Não consegui consultar a App Store: " + (e && e.message ? e.message : e), "err");
+    } finally {
+        if (my === seq) $("fill").disabled = false;
+    }
+}
+
+function say(text, cls = "", notes = []) {
+    $("status").textContent = text;
+    $("status").className = cls || "muted";
+    $("notes").hidden = !notes.length;
+    $("notes").replaceChildren(
+        ...notes.map((n) => mk("li", {}, n.text + " ", mk("a", {href: n.url, target: "_blank", rel: "noopener"}, "abrir ↗"))),
+    );
+}
+
+// ─── Cores a partir do ícone ────────────────────────────────────────────────
+
+// Cor dominante ponderada por saturação (ignora branco/preto/transparente). Usa uma variante
+// pequena da imagem — URL diferente da prévia, então o cache sem CORS do <img> não atrapalha.
+function iconColors(url) {
+    return new Promise((resolve) => {
+        if (!isHttp(url)) return resolve(null);
+        let src = url;
+        if (/mzstatic\.com/i.test(url)) src = url.replace(/\/\d+x\d+\w*\.(jpe?g|png|webp)$/i, "/64x64bb.png");
+        else if (/googleusercontent\.com/i.test(url)) src = url.replace(/=[^=/]*$/, "") + "=s64";
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        img.onerror = () => resolve(null);
+        img.onload = () => {
+            try {
+                const n = 32;
+                const cv = mk("canvas", {width: n, height: n});
+                const ctx = cv.getContext("2d");
+                ctx.drawImage(img, 0, 0, n, n);
+                const d = ctx.getImageData(0, 0, n, n).data;
+                const buckets = new Map();
+                for (let i = 0; i < d.length; i += 4) {
+                    const r = d[i], g = d[i + 1], b = d[i + 2];
+                    const max = Math.max(r, g, b), min = Math.min(r, g, b);
+                    if (d[i + 3] < 200 || min > 235 || max < 30) continue;
+                    const sat = (max - min) / max;
+                    const key = ((r >> 4) << 8) | ((g >> 4) << 4) | (b >> 4);
+                    const e = buckets.get(key) || {w: 0, n: 0, r: 0, g: 0, b: 0};
+                    e.w += sat * sat + 0.02;
+                    e.n++; e.r += r; e.g += g; e.b += b;
+                    buckets.set(key, e);
+                }
+                let best = null;
+                for (const e of buckets.values()) if (!best || e.w > best.w) best = e;
+                resolve(best ? [best.r / best.n, best.g / best.n, best.b / best.n] : null);
+            } catch {
+                resolve(null); // canvas "tainted": host do ícone sem CORS
+            }
+        };
+        img.src = src;
+    });
+}
+
+const toHex = (c) => "#" + c.map((v) => Math.round(Math.min(255, Math.max(0, v))).toString(16).padStart(2, "0")).join("").toUpperCase();
+const darken = (c, k) => c.map((v) => v * (1 - k));
+function luminance(c) {
+    const [r, g, b] = c.map((v) => ((v /= 255) <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+// O texto por cima é branco: escurece até dar contraste ≥ 3:1.
+function palette(c) {
+    while (luminance(c) > 0.3) c = darken(c, 0.06);
+    return {primaryColor: toHex(c), gradientColors: [toHex(c), toHex(darken(c, 0.25))]};
+}
+
+// ─── Formulário ─────────────────────────────────────────────────────────────
+
+function setField(k, v, rerender) {
+    state[shape()][k] = v;
+    rerender ? renderForm() : refresh();
+}
+
+function colorControl(id, value, onChange) {
+    const pick = mk("input", {type: "color", value: /^#[0-9a-f]{6}$/i.test(value) ? value : "#000000"});
+    const txt = mk("input", {type: "text", id, value, maxLength: 9, spellcheck: false});
+    pick.oninput = () => {
+        txt.value = pick.value.toUpperCase();
+        onChange(txt.value);
+    };
+    txt.oninput = () => {
+        if (/^#[0-9a-f]{6}$/i.test(txt.value.trim())) pick.value = txt.value.trim();
+        onChange(txt.value.trim());
+    };
+    return mk("span", {className: "color"}, pick, txt);
+}
+
+function control(f, s) {
+    const id = "f_" + f.k;
+    const v = s[f.k];
+    if (f.t === "bool") {
+        const i = mk("input", {type: "checkbox", id, checked: !!v});
+        i.onchange = () => setField(f.k, i.checked);
+        return i;
+    }
+    if (f.t === "select") {
+        const i = mk("select", {id}, ...f.opts.map((o) => mk("option", {value: o}, o || f.ph || "padrão")));
+        i.value = v;
+        i.onchange = () => setField(f.k, i.value, f.k === "type");
+        return i;
+    }
+    if (f.t === "color") return colorControl(id, v, (c) => setField(f.k, c));
+    if (f.t === "colors") {
+        return mk("div", {className: "row"},
+            colorControl(id, v[0], (c) => setField(f.k, [c, s[f.k][1]])),
+            colorControl(id + "_2", v[1], (c) => setField(f.k, [s[f.k][0], c])));
+    }
+    const props = {id, value: v, placeholder: f.ph || "", spellcheck: f.t === "area" && f.k !== "__extra"};
+    const i = f.t === "area" ? mk("textarea", {...props, rows: 2}) : mk("input", {...props, type: f.t === "num" ? "number" : f.t === "url" ? "url" : "text"});
+    if (f.t === "num") Object.assign(i, {min: 0, step: 100});
+    i.oninput = () => setField(f.k, i.value);
+    return i;
+}
+
+function renderForm() {
+    const s = state[shape()];
+    const box = $("fields");
+    box.textContent = "";
+    for (const f of FIELDS[shape()].filter(visible)) {
+        const input = control(f, s);
+        const label = mk("label", {htmlFor: "f_" + f.k}, mk("code", {}, f.label || f.k), f.hint ? mk("span", {className: "muted"}, "— " + f.hint) : "");
+        const wrap = mk("div", {className: "f" + (WIDE.has(f.t) ? " wide" : "")});
+        if (f.t === "bool") label.prepend(input);
+        if (f.t === "url") {
+            const open = mk("a", {target: "_blank", rel: "noopener"}, "abrir ↗");
+            const sync = () => {
+                open.hidden = !isHttp(input.value);
+                if (!open.hidden) open.href = input.value;
+            };
+            input.addEventListener("input", sync);
+            sync();
+            label.append(open);
+        }
+        wrap.append(label);
+        if (f.t !== "bool") wrap.append(input);
+
+        if (f.k === "storeUrl" && app.iosUrl && app.androidUrl) {
+            const use = (text, url) => mk("button", {className: "small", disabled: s.storeUrl === url, onclick: () => setField("storeUrl", url, true)}, text);
+            wrap.append(mk("div", {className: "row top"}, mk("span", {className: "muted"}, "usar link:"), use("App Store", app.iosUrl), use("Google Play", app.androidUrl)));
+        }
+        if (f.k === "imageUrl" && app.shots && app.shots.length) {
+            const big = (u) => u.replace(/\/\d+x\d+\w*\.(jpe?g|png|webp)$/i, "/750x1624bb.jpg");
+            wrap.append(
+                mk("div", {className: "muted", style: "margin-top:8px"}, "Screenshots da App Store — clique para usar como imageUrl (combina com type fullscreen):"),
+                mk("div", {className: "shots"}, ...app.shots.slice(0, 8).map((u) => mk("img", {src: u, alt: "", loading: "lazy", onclick: () => setField("imageUrl", big(u), true)}))),
+            );
+        }
+        box.append(wrap);
+    }
+    refresh();
+}
+
+// ─── Saída ──────────────────────────────────────────────────────────────────
+
+function build() {
+    const s = state[shape()];
+    const out = {};
+    for (const f of FIELDS[shape()].filter(visible)) {
+        const v = s[f.k];
+        if (f.k === "__extra") continue;
+        if (f.t === "bool") out[f.k] = !!v;
+        else if (f.t === "colors") out[f.k] = v;
+        else if (f.t === "num") {
+            if (String(v).trim() !== "" && !isNaN(Number(v))) out[f.k] = Number(v);
+        } else if (f.t === "list") {
+            const arr = String(v).split(",").map((x) => x.trim()).filter(Boolean);
+            if (arr.length) out[f.k] = arr;
+        } else if (f.k === "notificationCompact") {
+            if (v) out[f.k] = v === "true";
+        } else if (String(v).trim()) out[f.k] = String(v).trim();
+    }
+    extraError = "";
+    const raw = String(s.__extra || "").trim();
+    if (raw) {
+        try {
+            const extra = JSON.parse(raw);
+            if (extra && typeof extra === "object" && !Array.isArray(extra)) Object.assign(out, extra);
+            else extraError = "extra: precisa ser um objeto JSON ({…}) — ignorado.";
+        } catch {
+            extraError = "extra: JSON inválido — ignorado.";
+        }
+    }
+    return out;
+}
+
+function warnings(o) {
+    const w = [];
+    if (shape() === "promotional") {
+        const missing = ["name", "description", "icon", "storeUrl"].filter((k) => !o[k]);
+        if (missing.length) w.push("Faltando: " + missing.join(", ") + ".");
+        if (o.type === "banner") w.push("type banner só aparece onde o app renderiza <PromotionalBanner /> (não é modal).");
+        if (o.nthImpression && !/^(\d+|\d*n|\d*n\+\d+|\d+\+\d*n)$/i.test(o.nthImpression.replace(/\s/g, ""))) {
+            w.push("nthImpression fora do formato (3 · 2n · n+1 · 1+2n): a lib trata como “sempre”.");
+        }
+        if ((o.targetScreens || []).some((x) => !x.startsWith("/"))) {
+            w.push("targetScreens é comparado com o pathname do expo-router — normalmente começa com “/”.");
+        }
+    } else {
+        if (!o.url && !o.ios_url && !o.android_url) w.push("Sem nenhuma URL o card não aparece.");
+        else if (!o.url && !o.ios_url) w.push("Sem ios_url (nem url) o card não aparece no iOS.");
+        else if (!o.url && !o.android_url) w.push("Sem android_url (nem url) o card não aparece no Android.");
+        if (!o.app_name) w.push("Faltando: app_name.");
+    }
+    if (extraError) w.push(extraError);
+    return w;
+}
+
+function pic(src, className) {
+    if (!isHttp(src)) return mk("div", {className});
+    return mk("img", {src, className, alt: "", referrerPolicy: "no-referrer", onerror: (e) => (e.target.style.visibility = "hidden")});
+}
+
+function renderPreview(o) {
+    const box = $("preview");
+    box.textContent = "";
+    if (shape() === "cross_promo") {
+        box.append(mk("div", {className: "cp"},
+            pic(o.icon_url, "cp-icon"),
+            mk("div", {className: "cp-copy"}, mk("small", {}, o.title || "Conheça também"), mk("b", {}, o.app_name || "Nosso outro app"), o.subtitle ? mk("span", {}, o.subtitle) : ""),
+            mk("span", {className: "cp-cta"}, (o.cta || "Ver").toUpperCase())));
+        $("previewNote").textContent = "No app, as cores do card vêm da prop colors do <CrossPromoCard>.";
+        return;
+    }
+    const top = mk("div", {className: "pv-top"}, isHttp(o.imageUrl) ? pic(o.imageUrl, "pv-bg") : "", pic(o.icon, "pv-icon"));
+    top.style.background = `linear-gradient(160deg, ${o.gradientColors[0]}, ${o.gradientColors[1]})`;
+    const btn = mk("span", {className: "pv-btn"}, o.buttonText || "Baixar Agora");
+    btn.style.background = o.primaryColor || "#22C55E";
+    box.append(mk("div", {className: "pv"}, top, mk("div", {className: "pv-body"}, mk("b", {}, o.name || "Nome do app"), mk("p", {}, o.description || "Descrição"), btn)));
+    $("previewNote").textContent = "Só para conferir ícone, textos e cores — o layout real depende do type.";
+}
+
+function refresh() {
+    const o = build();
+    const json = JSON.stringify(o, null, 2);
+    $("out").value = $("withKey").checked ? `"${kind}": ${json}` : json;
+    $("where").textContent =
+        "→ cole dentro do JSON do parâmetro “" + (shape() === "cross_promo" ? "screens" : "utils") + "” do Remote Config" +
+        (kind === "appmodal" ? " (chave legada: a lib só lê appmodal quando promotional não existe)" : "") + ".";
+    const w = warnings(o);
+    $("warn").hidden = !w.length;
+    $("warn").replaceChildren(...w.map((t) => mk("li", {}, t)));
+    renderPreview(o);
+}
+
+// ─── Eventos ────────────────────────────────────────────────────────────────
+
+$("fill").onclick = fill;
+$("links").addEventListener("paste", () => setTimeout(fill, 0));
+$("withKey").onchange = refresh;
+for (const radio of document.querySelectorAll("input[name=kind]")) {
+    radio.onchange = () => {
+        kind = radio.value;
+        renderForm();
+    };
+}
+$("copy").onclick = async () => {
+    try {
+        await navigator.clipboard.writeText($("out").value);
+    } catch {
+        $("out").select();
+        document.execCommand("copy");
+    }
+    $("copy").textContent = "Copiado ✓";
+    setTimeout(() => ($("copy").textContent = "Copiar"), 1500);
+};
+
+renderForm();
+</script>
+</body>
+</html>

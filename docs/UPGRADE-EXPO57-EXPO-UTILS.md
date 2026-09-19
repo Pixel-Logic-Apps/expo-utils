@@ -608,6 +608,8 @@ Não misturar API do hot-updater 0.20.
 
 **`cross_promo` é campo OBRIGATÓRIO do `RemoteConfigScreensType` (`utils/types.ts`)** — todo app do portfólio deve ter cross-promo implementado em algum lugar. O card pronto é o `CrossPromoCard` (`utils/cross-promo-card.tsx`); sem a key no Remote Config o app monta `remoteConfigScreens` incompleto e o typecheck acusa.
 
+Para preencher o `cross_promo` (e o `promotional` do parâmetro `utils`) sem digitar à mão: gerador em <https://pixel-logic-apps.github.io/expo-utils/> (`docs/index.html` deste repo) — cola o link da App Store/Google Play do app anunciado e ele devolve o JSON pronto.
+
 ### 5.4 Exemplo mínimo `utils`
 
 ```json
