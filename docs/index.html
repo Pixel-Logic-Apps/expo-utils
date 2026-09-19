@@ -74,7 +74,7 @@
 <p class="muted">Cole o link do app → os campos se preenchem → copie o JSON para o Remote Config.</p>
 
 <h2>1 · Link do app</h2>
-<textarea id="links" rows="2" spellcheck="false" placeholder="https://apps.apple.com/br/app/meu-app/id123456789&#10;https://play.google.com/store/apps/details?id=com.exemplo.app   (opcional — pode colar os dois)"></textarea>
+<textarea id="links" rows="2" spellcheck="false" placeholder="https://apps.apple.com/br/app/meu-app/id123456789&#10;https://play.google.com/store/apps/details?id=com.exemplo.app   (basta um — cole os dois se o app iOS tiver outro bundleId)"></textarea>
 <div class="row top">
     <button id="fill" class="primary">Preencher</button>
     <label class="muted">país <input id="country" type="text" maxlength="2" placeholder="auto"></label>
@@ -108,7 +108,8 @@
 <p class="muted" style="margin-top:40px">
     Formatos: <code>PromotionalConfig</code> e <code>CrossPromoConfig</code> em
     <a href="https://github.com/Pixel-Logic-Apps/expo-utils/blob/main/utils/types.ts" target="_blank" rel="noopener">utils/types.ts</a>.
-    Nada é enviado a servidor nenhum — a página só consulta a API pública da App Store.
+    Sem backend: a página consulta a API pública da App Store. App que só existe no Google Play é lido via
+    <code>r.jina.ai</code> (reserva: <code>api.microlink.io</code>), porque o Play não tem API pública nem CORS.
 </p>
 
 <script>
@@ -160,7 +161,7 @@ const WIDE = new Set(["area", "url", "colors", "list"]);
 const state = {promotional: {}, cross_promo: {}};
 for (const s in FIELDS) for (const f of FIELDS[s]) state[s][f.k] = f.d ?? (f.t === "bool" ? false : "");
 let kind = "promotional"; // promotional | appmodal | cross_promo
-let app = {}; // último app buscado: {iosUrl, androidUrl, shots}
+let app = {}; // último app buscado: {iosUrl, androidUrl, shots, shotsFrom}
 let seq = 0;
 let extraError = "";
 
@@ -195,8 +196,10 @@ function parseLinks(text) {
         } else if (u && /(^|\.)play\.google\.com$/i.test(u.hostname)) {
             const id = u.searchParams.get("id");
             const gl = u.searchParams.get("gl");
+            const hl = u.searchParams.get("hl");
             if (id) L.pkg = id;
             if (gl && !L.country) L.country = gl.toLowerCase();
+            if (hl) L.hl = hl;
         } else if (/^(id)?\d{6,}$/i.test(tok)) L.iosId = tok.replace(/\D/g, "");
         else if (/^[a-z][\w-]*(\.[\w-]+)+$/i.test(tok)) L.pkg = tok;
     }
@@ -224,12 +227,23 @@ function jsonp(url) {
     });
 }
 
+// fetch + JSON com teto de tempo: serviço pendurado não pode travar o “Preencher”.
+async function getJson(url, headers = {}) {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 20000);
+    try {
+        const res = await fetch(url, {headers, signal: ctl.signal});
+        if (!res.ok) throw new Error(String(res.status));
+        return await res.json();
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
 async function itunes(params) {
     const url = "https://itunes.apple.com/lookup?" + new URLSearchParams(params);
     try {
-        const res = await fetch(url);
-        if (!res.ok) throw new Error(String(res.status));
-        return await res.json();
+        return await getJson(url);
     } catch {
         return jsonp(url);
     }
@@ -243,6 +257,65 @@ async function lookup(params, cc) {
         if (r) return {r, country};
     }
     return null;
+}
+
+// O Google Play não tem API pública nem CORS: o navegador não lê a página direto. Quem lê são serviços
+// de METADADOS que respondem com CORS e aceitam uso sem chave — Jina Reader (20 req/min, traz as
+// screenshots) e, se ele falhar, Microlink (25 req/dia, sem screenshots). Não são proxy CORS genérico
+// (esses foram testados e descartados: todos instáveis). `status` é o HTTP que o Play devolveu ao
+// leitor: 404 = o app não existe.
+const PLAY_READERS = [
+    {
+        host: "r.jina.ai",
+        url: (page) => "https://r.jina.ai/" + page,
+        headers: {Accept: "application/json"},
+        pick: ({data = {}}) => ({status: data.httpStatus, title: data.title, description: data.description, icon: (data.metadata || {})["og:image"], content: data.content}),
+    },
+    {
+        host: "api.microlink.io",
+        url: (page) => "https://api.microlink.io/?url=" + encodeURIComponent(page),
+        pick: ({data = {}, statusCode}) => ({status: statusCode, title: data.title, description: data.description, icon: (data.image || {}).url}),
+    },
+];
+
+// Idioma provável do país (br → pt_BR, us → en_US): o Play escolhe o idioma da página pelo `hl`.
+function playLocale(cc) {
+    try {
+        const loc = new Intl.Locale("und-" + cc.toUpperCase()).maximize();
+        return loc.language + "_" + loc.region;
+    } catch {
+        return "pt_BR";
+    }
+}
+
+// Tenta o país pedido e depois US, como o lookup da App Store. Nunca lança:
+// null = nenhum leitor respondeu · {notFound} = o Play devolveu 404.
+async function playLookup(pkg, cc, hl) {
+    let notFound = false;
+    for (const country of new Set([cc, "us"])) {
+        const page = playUrl(pkg) + "&" + new URLSearchParams({hl, gl: country});
+        for (const reader of PLAY_READERS) {
+            try {
+                const p = reader.pick(await getJson(reader.url(page), reader.headers));
+                notFound = p.status === 404;
+                if (notFound) break; // o app não existe nesse país → próximo país
+                // O tamanho da imagem vai no sufixo (=s512, =w526-h296): guarda a base e pede o tamanho depois.
+                const icon = (String(p.icon || "").match(/^https:\/\/play-lh\.googleusercontent\.com\/[\w-]+/) || [])[0];
+                const title = String(p.title || "").replace(/\s+[-–—]\s+[^-–—]*Google\s*Play[^-–—]*$/i, "").trim();
+                if (!icon || !title) continue; // página de consentimento/erro → próximo leitor
+                const shots = String(p.content || "").match(/https:\/\/play-lh\.googleusercontent\.com\/[\w-]+=w\d{3,}-h\d{3,}/g) || [];
+                return {
+                    title,
+                    description: String(p.description || "").trim(),
+                    icon: icon + "=s512",
+                    shots: [...new Set(shots)].filter((u) => !u.startsWith(icon + "=")),
+                    country,
+                    via: reader.host,
+                };
+            } catch {} // leitor fora do ar ou com o limite estourado → próximo leitor
+        }
+    }
+    return notFound ? {notFound} : null;
 }
 
 // "Título de Eleitor: Consulta" → ["Título de Eleitor", "Consulta"]
@@ -275,7 +348,53 @@ function applyApp(a) {
     p.gradientColors = [...def("gradientColors")];
     c.ios_url = a.iosUrl || "";
     c.android_url = a.androidUrl || "";
-    app = {iosUrl: a.iosUrl, androidUrl: a.androidUrl, shots: a.shots || []};
+    app = {iosUrl: a.iosUrl, androidUrl: a.androidUrl, shots: a.shots || [], shotsFrom: a.shotsFrom};
+}
+
+// Resultado de cada loja no formato que o fill() consome: {app (→ applyApp), label, notes}.
+function fromAppStore({r, country}, L) {
+    const [name, tagline] = splitName(r.trackName);
+    const iosUrl = "https://apps.apple.com/app/id" + r.trackId;
+    const androidUrl = playUrl(L.pkg || r.bundleId);
+    const notes = [];
+    if (!L.pkg) notes.push({text: `android_url foi deduzida do bundleId (${r.bundleId}) — confira se o app existe no Google Play:`, url: androidUrl});
+    if (!L.iosId) notes.push({text: `ios_url veio da busca pelo bundleId ${L.pkg} na App Store — confira se é o mesmo app:`, url: iosUrl});
+    return {
+        label: `${r.trackName} — App Store ${country.toUpperCase()}`,
+        notes,
+        app: {
+            name,
+            description: firstSentence(r.description, 140) || tagline,
+            subtitle: tagline || firstSentence(r.description, 45) || r.primaryGenreName,
+            icon: r.artworkUrl512 || r.artworkUrl100,
+            iosUrl,
+            androidUrl,
+            storeUrl: L.iosId ? iosUrl : androidUrl, // o link que foi colado manda
+            shots: r.screenshotUrls && r.screenshotUrls.length ? r.screenshotUrls : r.ipadScreenshotUrls,
+            shotsFrom: "da App Store",
+        },
+    };
+}
+
+// No Play a descrição da página já é a “descrição curta” (até 80 caracteres): entra inteira, e no
+// subtitle quem corta é o próprio card (numberOfLines={1}), conforme a largura do aparelho.
+function fromPlay(g, pkg) {
+    const [name, tagline] = splitName(g.title);
+    const androidUrl = playUrl(pkg);
+    return {
+        label: `${g.title} — Google Play ${g.country.toUpperCase()} (via ${g.via})`,
+        notes: [{text: `Nenhum app iOS com o bundleId ${pkg}: ios_url ficou vazia. Se a versão iOS existir com outro bundleId, cole também o link da App Store.`}],
+        app: {
+            name,
+            description: g.description || tagline,
+            subtitle: tagline || g.description,
+            icon: g.icon,
+            androidUrl,
+            storeUrl: androidUrl,
+            shots: g.shots,
+            shotsFrom: "do Google Play",
+        },
+    };
 }
 
 async function fill() {
@@ -288,38 +407,29 @@ async function fill() {
     try {
         const hit = await lookup(L.iosId ? {id: L.iosId} : {bundleId: L.pkg}, cc);
         if (my !== seq) return;
-        const notes = [];
         if (!hit && L.iosId) return say(`App id${L.iosId} não encontrado na App Store (${cc}/us). Confira o link ou o país.`, "err");
-        if (!hit) {
-            // Só link do Google Play e nenhum app iOS com o mesmo bundleId: o Play não tem API
-            // pública nem CORS, então só dá para preencher as URLs.
-            applyApp({androidUrl: playUrl(L.pkg), storeUrl: playUrl(L.pkg)});
-            renderForm();
-            return say("O Google Play não tem API pública: só preenchi a URL. Cole também o link da App Store, ou preencha nome e ícone à mão.", "err");
+
+        let found = hit && fromAppStore(hit, L);
+        if (!found) {
+            // Só link do Google Play e nenhum app iOS com o mesmo bundleId: quem responde é a página do Play.
+            say("Lendo a página do Google Play…");
+            const g = await playLookup(L.pkg, cc, L.hl || playLocale(cc));
+            if (my !== seq) return;
+            if (g && g.notFound) return say(`${L.pkg} não encontrado no Google Play (${cc}/us) nem na App Store. Confira o link ou o país.`, "err");
+            if (!g) {
+                applyApp({androidUrl: playUrl(L.pkg), storeUrl: playUrl(L.pkg)});
+                renderForm();
+                return say("Não consegui ler a página do Google Play agora: só preenchi a URL. Tente de novo em instantes, cole também o link da App Store, ou preencha nome e ícone à mão.", "err");
+            }
+            found = fromPlay(g, L.pkg);
         }
 
-        const r = hit.r;
-        const [name, tagline] = splitName(r.trackName);
-        const iosUrl = "https://apps.apple.com/app/id" + r.trackId;
-        const androidUrl = playUrl(L.pkg || r.bundleId);
-        if (!L.pkg) notes.push({text: `android_url foi deduzida do bundleId (${r.bundleId}) — confira se o app existe no Google Play:`, url: androidUrl});
-        if (!L.iosId) notes.push({text: `ios_url veio da busca pelo bundleId ${L.pkg} na App Store — confira se é o mesmo app:`, url: iosUrl});
-        applyApp({
-            name,
-            description: firstSentence(r.description, 140) || tagline,
-            subtitle: tagline || firstSentence(r.description, 45) || r.primaryGenreName,
-            icon: r.artworkUrl512 || r.artworkUrl100,
-            iosUrl,
-            androidUrl,
-            storeUrl: L.iosId ? iosUrl : androidUrl, // o link que foi colado manda
-            shots: r.screenshotUrls && r.screenshotUrls.length ? r.screenshotUrls : r.ipadScreenshotUrls,
-        });
-
+        applyApp(found.app);
         const rgb = await iconColors(state.promotional.icon);
         if (my !== seq) return;
         if (rgb) Object.assign(state.promotional, palette(rgb));
         renderForm();
-        say(`✓ ${r.trackName} — App Store ${hit.country.toUpperCase()}${rgb ? " · cores tiradas do ícone" : ""}`, "ok", notes);
+        say(`✓ ${found.label}${rgb ? " · cores tiradas do ícone" : ""}`, "ok", found.notes);
     } catch (e) {
         if (my === seq) say("Não consegui consultar a App Store: " + (e && e.message ? e.message : e), "err");
     } finally {
@@ -332,7 +442,7 @@ function say(text, cls = "", notes = []) {
     $("status").className = cls || "muted";
     $("notes").hidden = !notes.length;
     $("notes").replaceChildren(
-        ...notes.map((n) => mk("li", {}, n.text + " ", mk("a", {href: n.url, target: "_blank", rel: "noopener"}, "abrir ↗"))),
+        ...notes.map((n) => mk("li", {}, n.text + " ", n.url ? mk("a", {href: n.url, target: "_blank", rel: "noopener"}, "abrir ↗") : "")),
     );
 }
 
@@ -466,9 +576,9 @@ function renderForm() {
             wrap.append(mk("div", {className: "row top"}, mk("span", {className: "muted"}, "usar link:"), use("App Store", app.iosUrl), use("Google Play", app.androidUrl)));
         }
         if (f.k === "imageUrl" && app.shots && app.shots.length) {
-            const big = (u) => u.replace(/\/\d+x\d+\w*\.(jpe?g|png|webp)$/i, "/750x1624bb.jpg");
+            const big = (u) => (/googleusercontent\.com/i.test(u) ? u.replace(/=[^=/]*$/, "=w1080-h1920") : u.replace(/\/\d+x\d+\w*\.(jpe?g|png|webp)$/i, "/750x1624bb.jpg"));
             wrap.append(
-                mk("div", {className: "muted", style: "margin-top:8px"}, "Screenshots da App Store — clique para usar como imageUrl (combina com type fullscreen):"),
+                mk("div", {className: "muted", style: "margin-top:8px"}, `Screenshots ${app.shotsFrom} — clique para usar como imageUrl (combina com type fullscreen):`),
                 mk("div", {className: "shots"}, ...app.shots.slice(0, 8).map((u) => mk("img", {src: u, alt: "", loading: "lazy", onclick: () => setField("imageUrl", big(u), true)}))),
             );
         }
