@@ -620,6 +620,7 @@ Para preencher o `cross_promo` (e o `promotional` do parâmetro `utils`) sem dig
   "review_type": "store-review",
   "review_type_delay": 0,
   "review_show_delay": 0,
+  "review_tutorial_enabled": false,
   "repeat_ads_count": 3,
   "ad_blocklist": [],
   "promotional": { "enabled": false },
@@ -629,6 +630,61 @@ Para preencher o `cross_promo` (e o `promotional` do parâmetro `utils`) sem dig
 ```
 
 Valores de `review_type`: `"store-review"` | `"popup"` | `"dialog"`.
+
+### 5.4.1 Tutorial animado da Play Store (`review_tutorial_enabled`)
+
+O `AskForReviewOverlay` aceita a prop `tutorial`, que troca a imagem estática do card por um
+tutorial animado de 19 s mostrando o caminho até a avaliação na Play Store. Ele é renderizado
+como HTML/CSS/JS numa WebView, então **nome do app, ícone, nome do usuário, idioma, cor de
+destaque e relógio são parâmetros** — nada fica queimado num arquivo de mídia.
+
+```tsx
+import AskForReviewOverlay from "expo-utils/utils/ask-for-review";
+
+<AskForReviewOverlay
+    visible={visible}
+    onClose={close}
+    tutorial={Platform.OS === "android"}
+/>
+```
+
+Customizando:
+
+```tsx
+tutorial={{
+    appName: "Meu App",
+    appIconUrl: "https://.../icon.png",  // URL quebrada cai num placeholder com a inicial
+    userName: "Ana",
+    locale: "pt",
+    accent: "#01875F",                   // verde padrão da Play; default é Material You azul
+}}
+```
+
+Ou também pode usar o componente direto, fora do overlay:
+
+```tsx
+import {ReviewTutorial} from "expo-utils/utils/review-tutorial";
+```
+
+Pontos de atenção:
+
+- **Requer `react-native-webview`** (peer opcional; o `expo-utils-install` já o instala junto
+  com os demais peers). Como `ask-for-review` é deep-import, apps que não importam esse arquivo
+  não carregam a dependência — mas **um app que já usa `ask-for-review` e ainda não tem o
+  webview instalado passa a precisar dele**, mesmo sem ligar o tutorial (é o comportamento que
+  o AGENTS.md pede: dependência ausente falha no bundle, não escondida em runtime). Rode
+  `bunx expo-utils-install` para instalar os peers que faltam.
+- **Só faz sentido no Android.** No iOS o fluxo de avaliação é o `SKStoreReviewController`
+  nativo, sem esse caminho pela loja.
+- Desenhado para o aspecto **1,775:1** — é o mesmo do slot de mídia do overlay
+  (`width: "100%", height: 200`).
+- Os rótulos da própria Play Store (`Gerenciar apps e dispositivos`, `Notas e avaliações`,
+  `Postar`…) estão preenchidos em **pt/en/es**; os demais locales caem no inglês. Para
+  completar, extraia as strings oficiais do APK da Play Store — o procedimento está no topo de
+  `utils/review-tutorial/labels.ts`. **Não traduza à mão**: o usuário vai procurar na tela
+  dele exatamente o rótulo que o Google usa.
+- `review_tutorial_html` (RC) substitui o HTML inteiro. É a válvula para corrigir um redesenho
+  da Play Store nos apps já publicados, sem release.
 
 ### 5.5 Optional chaining
 

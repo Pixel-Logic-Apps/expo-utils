@@ -1,258 +1,262 @@
 {
-  "name": "expo-utils",
-  "version": "1.3.0",
-  "description": "CLI tool and utility library that automates 90% of the initial setup for Expo/React Native projects",
-  "keywords": [
-    "expo",
-    "react-native",
-    "cli",
-    "utilities",
-    "firebase",
-    "admob",
-    "ads",
-    "i18n"
-  ],
-  "author": "Pixel Logic Apps",
-  "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/Pixel-Logic-Apps/expo-utils.git"
-  },
-  "files": [
-    "assets/",
-    "bin/",
-    "constants/",
-    "data/",
-    "templates/",
-    "utils/",
-    "app.plugin.js",
-    "index.ts",
-    "index.d.ts",
-    "README.md",
-    "CLAUDE.md"
-  ],
-  "type": "commonjs",
-  "types": "./index.d.ts",
-  "bin": {
-    "expo-utils-install": "bin/install.js"
-  },
-  "dependencies": {
-    "@expo/config-plugins": ">=57.0.3",
-    "chalk": "^4.1.2"
-  },
-  "peerDependencies": {
-    "@hot-updater/expo": ">=0.35.3",
-    "@hot-updater/react-native": ">=0.35.3",
-    "@microsoft/react-native-clarity": ">=4.6.3",
-    "@react-native-async-storage/async-storage": ">=2.2.0",
-    "@react-native-community/slider": ">=5.2.0",
-    "@react-native-firebase/analytics": ">=24.0.0",
-    "@react-native-firebase/app": ">=24.0.0",
-    "@react-native-firebase/auth": ">=24.0.0",
-    "@react-native-firebase/crashlytics": ">=24.0.0",
-    "@react-native-firebase/firestore": ">=24.0.0",
-    "@react-native-firebase/messaging": ">=24.0.0",
-    "@react-native-firebase/remote-config": ">=24.0.0",
-    "eas-build-cache-provider": ">=20.0.0",
-    "expo": ">=57.0.4",
-    "expo-application": ">=57.0.0",
-    "expo-blur": ">=57.0.0",
-    "expo-build-properties": ">=57.0.3",
-    "expo-constants": ">=57.0.3",
-    "expo-dev-client": ">=57.0.5",
-    "expo-device": ">=57.0.0",
-    "expo-file-system": ">=57.0.0",
-    "expo-insights": ">=57.0.2",
-    "expo-linear-gradient": ">=57.0.0",
-    "expo-linking": ">=57.0.2",
-    "expo-localization": ">=57.0.0",
-    "expo-mail-composer": ">=57.0.0",
-    "expo-network": ">=57.0.0",
-    "expo-print": ">=57.0.0",
-    "expo-router": ">=57.0.4",
-    "expo-sharing": ">=57.0.3",
-    "expo-splash-screen": ">=57.0.2",
-    "expo-status-bar": ">=57.0.0",
-    "expo-store-review": ">=57.0.0",
-    "expo-symbols": ">=57.0.0",
-    "expo-tiktok-ads-events": ">=0.1.6",
-    "expo-tracking-transparency": ">=57.0.0",
-    "expo-video": ">=57.0.0",
-    "hot-updater": ">=0.35.3",
-    "react": ">=19.2.3",
-    "react-native": ">=0.86.0",
-    "react-native-edge-to-edge": ">=1.8.1",
-    "react-native-fbsdk-next": ">=13.4.3",
-    "react-native-fs": ">=2.20.0",
-    "react-native-google-mobile-ads": ">=16.4.0",
-    "react-native-purchases": ">=10.4.2",
-    "react-native-safe-area-context": ">=5.7.0",
-    "react-native-webview": ">=13.16.1"
-  },
-  "peerDependenciesMeta": {
-    "@hot-updater/expo": {
-      "optional": true
+    "name": "expo-utils",
+    "version": "1.3.0",
+    "description": "CLI tool and utility library that automates 90% of the initial setup for Expo/React Native projects",
+    "keywords": [
+        "expo",
+        "react-native",
+        "cli",
+        "utilities",
+        "firebase",
+        "admob",
+        "ads",
+        "i18n"
+    ],
+    "author": "Pixel Logic Apps",
+    "license": "MIT",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/Pixel-Logic-Apps/expo-utils.git"
     },
-    "@hot-updater/react-native": {
-      "optional": true
+    "files": [
+        "assets/",
+        "bin/",
+        "constants/",
+        "data/",
+        "templates/",
+        "utils/",
+        "app.plugin.js",
+        "index.ts",
+        "index.d.ts",
+        "README.md",
+        "CLAUDE.md"
+    ],
+    "type": "commonjs",
+    "types": "./index.d.ts",
+    "bin": {
+        "expo-utils-install": "bin/install.js"
     },
-    "hot-updater": {
-      "optional": true
+    "dependencies": {
+        "@expo/config-plugins": ">=57.0.3",
+        "chalk": "^4.1.2"
     },
-    "expo-tiktok-ads-events": {
-      "optional": true
+    "peerDependencies": {
+        "@hot-updater/expo": ">=0.35.3",
+        "@hot-updater/react-native": ">=0.35.3",
+        "@microsoft/react-native-clarity": ">=4.6.3",
+        "@react-native-async-storage/async-storage": ">=2.2.0",
+        "@react-native-community/slider": ">=5.2.0",
+        "@react-native-firebase/analytics": ">=24.0.0",
+        "@react-native-firebase/app": ">=24.0.0",
+        "@react-native-firebase/auth": ">=24.0.0",
+        "@react-native-firebase/crashlytics": ">=24.0.0",
+        "@react-native-firebase/firestore": ">=24.0.0",
+        "@react-native-firebase/messaging": ">=24.0.0",
+        "@react-native-firebase/remote-config": ">=24.0.0",
+        "eas-build-cache-provider": ">=20.0.0",
+        "expo": ">=57.0.4",
+        "expo-application": ">=57.0.0",
+        "expo-blur": ">=57.0.0",
+        "expo-build-properties": ">=57.0.3",
+        "expo-constants": ">=57.0.3",
+        "expo-dev-client": ">=57.0.5",
+        "expo-device": ">=57.0.0",
+        "expo-file-system": ">=57.0.0",
+        "expo-insights": ">=57.0.2",
+        "expo-linear-gradient": ">=57.0.0",
+        "expo-linking": ">=57.0.2",
+        "expo-localization": ">=57.0.0",
+        "expo-mail-composer": ">=57.0.0",
+        "expo-network": ">=57.0.0",
+        "expo-print": ">=57.0.0",
+        "expo-router": ">=57.0.4",
+        "expo-sharing": ">=57.0.3",
+        "expo-splash-screen": ">=57.0.2",
+        "expo-status-bar": ">=57.0.0",
+        "expo-store-review": ">=57.0.0",
+        "expo-symbols": ">=57.0.0",
+        "expo-tiktok-ads-events": ">=0.1.6",
+        "expo-tracking-transparency": ">=57.0.0",
+        "expo-video": ">=57.0.0",
+        "hot-updater": ">=0.35.3",
+        "react": ">=19.2.3",
+        "react-native": ">=0.86.0",
+        "react-native-edge-to-edge": ">=1.8.1",
+        "react-native-fbsdk-next": ">=13.4.3",
+        "react-native-fs": ">=2.20.0",
+        "react-native-google-mobile-ads": ">=16.4.0",
+        "react-native-purchases": ">=10.4.2",
+        "react-native-safe-area-context": ">=5.7.0",
+        "react-native-webview": ">=13.16.1",
+        "expo-asset": ">=57.0.0"
     },
-    "@microsoft/react-native-clarity": {
-      "optional": true
+    "peerDependenciesMeta": {
+        "@hot-updater/expo": {
+            "optional": true
+        },
+        "@hot-updater/react-native": {
+            "optional": true
+        },
+        "hot-updater": {
+            "optional": true
+        },
+        "expo-tiktok-ads-events": {
+            "optional": true
+        },
+        "@microsoft/react-native-clarity": {
+            "optional": true
+        },
+        "@react-native-async-storage/async-storage": {
+            "optional": true
+        },
+        "@react-native-community/slider": {
+            "optional": true
+        },
+        "@react-native-firebase/analytics": {
+            "optional": true
+        },
+        "@react-native-firebase/app": {
+            "optional": true
+        },
+        "@react-native-firebase/auth": {
+            "optional": true
+        },
+        "@react-native-firebase/crashlytics": {
+            "optional": true
+        },
+        "@react-native-firebase/firestore": {
+            "optional": true
+        },
+        "@react-native-firebase/messaging": {
+            "optional": true
+        },
+        "@react-native-firebase/remote-config": {
+            "optional": true
+        },
+        "expo": {
+            "optional": true
+        },
+        "expo-application": {
+            "optional": true
+        },
+        "expo-device": {
+            "optional": true
+        },
+        "expo-blur": {
+            "optional": true
+        },
+        "expo-build-properties": {
+            "optional": true
+        },
+        "expo-constants": {
+            "optional": true
+        },
+        "expo-file-system": {
+            "optional": true
+        },
+        "expo-insights": {
+            "optional": true
+        },
+        "expo-linear-gradient": {
+            "optional": true
+        },
+        "expo-linking": {
+            "optional": true
+        },
+        "expo-localization": {
+            "optional": true
+        },
+        "expo-mail-composer": {
+            "optional": true
+        },
+        "expo-network": {
+            "optional": true
+        },
+        "expo-print": {
+            "optional": true
+        },
+        "expo-router": {
+            "optional": true
+        },
+        "expo-sharing": {
+            "optional": true
+        },
+        "expo-splash-screen": {
+            "optional": true
+        },
+        "expo-status-bar": {
+            "optional": true
+        },
+        "expo-store-review": {
+            "optional": true
+        },
+        "expo-symbols": {
+            "optional": true
+        },
+        "expo-tracking-transparency": {
+            "optional": true
+        },
+        "react": {
+            "optional": true
+        },
+        "react-native": {
+            "optional": true
+        },
+        "react-native-edge-to-edge": {
+            "optional": true
+        },
+        "react-native-fbsdk-next": {
+            "optional": true
+        },
+        "react-native-fs": {
+            "optional": true
+        },
+        "react-native-google-mobile-ads": {
+            "optional": true
+        },
+        "react-native-purchases": {
+            "optional": true
+        },
+        "react-native-safe-area-context": {
+            "optional": true
+        },
+        "react-native-webview": {
+            "optional": true
+        },
+        "expo-asset": {
+            "optional": true
+        }
     },
-    "@react-native-async-storage/async-storage": {
-      "optional": true
-    },
-    "@react-native-community/slider": {
-      "optional": true
-    },
-    "@react-native-firebase/analytics": {
-      "optional": true
-    },
-    "@react-native-firebase/app": {
-      "optional": true
-    },
-    "@react-native-firebase/auth": {
-      "optional": true
-    },
-    "@react-native-firebase/crashlytics": {
-      "optional": true
-    },
-    "@react-native-firebase/firestore": {
-      "optional": true
-    },
-    "@react-native-firebase/messaging": {
-      "optional": true
-    },
-    "@react-native-firebase/remote-config": {
-      "optional": true
+    "devDependencies": {
+        "@hot-updater/react-native": ">=0.35.3",
+        "@microsoft/react-native-clarity": ">=4.6.3",
+        "@react-native-async-storage/async-storage": "2.2.0",
+        "@react-native-firebase/analytics": ">=25.0.0",
+        "@react-native-firebase/app": ">=25.0.0",
+        "@react-native-firebase/messaging": ">=25.0.0",
+        "@react-native-firebase/remote-config": ">=25.0.0",
+        "@types/node": "^22.5.2",
+        "@types/react": "~19.2.14",
+        "expo": "~57.0.4",
+        "expo-application": "~57.0.0",
+        "expo-device": "~57.0.0",
+        "expo-localization": "~57.0.0",
+        "expo-modules-core": "~57.0.3",
+        "expo-splash-screen": "~57.0.2",
+        "expo-tiktok-ads-events": "^0.1.6",
+        "expo-tracking-transparency": "~57.0.0",
+        "expo-video": "~57.0.0",
+        "react": "19.2.3",
+        "react-native": "0.86.0",
+        "react-native-fbsdk-next": "^13.4.3",
+        "react-native-google-mobile-ads": "^16.4.0",
+        "react-native-purchases": ">=10.4.2",
+        "react-native-safe-area-context": "~5.7.0",
+        "typescript": "^5.9.3"
     },
     "expo": {
-      "optional": true
-    },
-    "expo-application": {
-      "optional": true
-    },
-    "expo-device": {
-      "optional": true
-    },
-    "expo-blur": {
-      "optional": true
-    },
-    "expo-build-properties": {
-      "optional": true
-    },
-    "expo-constants": {
-      "optional": true
-    },
-    "expo-file-system": {
-      "optional": true
-    },
-    "expo-insights": {
-      "optional": true
-    },
-    "expo-linear-gradient": {
-      "optional": true
-    },
-    "expo-linking": {
-      "optional": true
-    },
-    "expo-localization": {
-      "optional": true
-    },
-    "expo-mail-composer": {
-      "optional": true
-    },
-    "expo-network": {
-      "optional": true
-    },
-    "expo-print": {
-      "optional": true
-    },
-    "expo-router": {
-      "optional": true
-    },
-    "expo-sharing": {
-      "optional": true
-    },
-    "expo-splash-screen": {
-      "optional": true
-    },
-    "expo-status-bar": {
-      "optional": true
-    },
-    "expo-store-review": {
-      "optional": true
-    },
-    "expo-symbols": {
-      "optional": true
-    },
-    "expo-tracking-transparency": {
-      "optional": true
-    },
-    "react": {
-      "optional": true
-    },
-    "react-native": {
-      "optional": true
-    },
-    "react-native-edge-to-edge": {
-      "optional": true
-    },
-    "react-native-fbsdk-next": {
-      "optional": true
-    },
-    "react-native-fs": {
-      "optional": true
-    },
-    "react-native-google-mobile-ads": {
-      "optional": true
-    },
-    "react-native-purchases": {
-      "optional": true
-    },
-    "react-native-safe-area-context": {
-      "optional": true
-    },
-    "react-native-webview": {
-      "optional": true
+        "plugins": [
+            "./app.plugin.js"
+        ]
     }
-  },
-  "devDependencies": {
-    "@hot-updater/react-native": ">=0.35.3",
-    "@microsoft/react-native-clarity": ">=4.6.3",
-    "@react-native-async-storage/async-storage": "2.2.0",
-    "@react-native-firebase/analytics": ">=25.0.0",
-    "@react-native-firebase/app": ">=25.0.0",
-    "@react-native-firebase/messaging": ">=25.0.0",
-    "@react-native-firebase/remote-config": ">=25.0.0",
-    "@types/node": "^22.5.2",
-    "@types/react": "~19.2.14",
-    "expo": "~57.0.4",
-    "expo-application": "~57.0.0",
-    "expo-device": "~57.0.0",
-    "expo-localization": "~57.0.0",
-    "expo-modules-core": "~57.0.3",
-    "expo-splash-screen": "~57.0.2",
-    "expo-tiktok-ads-events": "^0.1.6",
-    "expo-tracking-transparency": "~57.0.0",
-    "expo-video": "~57.0.0",
-    "react": "19.2.3",
-    "react-native": "0.86.0",
-    "react-native-fbsdk-next": "^13.4.3",
-    "react-native-google-mobile-ads": "^16.4.0",
-    "react-native-purchases": ">=10.4.2",
-    "react-native-safe-area-context": "~5.7.0",
-    "typescript": "^5.9.3"
-  },
-  "expo": {
-    "plugins": [
-      "./app.plugin.js"
-    ]
-  }
 }

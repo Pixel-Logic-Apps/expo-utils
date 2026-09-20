@@ -14,8 +14,10 @@ import {
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as StoreReview from "expo-store-review";
+import * as Application from "expo-application";
 import {getLocales} from "expo-localization";
 import {expoUtilsLog} from "./Utils";
+import {ReviewTutorial, ReviewTutorialParams} from "./review-tutorial";
 
 // Sistema de eventos para mostrar o popup de review
 export class AskForReviewEvents {
@@ -126,6 +128,13 @@ interface AskForReviewOverlayProps {
     visible: boolean;
     onClose: () => void;
     image?: any; // Optional image source - uses default if not provided
+    /**
+     * Mostra o tutorial animado da Play Store no lugar da imagem estática.
+     * `true` usa os defaults; um objeto permite customizar (nome do app, ícone, usuário,
+     * locale, cor de destaque...). Só faz sentido no Android — no iOS o fluxo é o
+     * SKStoreReviewController nativo. Requer `react-native-webview`.
+     */
+    tutorial?: boolean | Partial<ReviewTutorialParams>;
     delay?: number; // Delay in milliseconds to disable "not now" button
     colors?: ColorProps;
     texts?: AskForReviewTexts; // Now optional, will use translations if not provided
@@ -352,6 +361,7 @@ const AskForReviewOverlay: React.FC<AskForReviewOverlayProps> = ({
     visible,
     onClose,
     image,
+    tutorial,
     delay = 0,
     colors,
     texts,
@@ -506,11 +516,22 @@ const AskForReviewOverlay: React.FC<AskForReviewOverlayProps> = ({
                                 styles.card,
                                 {borderRadius: cardRadius as any, backgroundColor: displayColors.systemBackground},
                             ]}>
-                            <Image
-                                source={displayImage}
-                                style={styles.image}
-                                resizeMode="cover"
-                            />
+                            {tutorial ? (
+                                <ReviewTutorial
+                                    style={styles.image}
+                                    borderRadius={24}
+                                    appName={Application.applicationName || ""}
+                                    locale={getLocales()?.[0]?.languageCode || "en"}
+                                    html={global.remoteConfigUtils?.review_tutorial_html}
+                                    {...(typeof tutorial === "object" ? tutorial : {})}
+                                />
+                            ) : (
+                                <Image
+                                    source={displayImage}
+                                    style={styles.image}
+                                    resizeMode="cover"
+                                />
+                            )}
 
                             <Text style={[styles.title, {color: displayColors.text}]}>{displayTitle}</Text>
 
