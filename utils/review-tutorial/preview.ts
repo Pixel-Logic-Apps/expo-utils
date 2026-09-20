@@ -34,7 +34,8 @@ function iconUri(path: string): string {
     return "data:" + type + ";base64," + readFileSync(path).toString("base64");
 }
 
-const params: ReviewTutorialParams = {appName: "Meu App", userName: "Ana", locale: "pt", clock: "07:28"};
+// sem userName de proposito: assim o preview exercita o default do locale ("Você" em pt)
+const params: ReviewTutorialParams = {appName: "Meu App", locale: "pt", clock: "07:28"};
 if (values.project) {
     const project = resolve(values.project);
     const config = JSON.parse(readFileSync(resolve(project, "app.json"), "utf8")).expo;

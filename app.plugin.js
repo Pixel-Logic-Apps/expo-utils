@@ -554,30 +554,64 @@ function withIosMediationPods(config, networks) {
  * tutorial de avaliação via `Constants.expoConfig`. Não toca no app.json: o config muda só em
  * memória e sai no `app.config` gerado dentro do APK/IPA.
  *
- * O `sharp` (que vem com o Expo) é async e config plugin é síncrono, daí o execFileSync; o
- * resultado fica em cache por mtime+tamanho do ícone, senão pagaria ~100ms a cada `getConfig`
- * (que roda em todo metro start). Sem ícone, sem sharp ou com erro: não faz nada e o tutorial
- * cai no círculo com a inicial.
+ * Redimensiona com `jimp-compact` (JS puro), que vem junto do `@expo/image-utils` — dependência
+ * de `expo-asset`/`expo-splash-screen`, logo presente em todo projeto Expo. (`sharp` NÃO serve:
+ * não é dep do Expo, só aparece por acaso em projetos com outro tooling.) Ele é async e config
+ * plugin é síncrono, daí o execFileSync; o resultado fica em cache por mtime+tamanho do ícone,
+ * senão pagaria o encode a cada `getConfig` (que roda em todo metro start). Sem ícone, sem
+ * jimp ou com erro: deixa o config intacto e o tutorial cai no círculo com a inicial.
  */
 function withAppIconDataUri(config) {
+    const source = config.android?.icon || config.icon;
+    if (typeof source !== "string" || !source || /^(https?|data):/.test(source)) return config;
+
+    let b64;
+    let cachePath;
     try {
         const root = config._internal?.projectRoot || process.cwd();
-        const icon = path.resolve(root, config.android?.icon || config.icon || "");
-        const {mtimeMs, size} = fs.statSync(icon);
-        const cache = path.join(root, "node_modules", ".cache", "expo-utils", `icon-${size}-${Math.round(mtimeMs)}.txt`);
-        let b64;
-        if (fs.existsSync(cache)) {
-            b64 = fs.readFileSync(cache, "utf8");
+        const icon = path.resolve(root, source);
+        const stat = fs.statSync(icon);
+        // icon vazio resolveria para o proprio root, e statSync de diretorio nao lanca
+        if (!stat.isFile()) return config;
+        cachePath = path.join(root, "node_modules", ".cache", "expo-utils", `icon-${stat.size}-${Math.round(stat.mtimeMs)}.txt`);
+        if (fs.existsSync(cachePath)) {
+            b64 = fs.readFileSync(cachePath, "utf8");
+            cachePath = undefined;
         } else {
-            const script = 'require("sharp")(process.argv[1]).resize(96,96,{fit:"inside"}).png({compressionLevel:9,palette:true}).toBuffer().then(b=>process.stdout.write(b.toString("base64")))';
-            b64 = require("child_process").execFileSync(process.execPath, ["-e", script, icon], {cwd: root, maxBuffer: 1 << 24}).toString();
-            fs.mkdirSync(path.dirname(cache), {recursive: true});
-            fs.writeFileSync(cache, b64);
+            // resolvido pelo caminho do @expo/image-utils para funcionar tambem no pnpm
+            const utils = require.resolve("@expo/image-utils/package.json", {paths: [root]});
+            const jimp = require.resolve("jimp-compact", {paths: [path.dirname(utils)]});
+            // AUTO na altura preserva proporcao; o <img> do template ja usa object-fit:cover
+            const script =
+                'const J=require(process.argv[1]);J.read(process.argv[2])' +
+                '.then(i=>i.resize(96,J.AUTO).getBufferAsync("image/png"))' +
+                '.then(b=>process.stdout.write(b.toString("base64")))';
+            // stdio explicito: sem isso o stderr do filho vaza no terminal a cada metro start
+            b64 = require("child_process")
+                .execFileSync(process.execPath, ["-e", script, jimp, icon], {
+                    cwd: root,
+                    maxBuffer: 1 << 24,
+                    stdio: ["ignore", "pipe", "ignore"],
+                })
+                .toString();
         }
-        // spread: `extra` carrega eas.projectId, router.origin e o que mais o app puser
-        config.extra = {...config.extra, expoUtilsAppIcon: "data:image/png;base64," + b64};
     } catch {
-        /* ícone ausente, sharp ausente ou falha de encode: segue sem ícone */
+        /* icone ausente, jimp ausente ou falha de encode: segue sem icone */
+        return config;
+    }
+    if (!b64) return config;
+
+    // spread: `extra` carrega eas.projectId, router.origin e o que mais o app puser
+    config.extra = {...config.extra, expoUtilsAppIcon: "data:image/png;base64," + b64};
+
+    // cache DEPOIS de aplicar: node_modules read-only nao pode custar o icone da build
+    if (cachePath) {
+        try {
+            fs.mkdirSync(path.dirname(cachePath), {recursive: true});
+            fs.writeFileSync(cachePath, b64);
+        } catch {
+            /* sem cache: paga o encode de novo na proxima resolucao */
+        }
     }
     return config;
 }

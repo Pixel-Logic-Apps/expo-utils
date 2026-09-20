@@ -703,13 +703,16 @@ Pontos de atenção:
   Essa descoberta do ícone é do script: no componente, use `appIcon` ou `appIconUrl`.
 - **O ícone do app entra sozinho, sem você fazer nada.** O config plugin (`withAppIconDataUri`,
   opt-out `{ "appIcon": false }`) lê `expo.android.icon` / `expo.icon`, reduz para 96px com o
-  `sharp` (que já vem com o Expo) e grava o data URI em `extra.expoUtilsAppIcon`; o
+  `jimp-compact` e grava o data URI em `extra.expoUtilsAppIcon`; o
   `ask-for-review` lê de `Constants.expoConfig`. **Não mexe no `app.json`** — o config muda só em
   memória e sai no `app.config` gerado dentro do APK/IPA, que já é ignorado pelo git. Usa spread
   no `extra`, então `eas.projectId` / `router.origin` continuam lá. Medido: ~8 KB de data URI,
-  119 ms na primeira resolução e 13 ms depois (cache em `node_modules/.cache/expo-utils/`,
+  234 ms na primeira resolução e 69 ms depois (cache em `node_modules/.cache/expo-utils/`,
   chaveado por mtime+tamanho do ícone, porque `getConfig` roda em todo `metro start`). Sem
-  ícone, sem `sharp` ou erro no encode: não faz nada e o tutorial cai no círculo com a inicial.
+  ícone, sem `jimp` ou erro no encode: deixa o config intacto e o tutorial cai no círculo com a
+  inicial. **Não é `sharp`**: `sharp` não é dependência do Expo e não existe num projeto limpo;
+  `jimp-compact` vem dentro do `@expo/image-utils`, que o `expo-asset/app.plugin.js` já carrega
+  na resolução do config.
   Vale para apps que já existem — basta rebuildar, nenhum arquivo do projeto muda.
   Motivo de ser no plugin e não em runtime: em release no Android o asset do bundle vira **nome
   de drawable** (`expo-asset` seta `localUri = uri` quando a URI não tem `:`), e aí o

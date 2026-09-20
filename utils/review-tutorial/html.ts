@@ -15,7 +15,9 @@ export interface ReviewTutorialParams {
     appName?: string;
     /** URL https do ícone do app. Sem isso, cai num círculo com a inicial. */
     appIconUrl?: string;
-    /** Nome exibido do usuário no composer. */
+    /** Nome exibido do usuário no composer e no avatar. Default: `defaultUserName` do locale
+     *  ("Você" em pt). Passar um nome real troca em todos os lugares e volta a cor a ser o
+     *  hash do nome. */
     userName?: string;
     /** E-mail mostrado no bottom sheet da conta. */
     userEmail?: string;
@@ -40,6 +42,13 @@ export interface ReviewTutorialParams {
 }
 
 const RTL_LOCALES = ["ar", "he", "fa", "ur", "iw"];
+
+/**
+ * Cor do avatar quando o app nao passa `userName`. Fixa de proposito: hashear o nome padrao
+ * traduzido daria uma cor diferente por idioma (o mesmo usuario ficaria vermelho em pt e roxo
+ * em en). Com nome real passado, volta a valer o hash.
+ */
+const DEFAULT_AVATAR_COLOR = "#E37400";
 
 const AVATAR_COLORS = [
     "#B154BE", "#1A73E8", "#D93025", "#188038", "#E37400", "#9334E6", "#007B83",
@@ -179,9 +188,9 @@ export function buildTutorialHtml(params: ReviewTutorialParams): string {
     const L: PlayLabels = {...base, ...(params.labels || {})};
 
     const appName = params.appName || "";
-    const userName = params.userName || "";
-    const initial = params.userInitial || firstGrapheme(userName || appName);
-    const avatar = params.avatarColor || hashColor(userName || appName);
+    const userName = params.userName || L.defaultUserName;
+    const initial = params.userInitial || firstGrapheme(userName);
+    const avatar = params.avatarColor || (params.userName ? hashColor(params.userName) : DEFAULT_AVATAR_COLOR);
     const clock = params.clock || localClock();
     const email = params.userEmail || "";
     const accent = params.accent || "#0B57D0";
@@ -212,7 +221,8 @@ export function buildTutorialHtml(params: ReviewTutorialParams): string {
         '<section class="scr playhome">' + statusBar(clock) +
         '<div class="ph-top"><div class="ph-search">' +
         '<span class="ph-bell">' + icon("bell", 30) + '<i class="dot">1</i></span>' +
-        '<span data-k="avatar" class="ph-avatar"></span>' +
+        '<span data-k="avatar" class="ph-avatar" style="background:' + avatar + '">' +
+        esc(initial) + "</span>" +
         "</div>" +
         '<div class="ph-tabs"><span class="on">' + esc(L.tabForYou) + "</span><span>" +
         esc(L.tabTrending) + "</span><span>" + esc(L.tabWorkApps) + "</span><span>" +
@@ -226,7 +236,7 @@ export function buildTutorialHtml(params: ReviewTutorialParams): string {
         '<b style="color:#FBBC04">o</b><b style="color:#4285F4">g</b>' +
         '<b style="color:#34A853">l</b><b style="color:#EA4335">e</b></div>' +
         '<div class="sh-acct"><span class="sh-avatar" style="background:' + avatar + '">' +
-        esc(initial) + '</span><span class="sh-mail">' + esc(email) + "</span>" +
+        esc(initial) + '</span><span class="sh-mail">' + esc(email || userName) + "</span>" +
         '<span class="sh-caret">' + icon("chevron", 16) + "</span></div>" +
         '<div class="sh-pill">' + esc(L.manageAccount) + "</div>" +
         '<div class="sh-menu">' +
@@ -509,7 +519,8 @@ html[dir=rtl]{--direction:-1}
 .ph-bell{position:relative;color:var(--text2);display:flex}
 .dot{position:absolute;top:-2px;right:-3px;background:#B83A28;color:#FFF;font-size:10px;
   font-style:normal;width:17px;height:17px;border-radius:50%;display:flex;align-items:center;justify-content:center}
-.ph-avatar{width:40px;height:40px;border:1px solid #dedee0;border-radius:50%;background:#efeff1;flex:none}
+.ph-avatar{width:40px;height:40px;border-radius:50%;color:#FFF;font-size:19px;flex:none;
+  display:flex;align-items:center;justify-content:center;line-height:1}
 .ph-tabs{display:flex;gap:60px;padding:36px 0 0;margin-inline-start:-102px;font-size:18px;
   line-height:22px;color:var(--text2);white-space:nowrap}
 .ph-tabs .on{color:var(--accent)}

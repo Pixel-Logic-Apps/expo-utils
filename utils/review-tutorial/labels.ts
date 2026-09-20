@@ -70,6 +70,11 @@ export interface PlayLabels {
     describeExperience: string;
     /** Texto de exemplo digitado no campo. NOSSO, não do Google. */
     sampleReview: string;
+    /**
+     * Nome do usuário quando o app não passa `userName`. NOSSO, não do Google — no aparelho
+     * real aparece o nome da Conta do Google. Usado no composer e para a inicial do avatar.
+     */
+    defaultUserName: string;
 }
 
 const en: PlayLabels = {
@@ -102,6 +107,7 @@ const en: PlayLabels = {
     learnMore: "Learn more",
     describeExperience: "Describe your experience (required)",
     sampleReview: "Love this app!",
+    defaultUserName: "You",
 };
 
 const pt: PlayLabels = {
@@ -134,6 +140,7 @@ const pt: PlayLabels = {
     learnMore: "Saiba mais",
     describeExperience: "Descreva sua experiência (obrigatório)",
     sampleReview: "Adorei o aplicativo!",
+    defaultUserName: "Você",
 };
 
 const es: PlayLabels = {
@@ -166,6 +173,7 @@ const es: PlayLabels = {
     learnMore: "Más información",
     describeExperience: "Describe tu experiencia (obligatorio)",
     sampleReview: "¡Me encanta esta app!",
+    defaultUserName: "Tú",
 };
 
 const fr: PlayLabels = {
@@ -198,6 +206,7 @@ const fr: PlayLabels = {
     learnMore: "En savoir plus",
     describeExperience: "Décrivez votre expérience (obligatoire)",
     sampleReview: "J'adore cette appli !",
+    defaultUserName: "Vous",
 };
 
 const de: PlayLabels = {
@@ -230,6 +239,7 @@ const de: PlayLabels = {
     learnMore: "Weitere Informationen",
     describeExperience: "Deine Erfahrung beschreiben (erforderlich)",
     sampleReview: "Ich liebe diese App!",
+    defaultUserName: "Du",
 };
 
 const it: PlayLabels = {
@@ -262,6 +272,7 @@ const it: PlayLabels = {
     learnMore: "Scopri di più",
     describeExperience: "Descrivi la tua esperienza (obbligatorio)",
     sampleReview: "Adoro questa app!",
+    defaultUserName: "Tu",
 };
 
 const ja: PlayLabels = {
@@ -294,6 +305,7 @@ const ja: PlayLabels = {
     learnMore: "詳細",
     describeExperience: "レビューを書き込んでください（必須）",
     sampleReview: "とても良いアプリです！",
+    defaultUserName: "あなた",
 };
 
 const ko: PlayLabels = {
@@ -326,6 +338,7 @@ const ko: PlayLabels = {
     learnMore: "자세히 알아보기",
     describeExperience: "리뷰를 작성해 주세요(필수).",
     sampleReview: "정말 좋은 앱이에요!",
+    defaultUserName: "나",
 };
 
 const zh: PlayLabels = {
@@ -358,6 +371,7 @@ const zh: PlayLabels = {
     learnMore: "了解详情",
     describeExperience: "请说明您的体验（必填）",
     sampleReview: "这个应用太棒了！",
+    defaultUserName: "你",
 };
 
 const ru: PlayLabels = {
@@ -390,6 +404,7 @@ const ru: PlayLabels = {
     learnMore: "Подробнее",
     describeExperience: "Поделитесь впечатлениями (обязательно)",
     sampleReview: "Отличное приложение!",
+    defaultUserName: "Вы",
 };
 
 const ar: PlayLabels = {
@@ -422,6 +437,7 @@ const ar: PlayLabels = {
     learnMore: "مزيد من المعلومات",
     describeExperience: "يُرجى وصف تجربتك (مطلوب).",
     sampleReview: "تطبيق رائع جدًا!",
+    defaultUserName: "أنت",
 };
 
 const hi: PlayLabels = {
@@ -454,6 +470,7 @@ const hi: PlayLabels = {
     learnMore: "ज़्यादा जानें",
     describeExperience: "अपने अनुभव के बारे में बताएं (यह ज़रूरी है)",
     sampleReview: "यह ऐप बहुत बढ़िया है!",
+    defaultUserName: "आप",
 };
 
 const nl: PlayLabels = {
@@ -486,6 +503,7 @@ const nl: PlayLabels = {
     learnMore: "Meer informatie",
     describeExperience: "Beschrijf je ervaringen (vereist)",
     sampleReview: "Geweldige app!",
+    defaultUserName: "Jij",
 };
 
 const pl: PlayLabels = {
@@ -518,6 +536,7 @@ const pl: PlayLabels = {
     learnMore: "Więcej informacji",
     describeExperience: "Opisz swoje wrażenia (wymagane)",
     sampleReview: "Świetna aplikacja!",
+    defaultUserName: "Ty",
 };
 
 const tr: PlayLabels = {
@@ -550,6 +569,7 @@ const tr: PlayLabels = {
     learnMore: "Daha fazla bilgi",
     describeExperience: "Deneyiminizi anlatın (zorunlu)",
     sampleReview: "Bu uygulamayı çok sevdim!",
+    defaultUserName: "Sen",
 };
 
 const sv: PlayLabels = {
@@ -582,6 +602,7 @@ const sv: PlayLabels = {
     learnMore: "Läs mer",
     describeExperience: "Berätta vad du tycker (obligatoriskt)",
     sampleReview: "Älskar den här appen!",
+    defaultUserName: "Du",
 };
 
 const da: PlayLabels = {
@@ -614,6 +635,7 @@ const da: PlayLabels = {
     learnMore: "Få flere oplysninger",
     describeExperience: "Beskriv din oplevelse (skal udfyldes)",
     sampleReview: "Jeg elsker denne app!",
+    defaultUserName: "Dig",
 };
 
 const fi: PlayLabels = {
@@ -646,6 +668,7 @@ const fi: PlayLabels = {
     learnMore: "Lue lisää",
     describeExperience: "Kuvaile käyttökokemusta (pakollinen)",
     sampleReview: "Mahtava sovellus!",
+    defaultUserName: "Sinä",
 };
 
 const no_: PlayLabels = {
@@ -678,6 +701,7 @@ const no_: PlayLabels = {
     learnMore: "Finn ut mer",
     describeExperience: "Beskriv opplevelsen din (obligatorisk)",
     sampleReview: "Elsker denne appen!",
+    defaultUserName: "Du",
 };
 
 const cs: PlayLabels = {
@@ -710,6 +734,7 @@ const cs: PlayLabels = {
     learnMore: "Další informace",
     describeExperience: "Sdělte svůj názor (povinné)",
     sampleReview: "Skvělá aplikace!",
+    defaultUserName: "Vy",
 };
 
 const el: PlayLabels = {
@@ -742,6 +767,7 @@ const el: PlayLabels = {
     learnMore: "Μάθετε περισσότερα",
     describeExperience: "Περιγράψτε την εμπειρία σας (απαιτείται)",
     sampleReview: "Υπέροχη εφαρμογή!",
+    defaultUserName: "Εσείς",
 };
 
 const he: PlayLabels = {
@@ -774,6 +800,7 @@ const he: PlayLabels = {
     learnMore: "מידע נוסף",
     describeExperience: "יש לתאר את חוויית השימוש שלך (חובה)",
     sampleReview: "אפליקציה מעולה!",
+    defaultUserName: "אתה",
 };
 
 const th: PlayLabels = {
@@ -806,6 +833,7 @@ const th: PlayLabels = {
     learnMore: "ดูข้อมูลเพิ่มเติม",
     describeExperience: "บอกเล่าประสบการณ์ของคุณ (ต้องระบุ)",
     sampleReview: "ชอบแอปนี้มาก!",
+    defaultUserName: "คุณ",
 };
 
 const vi: PlayLabels = {
@@ -838,6 +866,7 @@ const vi: PlayLabels = {
     learnMore: "Tìm hiểu thêm",
     describeExperience: "Mô tả trải nghiệm của bạn (bắt buộc)",
     sampleReview: "Ứng dụng rất tuyệt!",
+    defaultUserName: "Bạn",
 };
 
 const id: PlayLabels = {
@@ -870,6 +899,7 @@ const id: PlayLabels = {
     learnMore: "Pelajari lebih lanjut",
     describeExperience: "Deskripsikan pengalaman Anda (wajib)",
     sampleReview: "Aplikasi ini keren banget!",
+    defaultUserName: "Anda",
 };
 
 const ms: PlayLabels = {
@@ -902,6 +932,7 @@ const ms: PlayLabels = {
     learnMore: "Ketahui lebih lanjut",
     describeExperience: "Perihalkan pengalaman anda (diperlukan)",
     sampleReview: "Aplikasi yang sangat bagus!",
+    defaultUserName: "Anda",
 };
 
 const ro: PlayLabels = {
@@ -934,6 +965,7 @@ const ro: PlayLabels = {
     learnMore: "Află mai multe",
     describeExperience: "Descrie-ți experiența (obligatoriu)",
     sampleReview: "Îmi place mult aplicația!",
+    defaultUserName: "Tu",
 };
 
 const uk: PlayLabels = {
@@ -966,6 +998,7 @@ const uk: PlayLabels = {
     learnMore: "Докладніше",
     describeExperience: "Поділіться враженнями (обов’язково)",
     sampleReview: "Чудовий додаток!",
+    defaultUserName: "Ви",
 };
 
 const hu: PlayLabels = {
@@ -998,6 +1031,7 @@ const hu: PlayLabels = {
     learnMore: "További információ",
     describeExperience: "Írd le a tapasztalataidat (kötelező)",
     sampleReview: "Nagyszerű alkalmazás!",
+    defaultUserName: "Te",
 };
 
 const sk: PlayLabels = {
@@ -1030,6 +1064,7 @@ const sk: PlayLabels = {
     learnMore: "Ďalšie informácie",
     describeExperience: "Opíšte svoju skúsenosť (povinné)",
     sampleReview: "Skvelá aplikácia!",
+    defaultUserName: "Vy",
 };
 
 const bg: PlayLabels = {
@@ -1062,6 +1097,7 @@ const bg: PlayLabels = {
     learnMore: "Научете повече",
     describeExperience: "Опишете впечатленията си (задължително)",
     sampleReview: "Страхотно приложение!",
+    defaultUserName: "Вие",
 };
 
 const LABELS: Record<string, PlayLabels> = {

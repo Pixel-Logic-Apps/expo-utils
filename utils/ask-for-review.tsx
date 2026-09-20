@@ -10,7 +10,8 @@ import {
     Animated,
     Pressable,
     Alert,
-    DeviceEventEmitter
+    DeviceEventEmitter,
+    Platform
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as StoreReview from "expo-store-review";
@@ -615,7 +616,11 @@ const styles = StyleSheet.create({
         shadowOpacity: 0.15,
         shadowRadius: 20,
         elevation: 6,
-        marginBottom: 30,
+        // O app desenha edge-to-edge (react-native-edge-to-edge), entao o overlay vai por baixo
+        // da barra de navegacao. Medido no emulador: com 30 o card invadia 15,3dp da barra de
+        // 3 botoes (48dp). 60 limpa a barra com 12dp de folga, e sobre gesture nav (24dp) vira
+        // uma margem confortavel. No iOS os 30 originais seguem valendo.
+        marginBottom: Platform.OS === "android" ? 60 : 30,
     },
     cardWrapper: {
         alignSelf: "center",
