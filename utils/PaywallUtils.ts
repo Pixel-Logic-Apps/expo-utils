@@ -3,6 +3,8 @@ import {useCallback, useEffect, useMemo, useRef, useState} from "react";
 import Purchases from "react-native-purchases";
 import {expoUtilsWarn, usableRcKey} from "./Utils";
 import {PremiumUtils} from "./PremiumUtils";
+import {getCurrentRoute} from "./AdPlacementTracker";
+import {logUtilsEvent, type AnalyticsParams} from "./analytics";
 
 type PurchasesModule = any;
 
@@ -92,6 +94,11 @@ export interface PaywallLoadResult {
 export interface PaywallOptions {
     config?: PaywallConfig;
     configKey?: string;
+    /**
+     * De ONDE o paywall abriu (ex.: "onboarding", "settings", "limite_diario") — vai em todo
+     * evento do funil (`paywall_*`). Omitido, usa a rota atual (RouteTracker).
+     */
+    placement?: string;
     productIds?: string[];
     productSource?: PaywallProductSource;
     revenueCatApiKey?: string;
@@ -180,6 +187,36 @@ function isDevRuntime() {
     } catch {
         return false;
     }
+}
+
+// ─── Telemetria do funil (Firebase Analytics) ───────────────────────────────
+// paywall_view → paywall_product_select → paywall_purchase_start →
+// paywall_purchase_success | paywall_purchase_cancel | paywall_purchase_error,
+// além de paywall_restore e paywall_close. Params comuns: placement, campaign, config_key.
+//
+// De propósito NÃO usa o nome `purchase` nem os params `value`/`currency`: o GA4 trataria
+// como receita e duplicaria o `in_app_purchase` automático. Preço vai em price/price_currency.
+function getPaywallParams(options: PaywallOptions = {}, config?: PaywallConfig): AnalyticsParams {
+    let route = "";
+    try {
+        route = getCurrentRoute() || "";
+    } catch {}
+    return {
+        placement: options.placement || route,
+        campaign: (config ?? PaywallUtils.getConfig(options)).campaign_name ?? "",
+        config_key: options.configKey ?? "",
+    };
+}
+
+function getPaywallItemParams(item?: PaywallItem | null): AnalyticsParams {
+    if (!item) return {};
+    return {
+        product_id: item.id,
+        product_kind: item.kind,
+        price: typeof item.product?.price === "number" ? item.product.price : undefined,
+        price_currency: item.product?.currencyCode,
+        trial_days: item.trialDays || 0,
+    };
 }
 
 export class PaywallUtils {
@@ -452,6 +489,7 @@ export class PaywallUtils {
                 return {ok: false, cancelled: false, premiumGranted: false, error: new Error("RevenueCat não configurado (sem API key utilizável)")};
             }
             const Purchases = getPurchases();
+            logUtilsEvent("paywall_purchase_start", {...getPaywallParams(options), ...getPaywallItemParams(item)});
             const rawResult = item.package
                 ? await Purchases.purchasePackage(item.package)
                 : await Purchases.purchaseStoreProduct(item.product);
@@ -464,9 +502,16 @@ export class PaywallUtils {
                 await PaywallUtils.setPremiumStatus(true, options.storageKey);
             }
 
+            logUtilsEvent("paywall_purchase_success", {...getPaywallParams(options), ...getPaywallItemParams(item), premium_granted: premiumGranted});
             return {ok: true, cancelled: false, premiumGranted, customerInfo, rawResult};
         } catch (error: any) {
-            return {ok: false, cancelled: Boolean(error?.userCancelled), premiumGranted: false, error};
+            const cancelled = Boolean(error?.userCancelled);
+            logUtilsEvent(cancelled ? "paywall_purchase_cancel" : "paywall_purchase_error", {
+                ...getPaywallParams(options),
+                ...getPaywallItemParams(item),
+                ...(cancelled ? {} : {code: String(error?.code ?? ""), message: String(error?.message ?? error ?? "")}),
+            });
+            return {ok: false, cancelled, premiumGranted: false, error};
         }
     }
 
@@ -483,10 +528,29 @@ export class PaywallUtils {
                 await PaywallUtils.setPremiumStatus(true, options.storageKey);
             }
 
+            logUtilsEvent("paywall_restore", {...getPaywallParams(options), result: premiumGranted ? "restored" : "nothing"});
             return {ok: true, cancelled: false, premiumGranted, customerInfo, rawResult: customerInfo};
         } catch (error: any) {
+            logUtilsEvent("paywall_restore", {...getPaywallParams(options), result: "error", code: String(error?.code ?? "")});
             return {ok: false, cancelled: Boolean(error?.userCancelled), premiumGranted: false, error};
         }
+    }
+
+    /**
+     * `paywall_view` / `paywall_close` para quem usa o PaywallController ou a API estática
+     * (o hook `usePaywall` já chama os dois sozinho, no load e no unmount).
+     */
+    static trackView(result: PaywallLoadResult, options: PaywallOptions = {}) {
+        logUtilsEvent("paywall_view", {
+            ...getPaywallParams(options, result.config),
+            products_count: result.items.length,
+            selected_product: result.selectedProductId,
+            close_delay_ms: result.closeDelay,
+        });
+    }
+
+    static trackClose(options: PaywallOptions = {}, extra: {durationMs?: number; purchased?: boolean} = {}) {
+        logUtilsEvent("paywall_close", {...getPaywallParams(options), duration_ms: extra.durationMs, purchased: extra.purchased === true});
     }
 
     static async getIsPremium(options: PaywallOptions = {}) {
@@ -607,6 +671,9 @@ export function usePaywall(options: UsePaywallOptions = {}): UsePaywallResult {
     const [restoring, setRestoring] = useState(false);
     const [error, setError] = useState<any>(null);
     const [canClose, setCanClose] = useState(false);
+    // Telemetria do funil: 1 paywall_view por montagem e 1 paywall_close no unmount.
+    const viewedAt = useRef(0);
+    const purchased = useRef(false);
 
     const selectedItem = useMemo(
         () => items.find((item) => item.id === selectedProductId) || null,
@@ -623,6 +690,10 @@ export function usePaywall(options: UsePaywallOptions = {}): UsePaywallResult {
             setItems(result.items);
             setSelectedProductId(result.selectedProductId);
             setCloseDelay(result.closeDelay);
+            if (!viewedAt.current) {
+                viewedAt.current = Date.now();
+                PaywallUtils.trackView(result, controllerRef.current.options);
+            }
             return result;
         } catch (e) {
             setError(e);
@@ -645,9 +716,24 @@ export function usePaywall(options: UsePaywallOptions = {}): UsePaywallResult {
         return () => clearTimeout(timer);
     }, [closeDelay, loading]);
 
+    useEffect(
+        () => () => {
+            if (!viewedAt.current) return; // nunca chegou a exibir (load falhou / desmontou antes)
+            PaywallUtils.trackClose(controllerRef.current.options, {durationMs: Date.now() - viewedAt.current, purchased: purchased.current});
+        },
+        [],
+    );
+
     const select = useCallback((productId: string) => {
+        const previous = controllerRef.current.selectedProductId;
         controllerRef.current.select(productId);
         setSelectedProductId(controllerRef.current.selectedProductId);
+        if (controllerRef.current.selectedProductId !== previous) {
+            logUtilsEvent("paywall_product_select", {
+                ...getPaywallParams(controllerRef.current.options, controllerRef.current.config),
+                ...getPaywallItemParams(controllerRef.current.selectedItem),
+            });
+        }
     }, []);
 
     const purchaseSelected = useCallback(async () => {
@@ -657,6 +743,7 @@ export function usePaywall(options: UsePaywallOptions = {}): UsePaywallResult {
         setPurchasing(true);
         const result = await PaywallUtils.purchaseItem(selectedItem, controllerRef.current.options);
         setPurchasing(false);
+        if (result.ok) purchased.current = true;
         if (result.ok && result.premiumGranted) options.onPurchaseSuccess?.(result);
         return result;
     }, [options, selectedItem]);
@@ -665,6 +752,7 @@ export function usePaywall(options: UsePaywallOptions = {}): UsePaywallResult {
         setRestoring(true);
         const result = await PaywallUtils.restore(controllerRef.current.options);
         setRestoring(false);
+        if (result.ok && result.premiumGranted) purchased.current = true;
         if (result.ok && result.premiumGranted) options.onRestoreSuccess?.(result);
         return result;
     }, [options]);

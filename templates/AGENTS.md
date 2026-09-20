@@ -284,3 +284,40 @@ Resumo do P-001, porque é o mais fácil de violar sem perceber: tela custom ant
 sistema pode **explicar**, nunca **decidir**. Botão de avanço neutro (`Continuar` / `Próximo` —
 nunca `Permitir acesso`) e **nenhuma** saída que pule o pedido (sem `Cancelar`, sem X, sem swipe,
 sem overlay clicável). Na dúvida, **não faça pre-prompt**: chame a permissão direto no gesto.
+
+────────────────────────
+
+## REGRA 7 — Atribuição, analytics e push: já vêm do expo-utils (≥ 1.4.0)
+
+O boot da lib já grava os atributos no customer do RevenueCat (em duas fases, com envio forçado),
+liga GA4 ↔ RevenueCat e mede paywall, review, cross-promo, consentimento e push. O app **não**
+reimplementa nada disso.
+
+**PROIBIDO no app:**
+
+- Chamar `Purchases.collectDeviceIdentifiers`, `setFirebaseAppInstanceID`, `setFBAnonymousID`,
+  `setPushToken` ou gravar atributo de contexto (idioma, país, versão…) — a lib já faz e duplicar
+  só gasta o limite de envios do SDK (5/min).
+- Trocar o `ExpoUtilsLayout` por um `_layout` que só chama `Utils.prepare()`: sem o
+  `Utils.handleReady` não rodam UMP, ATT, push, Facebook, TikTok nem a fase 2 da atribuição — e
+  o customer fica **vazio** no RevenueCat. (A lib avisa em `expo_utils_warn` depois de 30s.)
+- `logEvent(...).catch()` direto do Firebase: use `logUtilsEvent(nome, params)` do `expo-utils`
+  (nunca lança, nunca vira unhandled rejection, compila em qualquer versão do RNFB).
+- Evento chamado `purchase` ou params `value` + `currency` em evento próprio de paywall — o GA4
+  conta como receita e duplica o `in_app_purchase` automático.
+- Instalar `expo-notifications` sem testar no iOS: ele toma o delegate de notificações e pode
+  calar o `push_opened`.
+
+**Esperado no app:**
+
+- `usePaywall({placement: "onboarding"})` — sempre dizer DE ONDE o paywall abriu; é o que segmenta
+  o funil `paywall_*`.
+- Atributo próprio no RevenueCat: `await setRevenueCatAttributes({chave: "valor"})` (já força o envio).
+- **Geo por IP vem ligada** (país/estado/cidade no customer). Antes de submeter: declarar
+  "Coarse Location" (App Store) e "Approximate location" (Play Data Safety) **ou** desligar com
+  `["expo-utils", {"geoAttributes": false}]` / Remote Config `geo_lookup_enabled: false`.
+- Conferir no Metro, em dev: `[expo-utils] event rc_attribution {"phase":1…}` **e** `{"phase":2…}`.
+  Só a fase 1 = layout sem `handleReady`. `synced:1` = o RevenueCat aceitou. A prova final é o
+  customer no dashboard (o ID sai no log `RC appUserID`), não o log local.
+- Sender de push: mandar `data: {push_id: "<id>"}` junto da notificação — é o que permite calcular
+  a taxa de abertura por notificação (`push_opened` ÷ `push_received`).

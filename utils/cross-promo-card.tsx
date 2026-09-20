@@ -11,7 +11,10 @@ import {
     type ViewStyle,
 } from "react-native";
 
+import {useEffect} from "react";
+
 import type {CrossPromoConfig} from "./types";
+import {logUtilsEvent} from "./analytics";
 
 // Re-export: a fonte do type é o types.ts (onde o cross_promo é obrigatório no
 // RemoteConfigScreensType). Mantido aqui para não quebrar imports existentes.
@@ -46,11 +49,33 @@ export function CrossPromoCard({
     const url = (Platform.OS === "ios" ? cfg.ios_url : cfg.android_url) || cfg.url;
     const screens = cfg.screens ?? ["home"];
 
-    if (!cfg.enabled || !url || !screens.includes(screen)) return null;
+    const visible = Boolean(cfg.enabled && url && screens.includes(screen));
+
+    // Mesmo funil do promo modal (promo_impression / promo_click) com promo_variant próprio,
+    // pra reaproveitar as dimensões custom do GA4. `screen` diz ONDE o card converteu.
+    const promoParams = {
+        promo_variant: "cross_promo_card",
+        promo_type: "cross_promo",
+        promo_name: cfg.app_name ?? "",
+        promo_store_url: url ?? "",
+        promo_media: cfg.icon_url ? "image" : "gradient",
+        screen,
+    };
+
+    // 1 impressão por exibição (montagem, troca de tela ou de app anunciado), não por render.
+    useEffect(() => {
+        if (visible) logUtilsEvent("promo_impression", promoParams);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [visible, screen, url]);
+
+    if (!visible || !url) return null;
 
     return (
         <Pressable
-            onPress={() => Linking.openURL(url).catch(() => {})}
+            onPress={() => {
+                logUtilsEvent("promo_click", {...promoParams, click_source: "card"});
+                Linking.openURL(url).catch(() => {});
+            }}
             style={({pressed}) => [styles.card, pressed && {opacity: 0.9}, style]}>
             <View style={styles.iconWrap}>
                 {cfg.icon_url ? <Image source={{uri: cfg.icon_url}} style={styles.icon} /> : null}

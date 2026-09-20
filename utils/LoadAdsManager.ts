@@ -32,7 +32,8 @@ const getFirebaseApp = () => {
 const logAdEvent = (analytics: any, name: string, e: any, placementId: string) => {
     if (!analytics) return;
     try {
-        logEvent(analytics, name, {...(e ?? {}), placementId}).catch(() => {});
+        // Promise.resolve: o RNFB novo tipa logEvent como void, mas em runtime é promise.
+        Promise.resolve(logEvent(analytics, name, {...(e ?? {}), placementId})).catch(() => {});
     } catch {}
 };
 

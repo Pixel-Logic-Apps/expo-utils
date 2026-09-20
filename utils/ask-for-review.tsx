@@ -22,6 +22,7 @@ import * as Application from "expo-application";
 import Constants from "expo-constants";
 import {getLocales} from "expo-localization";
 import {expoUtilsLog} from "./Utils";
+import {logUtilsEvent} from "./analytics";
 import {ReviewTutorial, ReviewTutorialParams} from "./review-tutorial";
 import type {ReviewStyle} from "./types";
 import {SquircleCorners, SquircleFill} from "./squircle";
@@ -87,7 +88,12 @@ export async function askForReview(texts?: AskForReviewTexts, image?: any, showD
 
         const reviewType = global.remoteConfigUtils?.review_type || "store-review";
         expoUtilsLog("reviewType", reviewType);
+        // Funil do review: review_request → review_prompt_show → review_prompt_action →
+        // review_store_requested. O prompt NATIVO da loja não devolve resultado (nem se
+        // apareceu), então o funil mede até o pedido — o que vem depois é da loja.
+        logUtilsEvent("review_request", {type: reviewType, show_delay_ms: delayMs});
         if (reviewType === "store-review") {
+            logUtilsEvent("review_store_requested", {origin: "store-review"});
             await StoreReview.requestReview();
         } else if (reviewType === "popup") {
             AskForReviewEvents.showPopup();
@@ -95,12 +101,18 @@ export async function askForReview(texts?: AskForReviewTexts, image?: any, showD
             // Use provided texts, or fallback to global texts, or return if neither exists
             const finalTexts = texts || AskForReviewEvents.getTexts();
             if (finalTexts) {
+                const shownAt = Date.now();
+                logUtilsEvent("review_prompt_show", {type: "dialog"});
                 Alert.alert(finalTexts.title, finalTexts.message, [
-                    {text: finalTexts.notNow, style: "cancel"},
+                    {
+                        text: finalTexts.notNow,
+                        style: "cancel",
+                        onPress: () => logUtilsEvent("review_prompt_action", {type: "dialog", action: "later", source: "button", time_ms: Date.now() - shownAt}),
+                    },
                     { text: finalTexts.rateNow,
                         onPress: async () => {
-                            await AsyncStorage.setItem("@user_rated", "true");
-                            await StoreReview.requestReview();
+                            logUtilsEvent("review_prompt_action", {type: "dialog", action: "rate", source: "button", time_ms: Date.now() - shownAt});
+                            await handleReviewSubmission("dialog");
                         },
                     },
                 ]);
@@ -111,10 +123,12 @@ export async function askForReview(texts?: AskForReviewTexts, image?: any, showD
     }
 }
 
-// Função auxiliar para marcar como avaliado e fazer review
-export async function handleReviewSubmission() {
+// Função auxiliar para marcar como avaliado e fazer review.
+// `origin` só alimenta a telemetria: de onde veio o pedido à loja (popup | dialog | manual).
+export async function handleReviewSubmission(origin: string = "manual") {
     try {
         await AsyncStorage.setItem("@user_rated", "true");
+        logUtilsEvent("review_store_requested", {origin});
         await StoreReview.requestReview();
     } catch (err) {
         // console.log("Error submitting review:", err);
@@ -579,6 +593,7 @@ const AskForReviewOverlay: React.FC<AskForReviewOverlayProps> = ({
     const cardRadius = useRef(new Animated.Value(50)).current;
     const [isNotNowDisabled, setIsNotNowDisabled] = React.useState(false);
     const [remainingTime, setRemainingTime] = React.useState(0);
+    const shownAt = useRef(0);
 
     // Use provided colors or fall back to defaults
     const displayColors = colors || DEFAULT_COLORS;
@@ -606,6 +621,9 @@ const AskForReviewOverlay: React.FC<AskForReviewOverlayProps> = ({
 
     useEffect(() => {
         if (visible) {
+            // `style` é o que permite comparar os layouts do review_style (Remote Config / A/B).
+            shownAt.current = Date.now();
+            logUtilsEvent("review_prompt_show", {type: "popup", style: resolveVariant(variant), tutorial: Boolean(tutorial), not_now_delay_ms: delay});
             backdrop.setValue(0);
             cardScale.setValue(layout.morphs ? 0.95 : 1);
             cardTranslateY.setValue(layout.slideDistance);
@@ -699,15 +717,22 @@ const AskForReviewOverlay: React.FC<AskForReviewOverlayProps> = ({
         });
     };
 
+    const logAction = (action: "rate" | "later", source: string) =>
+        logUtilsEvent("review_prompt_action", {type: "popup", style: resolveVariant(variant), action, source, time_ms: Date.now() - shownAt.current});
+
     const handleRateNow = async () => {
+        logAction("rate", "button");
         animateOut(async () => {
             onClose();
-            await handleReviewSubmission();
+            await handleReviewSubmission("popup");
         });
     };
 
-    const handleLater = () => {
+    // `source` é SEMPRE string explícita (backdrop | close | button): handler passado direto
+    // no onPress receberia o GestureResponderEvent como 1º argumento.
+    const handleLater = (source: string) => {
         if (!isNotNowDisabled) {
+            logAction("later", source);
             animateOut(onClose);
         }
     };
@@ -726,7 +751,7 @@ const AskForReviewOverlay: React.FC<AskForReviewOverlayProps> = ({
             <View style={[styles.container, {justifyContent: layout.justify}, layout.noSidePadding && styles.containerFull]}>
                 <Pressable
                     style={styles.dismissArea}
-                    onPress={handleLater}
+                    onPress={() => handleLater("backdrop")}
                     disabled={isNotNowDisabled}
                 />
                 <View style={[styles.cardShadow, layout.fillsScreen && styles.fullFlex]}>
@@ -756,7 +781,7 @@ const AskForReviewOverlay: React.FC<AskForReviewOverlayProps> = ({
                                 <View style={[styles.closeHeader, {borderBottomColor: displayColors.border}]}>
                                     {!isNotNowDisabled && (
                                         <TouchableOpacity
-                                            onPress={handleLater}
+                                            onPress={() => handleLater("close")}
                                             hitSlop={12}
                                             accessibilityRole="button"
                                             accessibilityLabel={displayNotNow}
@@ -773,7 +798,7 @@ const AskForReviewOverlay: React.FC<AskForReviewOverlayProps> = ({
                                 do review_type_delay roda e aparece quando ele zera. */}
                             {layout.closeButton && !layout.closeInHeader && !isNotNowDisabled && (
                                 <TouchableOpacity
-                                    onPress={handleLater}
+                                    onPress={() => handleLater("close")}
                                     hitSlop={12}
                                     accessibilityRole="button"
                                     accessibilityLabel={displayNotNow}
@@ -816,7 +841,7 @@ const AskForReviewOverlay: React.FC<AskForReviewOverlayProps> = ({
                             <View style={[styles.actionsRow, layout.actionsStyle]}>
                                 {!layout.singleButton && (
                                     <TouchableOpacity
-                                        onPress={handleLater}
+                                        onPress={() => handleLater("button")}
                                         disabled={isNotNowDisabled}
                                         style={[styles.secondaryBtn, layout.buttonStyle]}>
                                         <SquircleFill

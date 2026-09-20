@@ -515,8 +515,53 @@ export default function RootLayout() {
 - Ask-for-review overlay
 - ATT pós-primeiro-frame (`Utils.handleReady`)
 - Splash control
+- Atribuição do RevenueCat em duas fases + geo por IP + telemetria (v1.4.0 — seção 4.2.1)
 
 Props opcionais: `fcmTrackingAllowed={false}` se o app pede push só no onboarding; `onReady` callback.
+
+### 4.2.1 Contrato de boot da v1.4.0 (atribuição, push aberta, analytics)
+
+**`Utils.prepare()` sozinho NÃO roda UMP, ATT, permissão de push, Facebook, TikTok nem a fase 2 da
+atribuição.** Quem dispara tudo isso é o `Utils.handleReady` — o `<View onLayout={Utils.handleReady} />`
+que o `ExpoUtilsLayout` (e o template `RootLayout.tsx`) renderizam. App migrado que mantiver um
+`_layout.tsx` próprio chamando só `prepare()` fica **sem ATT, sem push e com o customer vazio no
+RevenueCat**, em silêncio. Desde a 1.4.0 um watchdog acusa: 30s após o `prepare()` sem `handleReady` →
+`expoUtilsWarn` → evento `expo_utils_warn` no Analytics.
+
+Ordem real do boot:
+
+```text
+prepare()                       Remote Config → Purchases.configure → ATRIBUIÇÃO FASE 1 (destacada) → globals → ready
+handleReady (1º frame)          3s de splash + 2s
+requestTrackingWhenActive       UMP → ATT → [FB → ATRIBUIÇÃO FASE 2] (destacada) → push → consent_flow
+                                → TikTok → link-in-bio → update dialog
+```
+
+- **Fase 1** (sem consentimento): AdServices (iOS), `$firebaseAppInstanceId`, atributos de contexto
+  (`language`, `locale`, `device_region`, `currency`, `timezone`, `store_country`, `app_version`…),
+  `setUserId` do GA4 = App User ID do RevenueCat.
+- **Fase 2** (pós-ATT, não espera push/TikTok): device identifiers **sempre**, `$fbAnonId`, push token,
+  geo por IP. Cada etapa com timeout; cada fase termina com `syncAttributesAndOfferingsIfNeeded()`
+  **imediato** (o Android suspende timers do JS enquanto um diálogo do sistema está na frente) e o
+  evento `rc_attribution`.
+- **Não reimplementar no app**: nada de `collectDeviceIdentifiers` / `setFirebaseAppInstanceID` /
+  `setPushToken` / `setAttributes` de contexto no app host. Atributo próprio do app vai por
+  `setRevenueCatAttributes({...})` (export do pacote), que já força o envio.
+- `Utils.setupAttribution(rckey, attGranted, attStatus?)` continua existindo (agora é a fase 2,
+  memoizada) e `Utils.requestPushPermission()` passou a **devolver** o status (`granted`/`denied`/…).
+- **Geo por IP vem LIGADA.** Cidade/estado gravados contra o customer contam como "Coarse Location"
+  (App Store) / "Approximate location" (Play Data Safety): declarar nas lojas **ou** desligar com
+  `{"geoAttributes": false}` no plugin / `geo_lookup_enabled: false` no Remote Config.
+- **Push aberta**: `push_opened` sai do `onNotificationOpenedApp` + `getInitialNotification` do RNFB.
+  App que instalar `expo-notifications` no iOS toma o delegate do `UNUserNotificationCenter` e pode
+  calar esse evento — não adicionar sem testar.
+- **Paywall**: passar `placement` no `usePaywall({placement: "onboarding"})` para o funil `paywall_*`
+  sair segmentado (omitido = rota atual).
+
+Exports novos do pacote (`index.ts` **e** `index.d.ts`): `logUtilsEvent`, `setUtilsUserId`,
+`setUtilsUserProperty`, `AnalyticsParams`, `setRevenueCatAttributes`, `scheduleRcSync`,
+`getContextAttributes`, `lookupGeo`, `GEO_PROVIDERS`, `GeoResult`. Catálogo de eventos:
+`docs/ANALYTICS-EVENTS.md`.
 
 ### 4.3 `babel.config.js`
 
@@ -627,11 +672,17 @@ Para preencher o `cross_promo` (e o `promotional` do parâmetro `utils`) sem dig
   "ad_blocklist": [],
   "promotional": { "enabled": false },
   "clarity_id": "",
-  "trends_tracking_url": ""
+  "trends_tracking_url": "",
+  "geo_lookup_enabled": true,
+  "geo_lookup_url": ""
 }
 ```
 
 Valores de `review_type`: `"store-review"` | `"popup"` | `"dialog"`.
+
+`geo_lookup_enabled` (v1.4.0, default `true`): `false` desliga a geo por IP sem build novo.
+`geo_lookup_url` (opcional, só `https`): endpoint próprio tentado antes dos provedores gratuitos
+embutidos (ipwho.is → BigDataCloud → GeoJS); contrato `{country, region, regionCode, city}`.
 
 ### 5.4.0 Layout do popup (`review_style`)
 
@@ -968,6 +1019,13 @@ Use URL em `appStrings.hotUpdaterUrl` + `initHotUpdater` dentro do `ExpoUtilsLay
 - [ ] Identificação/API se `screens.api_url` válido
 - [ ] Interstitial não trava o fluxo
 - [ ] Premium dev toggle / compra grava e `checkPremiumStatus` reflete
+- [ ] Console do Metro mostra `[expo-utils] event rc_attribution {"phase":1,...}` **e** `{"phase":2,...}`
+      (só a fase 1 = layout sem `Utils.handleReady`; `synced:1` = o RevenueCat aceitou o envio)
+- [ ] `[expo-utils] RC appUserID: ...` no console → buscar esse ID no dashboard do RevenueCat e conferir
+      os atributos (`$firebaseAppInstanceId`, `language`, `store_country`, `geo_*`, `$ip`, push token).
+      **Só isto prova que chegou** — log local não prova
+- [ ] Sem o warn `handleReady nunca foi chamado` depois de 30s
+- [ ] Tocar numa notificação com o app em background → `push_opened` no console/DebugView
 
 ### 10.4 Expo doctor
 
@@ -1000,6 +1058,12 @@ Use URL em `appStrings.hotUpdaterUrl` + `initHotUpdater` dentro do `ExpoUtilsLay
 | 18 | Primeira `expo run:ios` | “travado” em gRPC-Core | normal 10–30+ min; é compile |
 | 19 | `smctl` | comando não existe | usar `xcrun simctl` (+ screenshots/maestro) |
 | 20 | Premium local vs ads | usuário premium ainda vê ads | `PremiumUtils` fonte única |
+| 21 | `_layout` legado só com `Utils.prepare()` | sem prompt de ATT/push; customer **vazio** no RevenueCat | `ExpoUtilsLayout` (ou `<View onLayout={Utils.handleReady} />`); o watchdog da 1.4.0 acusa em `expo_utils_warn` |
+| 22 | Atribuição no fim da fila (≤ 1.3.x) | assinante de paywall de onboarding sem NENHUM atributo no RC | 1.4.0: fase 1 no boot + fase 2 destacada + sync forçado |
+| 23 | Timer do JS no Android com diálogo do sistema na frente | `setTimeout` não dispara enquanto a Activity está pausada (permissão, UMP, compra) — medido: envio com debounce saiu 150s depois | caminho crítico sem timer (sync imediato); nunca depender de `setTimeout` para algo que precisa sair durante um prompt |
+| 24 | Product id `assinatura:basePlan` no RevenueCat | ler customer Android como se fosse iOS (APNS/ATT/idfa/idfv "vazios") | `:` no product id = Google Play; esses campos são vazios por plataforma |
+| 25 | `setPushToken(tokenFCM)` no iOS | campo APNS do RC com valor errado | 1.4.0 passa o token APNS; o FCM do iOS vai na chave custom `fcm_token` |
+| 26 | Geo por IP ligada por padrão | rótulo de privacidade sem "Coarse Location" | declarar nas lojas ou `{"geoAttributes": false}` / `geo_lookup_enabled: false` |
 
 ---
 

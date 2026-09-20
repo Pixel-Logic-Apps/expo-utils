@@ -15,6 +15,19 @@
 ✅ **TypeScript Completo**: Tipagem completa e interfaces bem definidas  
 ✅ **Compatibilidade Moderna**: Expo SDK 57, Firebase v24+/v25, React Native 0.86+
 
+## 🆕 Novidades da v1.4.0
+
+Versão focada em **atribuição que chega de verdade no RevenueCat** e em **enxergar o funil**.
+
+- **Atribuição em duas fases com envio forçado** — o customer deixava de ter atributos quando o usuário comprava no 1º minuto (a atribuição era o último passo de uma fila atrás de 3 prompts). Agora a fase 1 sai no boot e a fase 2 logo após o ATT, cada etapa com timeout.
+- **País, estado e cidade no customer** (geo por IP, gratuita, sem chave, ligada por padrão) + idioma, região do aparelho, país da conta da loja, fuso, versão do app.
+- **Push recebida *e aberta*** (`push_opened`), com `push_id` para calcular taxa de abertura por notificação.
+- **Funil do paywall, do review e do cross-promo** no Analytics; evento `consent_flow` (UMP/ATT/push); user property `rc_status` para quebrar qualquer evento por free × assinante; `user_id` do GA4 = App User ID do RevenueCat.
+- **`rc_attribution`**: a prova, em produção, de que os atributos saíram do aparelho — e um watchdog que denuncia `_layout` legado sem `Utils.handleReady`.
+- `logUtilsEvent` — logger único, compatível com a tipagem `void` do RNFB 26 (zera os erros de TS que a lib tinha).
+
+Detalhes em [Atribuição do RevenueCat e analytics](#-atribuição-do-revenuecat-e-analytics-v140) e [Push: recebidas e abertas](#-push-recebidas-e-abertas). Catálogo de eventos: `docs/ANALYTICS-EVENTS.md`.
+
 ## 🆕 Novidades da v1.1.0
 
 Versão focada em **confiabilidade**, **`app.json` limpo** e **menos configuração manual**.
@@ -381,46 +394,150 @@ Utils.prepare(setAppIsReady, appConfig, AppStrings, false);
 ✅ Inicializa Facebook SDK
 ✅ Inicializa TikTok Ads SDK
 ✅ Configura Microsoft Clarity analytics
-✅ Configura atribuições (IDFA, FCM Token, Firebase App Instance)
+✅ Atribuição do RevenueCat em duas fases, com envio forçado (ver [Atribuição e analytics](#-atribuição-do-revenuecat-e-analytics-v140))
 ✅ Gerencia tópicos FCM baseado no status do usuário
 ✅ Configura push notifications e inscreve em tópicos
-✅ Rastreia entrega de push via custom analytics events (`push_received`, `push_received_bg`)
+✅ Rastreia push **recebida e aberta** via custom analytics events (`push_received`, `push_received_bg`, `push_opened`)
 ✅ Habilita export de métricas de entrega para BigQuery (Android)
 
-## 📊 Push Notification Delivery Tracking
+> ⚠️ **ATT, UMP, permissão de push, Facebook, TikTok e a fase 2 da atribuição NÃO rodam dentro do `prepare()`** —
+> rodam depois do primeiro frame, disparados pelo `Utils.handleReady` (o `<View onLayout={Utils.handleReady} />`
+> que o `ExpoUtilsLayout` e o template `RootLayout.tsx` já renderizam). Um `_layout.tsx` legado que só chama
+> `Utils.prepare()` perde tudo isso em silêncio. Desde a v1.4.0 um watchdog avisa: 30s depois do `prepare()` sem
+> `handleReady`, sai um `expoUtilsWarn` (que vira o evento `expo_utils_warn` no Analytics).
 
-O expo-utils rastreia automaticamente a entrega de push notifications via Firebase Analytics custom events. Isso resolve a limitação do Firebase Console que mostra "Recebidas: 0" em apps cross-platform.
+## 📊 Push: recebidas e abertas
 
-### Eventos Rastreados
+O expo-utils registra no Firebase Analytics cada push **recebida** e cada push **aberta** (toque na notificação). Isso resolve a limitação do Firebase Console, que mostra "Recebidas: 0" em apps cross-platform, e dá a **taxa de abertura por notificação**.
+
+### Eventos
 
 | Evento | Quando dispara | Plataforma |
 |--------|---------------|------------|
-| `push_received` | App em foreground recebe notificação | iOS + Android |
-| `push_received_bg` | App em background/fechado recebe notificação | Android (iOS apenas data-only) |
+| `push_received` | App em foreground recebe a notificação | iOS + Android |
+| `push_received_bg` | App em background recebe a notificação | Android (iOS apenas com `content-available: 1`) |
+| `push_opened` | Usuário **tocou** na notificação — `open_state`: `background` (app estava em 2º plano) ou `quit` (a notificação abriu o app) | iOS + Android |
 
-### Onde Visualizar
+### Parâmetros (os três eventos)
 
-Os eventos aparecem em **Firebase Console > Analytics > Events**, não na tela de "Mensagens" do FCM.
+- `message_id` — ID da mensagem FCM no aparelho
+- `topic` — tópico de origem (extraído de `from: /topics/<nome>`; vazio em envio direto por token)
+- `title` — título da notificação (max 100 chars)
+- `push_id` — identificador **escolhido pelo sender**: o primeiro presente entre `data.push_id`, `data.notification_id`, `data.campaign_id`
+- `latency_s` — segundos entre o envio (`sentTime`) e o recebimento/abertura
+- `app_state` (recebidas) / `open_state` (abertas)
 
-### Parâmetros dos Eventos
+`push_opened` sai no máximo 1x por notificação (o `getInitialNotification` pode devolver a mesma mensagem de novo num reload).
 
-**`push_received` (foreground):**
-- `message_id` — ID único da mensagem FCM
-- `topic` — Tópico FCM de origem
-- `title` — Título da notificação (max 100 chars)
+**Taxa de abertura** = `push_opened` ÷ (`push_received` + `push_received_bg`), agrupando por `push_id`. Enquanto o sender não mandar um id, agrupe por `title`. Para ter o id exato, inclua no payload do FCM:
 
-**`push_received_bg` (background):**
-- `message_id` — ID único da mensagem FCM
+```json
+{"message": {"topic": "meu-app", "notification": {"title": "...", "body": "..."}, "data": {"push_id": "2026-09-20-0930"}}}
+```
+
+> O `message_id` **não** serve para casar sender × aparelho em envio por tópico: o id que a API HTTP v1 devolve ao sender não é o que chega no device.
+
+### Onde visualizar
+
+**Firebase Console > Analytics > Events** (não na tela "Mensagens" do FCM). Para quebrar por `push_id`/`topic` nos relatórios, registre-os como dimensões personalizadas — ver `docs/ANALYTICS-EVENTS.md`.
 
 ### BigQuery Export
 
 O expo-utils habilita automaticamente `experimentalSetDeliveryMetricsExportedToBigQueryEnabled` para exportar métricas detalhadas de entrega para o BigQuery (requer configuração no Firebase Console).
 
-### Limitações Conhecidas
+### Limitações conhecidas (de plataforma)
 
-- **iOS**: "Recebidas" e "Impressões" no Firebase Console são métricas exclusivas do Android — a Apple não permite esse tipo de tracking
-- **iOS background**: `setBackgroundMessageHandler` no iOS funciona apenas para data-only messages (sem `notification` payload)
-- **Firebase Console > Mensagens**: As métricas nativas "Recebidas"/"Impressões" dependem de Google Analytics estar vinculado ao projeto Firebase + `google-services.json` correto nos apps Android
+- **iOS em background/fechado**: uma notificação exibida pelo sistema **não acorda o JS** (só com `content-available: 1`), então "recebida" no iOS é contada apenas em foreground. "Aberta" é contada nas duas plataformas.
+- **Android com o app fechado (quit)**: o handler de background só existe depois que o JS do app registrou o `setBackgroundMessageHandler`, o que acontece no boot da lib. Com o processo morto o headless task não encontra o handler — a entrega nesse estado aparece no export do BigQuery, não em `push_received_bg`.
+- **iOS**: "Recebidas" e "Impressões" no Firebase Console são métricas exclusivas do Android.
+- **Firebase Console > Mensagens**: as métricas nativas dependem de Google Analytics vinculado ao projeto + `google-services.json` correto.
+
+---
+
+## 🧭 Atribuição do RevenueCat e analytics (v1.4.0)
+
+### Por que mudou
+
+Até a 1.3.x a atribuição era o **último** passo de uma fila serial (splash → UMP → ATT → prompt de push → Facebook → TikTok → link-in-bio → update dialog → atribuição), sem timeout nos getters, e o SDK do RevenueCat só **envia** atributos em compra, background/foreground e login. Quem comprava no 1º minuto e não voltava — o assinante típico de paywall de onboarding — ficava com o customer **vazio** no dashboard.
+
+### Como funciona agora
+
+| Fase | Quando | O que grava |
+|------|--------|-------------|
+| **1** | No boot, logo após o `Purchases.configure` (sem prompt, sem timer, sem consentimento) | token do AdServices (iOS), `$firebaseAppInstanceId`, atributos de contexto, `store_country`, e o `user_id` do GA4 = App User ID do RevenueCat |
+| **2** | Assim que o ATT resolve, em cadeia destacada (não espera push/TikTok) | device identifiers (`$idfa`/`$idfv`/`$gpsAdId`/`$ip`), `$fbAnonId`, push token, geo por IP |
+
+- Cada etapa tem **timeout próprio** (3s; push 12s; geo 10s) — uma promise nativa pendurada não trava mais a fila.
+- Cada fase termina com **envio forçado** (`Purchases.syncAttributesAndOfferingsIfNeeded()`, debounce de 2s, no máximo 4 por janela de 60s — o SDK limita a 5/min; o que exceder espera a janela, não é descartado).
+- `collectDeviceIdentifiers()` roda **sempre**: o próprio SDK já o chama dentro do `setFBAnonymousID`, então condicionar ao ATT não protegia nada. Sem ATT o iOS zera o IDFA; IDFV e IP não são escopo do ATT.
+- **iOS**: `setPushToken` recebe o token **APNS** (é o que o campo `$apnsTokens` espera); o token FCM vai na chave custom `fcm_token`. Android: `setPushToken(fcm)` → `$fcmTokens`.
+- TikTok e link-in-bio gravam o próprio atributo quando o SDK deles sobe. Se o `trackInstall()` do link-in-bio casar o install, grava `$mediaSource = "link_in_bio"` + `$campaign` (e emite `install_attribution`).
+
+### Atributos de contexto no customer (chaves custom)
+
+| Atributo | Exemplo | Fonte |
+|----------|---------|-------|
+| `language` / `locale` | `pt` / `pt-BR` | `expo-localization` |
+| `device_region` | `BR` | região **configurada** no aparelho |
+| `currency` / `timezone` | `BRL` / `America/Sao_Paulo` | `expo-localization` |
+| `store_country` | `GB` (Play) / `GBR` (Apple) | `Purchases.getStorefront()` — país da **conta da loja** |
+| `geo_country` / `geo_state` / `geo_state_code` / `geo_city` / `geo_source` | `BR` / `Para` / `PA` / `…` / `ipwho.is` | geo por IP (abaixo) |
+| `app_version`, `build_number`, `expo_utils_version`, `os_version`, `device_model`, `install_date` | — | `expo-application` / `expo-device` |
+
+Os três "países" respondem perguntas diferentes: conta da loja (preço/moeda) × configuração do aparelho × onde a pessoa está. **No GA4 nada disso precisa de código**: o Firebase já deriva país/estado/cidade do IP e coleta idioma, versão e modelo em todo evento.
+
+Para gravar atributos próprios já com envio forçado:
+
+```typescript
+import {setRevenueCatAttributes} from "expo-utils";
+await setRevenueCatAttributes({onboarding_goal: "perder_peso"}); // true = aceito pelo SDK
+```
+
+### Geo por IP (país, estado, cidade) — ligada por padrão
+
+Sem GPS, sem permissão, sem chave e sem custo. Cadeia de provedores gratuitos com fallback (testados ao vivo e com os termos lidos em 20/09/2026): **ipwho.is** ("Commercial use allowed", 1.000 req/dia por IP de cliente) → **BigDataCloud** (endpoint client-side, "free to use, and requires no API key") → **GeoJS** ("No rate limits (yet)"). Timeout de 3s por provedor, cache de **7 dias** por aparelho, nunca bloqueia nem lança.
+
+| Controle | Onde | Efeito |
+|----------|------|--------|
+| `geo_lookup_enabled: false` | Remote Config (`utils`) | desliga sem build novo |
+| `{"geoAttributes": false}` | `app.json` → `["expo-utils", {...}]` | desliga no build |
+| `geo_lookup_url: "https://..."` | Remote Config (`utils`) | endpoint **próprio**, tentado antes dos gratuitos. Contrato: `{country, region, regionCode, city}` |
+
+Endpoint próprio em 6 linhas (Cloudflare Worker — `request.cf` já traz tudo, 100k req/dia no plano grátis):
+
+```js
+export default {
+    fetch(request) {
+        const {country, region, regionCode, city} = request.cf || {};
+        return Response.json({country, region, regionCode, city}, {headers: {"cache-control": "no-store"}});
+    },
+};
+```
+
+> **Privacidade / lojas:** cidade e estado gravados contra o ID do customer contam como **"Coarse Location"** no rótulo de privacidade da App Store e **"Approximate location"** no Data Safety do Google Play. Como a geo vem ligada, declare nos dois — ou desligue com uma das chaves acima.
+> **Precisão** de geo por IP: país ~99%, estado ~80–90%, cidade 50–80% (operadora móvel costuma cair na cidade do hub). Serve para agregados.
+
+### Eventos e user properties novos
+
+| O quê | Para quê |
+|-------|----------|
+| `rc_attribution` (`phase`, `steps_ok`, `steps_fail`, `ms`, `synced`, `att`) | prova em produção de que a atribuição saiu do aparelho. `count(phase=2) ÷ count(phase=1)` = taxa de entrega da fila pós-ATT |
+| `consent_flow` (`ump`, `att`, `push`) | taxa de opt-in — 1x por instalação e quando algum muda |
+| `paywall_view` / `paywall_product_select` / `paywall_purchase_start` / `_success` / `_cancel` / `_error` / `paywall_restore` / `paywall_close` | funil do paywall por `placement` (novo campo opcional do `usePaywall`) |
+| `review_request` / `review_prompt_show` / `review_prompt_action` / `review_store_requested` | funil do review, com `style` — é o que permite comparar os layouts do `review_style` |
+| `promo_impression` / `promo_click` com `promo_variant: "cross_promo_card"` | o cross-promo (obrigatório) passa a ser medido |
+| `push_opened` | notificações abertas |
+| user property `rc_status` | todo evento pode ser quebrado por free / trial / active / cancelled / expired… |
+| user property `att_status`, `user_id` = App User ID do RC | segmentação e join GA4 ↔ RevenueCat |
+
+Catálogo completo (params, limites do GA4 e o que registrar como dimensão personalizada): **`docs/ANALYTICS-EVENTS.md`**. Em dev, cada evento aparece no console do Metro como `[expo-utils] event <nome> {...}` (respeita `disableLogs`).
+
+Para usar o mesmo logger best-effort da lib (nunca lança, nunca vira unhandled rejection, compatível com a tipagem `void` do RNFB 26):
+
+```typescript
+import {logUtilsEvent, setUtilsUserProperty} from "expo-utils";
+logUtilsEvent("quiz_finished", {score: 8, premium: true}); // boolean vira 1/0
+```
 
 ---
 
@@ -477,7 +594,7 @@ await AsyncStorage.removeItem("@isPremium");
 
 **Mediation vem ligada** — o plugin injeta os adapters das 4 redes padrão (AppLovin, Meta, Unity e Pangle) no build (veja a opção
 `mediation` em [Configuração do Plugin](#-configuração-do-plugin-opcional)). O que o app faz em
-runtime, sozinho, dentro do `Utils.prepare()` → `requestTrackingWhenActive()`:
+runtime, sozinho, dentro do `Utils.handleReady` → `requestTrackingWhenActive()` (depois do primeiro frame — **não** é o `prepare()` que dispara):
 
 1. **UMP antes do ATT** — `AdsConsent.gatherConsent()` roda primeiro (ordem recomendada pelo
    Google; o iOS só mostra um modal de sistema por vez). Fora de EEA/UK/estados regulados dos

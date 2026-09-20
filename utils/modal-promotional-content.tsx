@@ -7,10 +7,9 @@ import * as Linking from "expo-linking";
 import React, {useEffect, useRef, useState} from "react";
 import {Animated, Dimensions, Image, Modal, PanResponder, Pressable, StyleSheet, Text, View, ViewStyle} from "react-native";
 import {useSafeAreaInsets} from "react-native-safe-area-context";
-import {getAnalytics, logEvent} from "@react-native-firebase/analytics";
-import {getApp} from "@react-native-firebase/app";
 import {useVideoPlayer, VideoView} from "expo-video";
 import {expoUtilsWarn, waitAttFlowDone} from "./Utils";
+import {logUtilsEvent} from "./analytics";
 import type {PromotionalConfig, PromotionalShadow} from "./types";
 export type {PromotionalShadow};
 
@@ -200,18 +199,15 @@ function getConfig(): PromotionalConfig | undefined {
 // (type cru da config), promo_name, promo_store_url, promo_media (video|image|
 // gradient). Específicos: click_source (cta|media|card|icon), close_method
 // (close|overlay|button|swipe|back). Best-effort: analytics nunca pode quebrar
-// nem atrasar o promo (try/catch + .catch, fire-and-forget).
+// nem atrasar o promo (logUtilsEvent é fire-and-forget e engole a própria falha).
 const logPromoEvent = (event: string, config: PromotionalConfig | undefined, extra: Record<string, string | number> = {}) => {
-    try {
-        const analytics = getAnalytics(getApp());
-        logEvent(analytics, event, {
-            promo_type: String(config?.type ?? "bottom-sheet").slice(0, 40),
-            promo_name: String(config?.name ?? "").slice(0, 100),
-            promo_store_url: String(config?.storeUrl ?? "").slice(0, 100),
-            promo_media: config?.videoUrl ? "video" : config?.imageUrl ? "image" : "gradient",
-            ...extra,
-        }).catch(() => {});
-    } catch {}
+    logUtilsEvent(event, {
+        promo_type: String(config?.type ?? "bottom-sheet").slice(0, 40),
+        promo_name: String(config?.name ?? ""),
+        promo_store_url: String(config?.storeUrl ?? ""),
+        promo_media: config?.videoUrl ? "video" : config?.imageUrl ? "image" : "gradient",
+        ...extra,
+    });
 };
 
 // ─── Bottom Sheet (existing modal) ──────────────────────────────────────────

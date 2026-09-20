@@ -1,7 +1,7 @@
 // Telemetria dos warns: cada mensagem única vira 1 evento "expo_utils_warn" no Analytics
 // (dedup por sessão + cap de 50 pra nunca inundar; roda MESMO com disableWarnings — o ponto
 // é enxergar em produção o que o console não mostra). Best-effort: nunca lança nem recursa
-// (falha do logEvent não pode gerar outro warn).
+// (o logUtilsEvent engole a própria falha, então não gera outro warn).
 const warnEventSent = new Set<string>();
 function reportWarnEvent(args: any[]) {
     try {
@@ -15,7 +15,7 @@ function reportWarnEvent(args: any[]) {
             .slice(0, 100); // limite de valor de parâmetro do Analytics
         if (!message || warnEventSent.has(message) || warnEventSent.size >= 50) return;
         warnEventSent.add(message);
-        logEvent(getAnalytics(getApp()), "expo_utils_warn", {message}).catch(() => {});
+        logUtilsEvent("expo_utils_warn", {message});
     } catch {}
 }
 
@@ -53,7 +53,7 @@ import * as Application from "expo-application";
 import * as Device from "expo-device";
 import * as SplashScreen from "expo-splash-screen";
 import * as Clarity from "@microsoft/react-native-clarity";
-import {AppEventsLogger, Settings as FbsdkSettings} from "react-native-fbsdk-next";
+import {Settings as FbsdkSettings} from "react-native-fbsdk-next";
 import Purchases, {LOG_LEVEL} from "react-native-purchases";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {Alert, AppState, Platform, Linking, LogBox, DevSettings, PermissionsAndroid} from "react-native";
@@ -70,11 +70,13 @@ import {
     fetchAndActivate,
     getValue,
 } from "@react-native-firebase/remote-config";
-import {getMessaging, requestPermission, onMessage, subscribeToTopic, unsubscribeFromTopic, getToken, setBackgroundMessageHandler, experimentalSetDeliveryMetricsExportedToBigQueryEnabled, registerDeviceForRemoteMessages, isDeviceRegisteredForRemoteMessages, getAPNSToken} from "@react-native-firebase/messaging";
-import {getAnalytics, getAppInstanceId, logEvent} from "@react-native-firebase/analytics";
+import {getMessaging, requestPermission, onMessage, subscribeToTopic, unsubscribeFromTopic, getToken, setBackgroundMessageHandler, experimentalSetDeliveryMetricsExportedToBigQueryEnabled, registerDeviceForRemoteMessages, isDeviceRegisteredForRemoteMessages, getAPNSToken, onNotificationOpenedApp, getInitialNotification} from "@react-native-firebase/messaging";
 import {getApp} from "@react-native-firebase/app";
 import TiktokAdsEvents, {TikTokStandardEvents, TikTokWaitForConfig} from "expo-tiktok-ads-events";
 import {TrendingsTracker} from "./TrendingsTracker";
+import {logUtilsEvent, setUtilsUserId, setUtilsUserProperty} from "./analytics";
+import {runAttributionPhase1, runAttributionPhase2, setRcAttributesLate} from "./attribution";
+import {logPushOpened, logPushReceived} from "./push-analytics";
 
 // RNFB v22+ marca a API namespaced como deprecated. No v25 sumiram setConfigSettings/
 // setDefaults do modular; a forma web-compatible é atribuir `settings` / `defaultConfig`.
@@ -187,6 +189,10 @@ let bootAppConfig: any;
 let bootAppStrings: AppStrings | undefined;
 let bootFcmTrackingAllowed = true;
 let bootDone = false;
+// Prazo pro layout chamar o handleReady depois do prepare() (o normal é no 1º frame).
+const HANDLE_READY_WATCHDOG_MS = 30000;
+// Resultado do UMP na sessão, lido pelo evento `consent_flow`.
+let umpOutcome = "skipped";
 
 // O template (templates/Strings.ts) ships rckey como "appl_YOUR_REVENUECAT_IOS_KEY"/
 // "goog_YOUR_REVENUECAT_ANDROID_KEY". Chave placeholder é o mesmo que não ter chave:
@@ -257,6 +263,15 @@ const attFlowDonePromise = new Promise<void>((resolve) => {
 export const waitAttFlowDone = (timeoutMs = 15000): Promise<void> => {
     if (!attGateArmed) return Promise.resolve();
     return Promise.race([attFlowDonePromise, new Promise<void>((resolve) => setTimeout(resolve, timeoutMs))]);
+};
+
+// `consent_flow`: resultado do UMP, do ATT e do push num evento só — 1x por instalação e de
+// novo apenas quando algum dos três muda (taxa de opt-in por país/versão mexe direto no eCPM).
+const reportConsentFlow = async (att: string, push: string): Promise<void> => {
+    const value = `${umpOutcome}|${att}|${push}`;
+    if ((await AsyncStorage.getItem("@expo_utils_consent")) === value) return;
+    await AsyncStorage.setItem("@expo_utils_consent", value);
+    logUtilsEvent("consent_flow", {ump: umpOutcome, att, push});
 };
 
 // Memos de boot: Remote Config compartilhado entre prepare() e banners; prepare roda 1x.
@@ -423,6 +438,10 @@ const runPrepare = async (appConfig?: any, appStrings?: AppStrings): Promise<voi
         //colidir/suprimir o prompt do ATT (iOS exibe um modal de sistema por vez).
         const remoteConfigs = await Utils.getRemoteConfigUtils();
         try { await Utils.setupRevenueCat(rckey); }                                catch (e) { expoUtilsWarn("setupRevenueCat:", e); }
+        // Atribuição FASE 1 (nada aqui depende de ATT/UMP): dispara já, fora do caminho do
+        // splash, pro 1º recibo sair com atributos — quem compra no 1º minuto postava o recibo
+        // antes de a fila pós-ATT chegar na atribuição e o customer ficava vazio no RevenueCat.
+        runAttributionPhase1(rckey).catch((e) => expoUtilsWarn("runAttributionPhase1:", e));
         try { await Utils.setupGlobalConfigs(appConfig, remoteConfigs, adUnits); } catch (e) { expoUtilsWarn("setupGlobalConfigs:", e); }
         try { await reportConfigIntegrity(remoteConfigs, appConfig); }             catch (e) { expoUtilsWarn("reportConfigIntegrity:", e); }
 
@@ -688,22 +707,24 @@ const Utils = {
             const app = getApp();
             if (app) {
                 const messaging = getMessaging(app);
-                const analytics = getAnalytics(app);
 
                 // Enable BigQuery export for delivery metrics (Android)
                 try {
                     await experimentalSetDeliveryMetricsExportedToBigQueryEnabled(messaging, true);
                 } catch (e) { expoUtilsWarn("setDeliveryMetricsExportToBigQuery:", e); }
 
+                // Push ABERTA (toque na notificação): app em background → onNotificationOpenedApp;
+                // app fechado → getInitialNotification (a notificação que abriu o app).
+                try {
+                    onNotificationOpenedApp(messaging, (remoteMessage) => { logPushOpened(remoteMessage, "background"); });
+                    getInitialNotification(messaging)
+                        .then((remoteMessage) => logPushOpened(remoteMessage, "quit"))
+                        .catch((e) => expoUtilsWarn("getInitialNotification:", e));
+                } catch (e) { expoUtilsWarn("push opened tracking:", e); }
+
                 // Foreground message handler with analytics tracking
                 onMessage(messaging, async (remoteMessage) => {
-                    try {
-                        await logEvent(analytics, "push_received", {
-                            message_id: remoteMessage.messageId ?? "",
-                            topic: (remoteMessage as any).topic ?? "",
-                            title: remoteMessage.notification?.title?.substring(0, 100) ?? "",
-                        });
-                    } catch (e) { expoUtilsWarn("logEvent push_received:", e); }
+                    logPushReceived(remoteMessage, "foreground");
                     if (remoteMessage.notification) {
                         const languageCode = safeGetLocales()[0]?.languageCode ?? "en";
                         const messages = getLocalizedMessages(languageCode);
@@ -716,11 +737,7 @@ const Utils = {
                 // Background message handler with analytics tracking
                 try {
                     setBackgroundMessageHandler(messaging, async (remoteMessage) => {
-                        try {
-                            await logEvent(analytics, "push_received_bg", {
-                                message_id: remoteMessage.messageId ?? "",
-                            });
-                        } catch {}
+                        logPushReceived(remoteMessage, "background");
                         return Promise.resolve();
                     });
                 } catch (e) { expoUtilsWarn("setBackgroundMessageHandler:", e); }
@@ -731,21 +748,21 @@ const Utils = {
 
                 const topicName = appConfig?.expo?.slug || "default-topic";
                 subscribeToTopic(messaging, topicName)
-                    .then(() => { expoUtilsLog("Subscribed to topic:", topicName); logEvent(analytics, "fcm_topic_subscribe", {topic: topicName}).catch(() => {}); })
+                    .then(() => { expoUtilsLog("Subscribed to topic:", topicName); logUtilsEvent("fcm_topic_subscribe", {topic: topicName}); })
                     .catch(() => expoUtilsWarn("Failed to subscribe to topic:", topicName));
                 const localeInfo = safeGetLocales()[0];
                 const regionCode = localeInfo?.regionCode;
                 if (regionCode) {
                     const countryTopic = `${topicName}-${regionCode.toLowerCase()}`;
                     subscribeToTopic(messaging, countryTopic)
-                        .then(() => { expoUtilsLog("Subscribed to country topic:", countryTopic); logEvent(analytics, "fcm_topic_subscribe", {topic: countryTopic}).catch(() => {}); })
+                        .then(() => { expoUtilsLog("Subscribed to country topic:", countryTopic); logUtilsEvent("fcm_topic_subscribe", {topic: countryTopic}); })
                         .catch(() => expoUtilsWarn("Failed to subscribe to country topic:", countryTopic));
                 }
                 const languageCode = localeInfo?.languageCode;
                 if (languageCode) {
                     const langTopic = `${topicName}-lang-${languageCode.toLowerCase()}`;
                     subscribeToTopic(messaging, langTopic)
-                        .then(() => { expoUtilsLog("Subscribed to language topic:", langTopic); logEvent(analytics, "fcm_topic_subscribe", {topic: langTopic}).catch(() => {}); })
+                        .then(() => { expoUtilsLog("Subscribed to language topic:", langTopic); logUtilsEvent("fcm_topic_subscribe", {topic: langTopic}); })
                         .catch(() => expoUtilsWarn("Failed to subscribe to language topic:", langTopic));
                 }
             }
@@ -820,15 +837,18 @@ const Utils = {
      * (depois do prompt ATT, em ambas as plataformas). Não é pré-requisito para inscrição em
      * tópicos: a permissão só controla a EXIBIÇÃO da notificação, não a inscrição/recebimento.
      */
-    requestPushPermission: async () => {
+    requestPushPermission: async (): Promise<string> => {
         try {
             if (Platform.OS === "android") {
-                await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS);
-            } else {
-                await requestPermission(getMessaging(getApp()));
+                // "granted" | "denied" | "never_ask_again" (Android < 13 resolve sem diálogo)
+                return String(await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS));
             }
+            // AuthorizationStatus do RNFB: -1 não determinado, 0 negado, 1 autorizado, 2 provisório, 3 efêmero
+            const status = Number(await requestPermission(getMessaging(getApp())));
+            return status === 1 ? "granted" : status === 2 ? "provisional" : status === 3 ? "ephemeral" : status === 0 ? "denied" : "undetermined";
         } catch (e) {
             expoUtilsWarn("requestPushPermission:", e);
+            return "error";
         }
     },
 
@@ -853,6 +873,15 @@ const Utils = {
         if (!preparePromise) {
             attGateArmed = true; // o promo passa a esperar o fluxo do ATT (waitAttFlowDone)
             preparePromise = runPrepare(appConfig, appStrings);
+            // Watchdog: UMP, ATT, push, FB, TikTok e a fase 2 da atribuição SÓ rodam se o layout
+            // renderizar <View onLayout={Utils.handleReady} /> (ExpoUtilsLayout / template).
+            // Layout legado que chama só o prepare() perde tudo isso em silêncio — o warn vira
+            // `expo_utils_warn` no Analytics e denuncia o app em produção.
+            preparePromise.then(() => {
+                setTimeout(() => {
+                    if (!bootDone) expoUtilsWarn("handleReady nunca foi chamado: ATT, push, FB, TikTok e atribuição não rodam. Use o ExpoUtilsLayout ou <View onLayout={Utils.handleReady} />.");
+                }, HANDLE_READY_WATCHDOG_MS);
+            });
         }
         try {
             await preparePromise;
@@ -912,6 +941,8 @@ const Utils = {
                     new Promise<null>((resolve) => setTimeout(() => resolve(null), 20000)),
                 ]);
                 if (!consentInfo) expoUtilsWarn("setupMobileAds: gatherConsent não respondeu em 20s — seguindo.");
+                // Para o `consent_flow`: timeout | denied | not_required | obtained | required | unknown.
+                umpOutcome = !consentInfo ? "timeout" : consentInfo.canRequestAds === false ? "denied" : String(consentInfo.status ?? "unknown").toLowerCase();
                 if (consentInfo && consentInfo.canRequestAds === false) {
                     expoUtilsLog("[expo-utils] UMP: consentimento nega ads nesta sessão (canRequestAds=false).");
                     return;
@@ -925,6 +956,8 @@ const Utils = {
                         .join(" | ") || "sem adapters",
                 );
             } catch (e) {
+                // Só quando o erro veio ANTES do veredito do UMP (não apaga um "obtained").
+                if (umpOutcome === "skipped") umpOutcome = "error";
                 expoUtilsWarn("setupMobileAds:", e);
             }
         })();
@@ -998,10 +1031,12 @@ const Utils = {
      *   2. ATT (somente iOS): garante app em foreground/active antes de requestTrackingAuthorization
      *      — requisito do iOS 15+, senão o prompt é descartado silenciosamente. Pré-checa o status
      *      e só pede quando 'undetermined'. A espera por foreground tem timeout (NÃO trava o app).
-     *   3. Push permission (iOS + Android), se fcmTrackingAllowed.
-     *   4. SDKs de tracking (FB, TikTok, link-in-bio, atribuição) — rodam APÓS o prompt. O
-     *      advertiser/IDFA do FB recebe o resultado REAL do ATT (granted); sem consentimento o
-     *      IDFA fica zerado/desligado.
+     *   3. FB SDK + fase 2 da atribuição do RevenueCat, em cadeia DESTACADA (não aguardada):
+     *      sai assim que o ATT resolve e não fica atrás de push/TikTok. O advertiser/IDFA do FB
+     *      recebe o resultado REAL do ATT (granted); sem consentimento o IDFA fica zerado.
+     *   4. Push permission (iOS + Android), se fcmTrackingAllowed. Em seguida o evento
+     *      `consent_flow` (ump/att/push) — 1x por instalação e quando algum deles muda.
+     *   5. TikTok, link-in-bio e o diálogo de update obrigatório.
      *
      * @param appConfig   app.json (para FB App ID, bundle/package, etc.)
      * @param appStrings  Strings do app (de onde sai o rckey)
@@ -1010,6 +1045,7 @@ const Utils = {
      */
     requestTrackingWhenActive: async (appConfig?: any, appStrings?: AppStrings, fcmTrackingAllowed: boolean = true): Promise<boolean> => {
         let granted = true;
+        let attStatus = "na"; // Android/web: não existe ATT
 
         // UMP antes do ATT (ver ordem no comentário acima). Memoizado e com timeout próprio.
         await Utils.setupMobileAds(appConfig ?? bootAppConfig);
@@ -1045,36 +1081,47 @@ const Utils = {
                     await new Promise<void>((resolve) => setTimeout(resolve, 1000));
                     const result = await requestTrackingPermissionsAsync();
                     granted = result.status === "granted";
+                    attStatus = String(result.status);
                 } else {
                     granted = current.status === "granted";
+                    attStatus = String(current.status);
                 }
             } catch (e) {
                 expoUtilsWarn("requestTrackingWhenActive:", e);
                 granted = false;
+                attStatus = "error";
             }
         }
 
         // Prompt do ATT resolvido (ou plataforma sem ATT): libera o gate do promo (waitAttFlowDone).
         settleAttFlow();
+        setUtilsUserProperty("att_status", attStatus);
 
-        // Push (iOS e Android) — não é tracking de IDFA, roda independente do ATT.
-        if (fcmTrackingAllowed) {
-            try { await Utils.requestPushPermission(); } catch (e) { expoUtilsWarn("requestPushPermission:", e); }
-        }
-
-        // SDKs de tracking rodam DEPOIS do prompt. FB advertiser/IDFA e a coleta de IDFA do
-        // RevenueCat (collectDeviceIdentifiers) seguem o resultado real do ATT (granted). TikTok/
-        // link-in-bio inicializam para SKAdNetwork/atribuição agregada (não recebem IDFA do nosso código).
         const rckey = usableRcKey(appStrings?.rckey);
         const remoteConfigs = (global as any).remoteConfigUtils as RemoteConfigUtilsType;
-        try { await Utils.initFBSDK(appConfig, granted); }                   catch (e) { expoUtilsWarn("initFBSDK:", e); }
+
+        // Cadeia DESTACADA, disparada assim que o ATT resolve: FB (advertiser/IDFA seguem o
+        // resultado REAL do ATT; a fase 2 lê o anonymous id dele) → fase 2 da atribuição.
+        // Não é aguardada: o prompt de push e o resto da fila não ficam atrás dela, nem ela
+        // atrás deles. Antes a atribuição era o ÚLTIMO passo (depois de push, TikTok com até
+        // 10s, link-in-bio e update dialog) — quem comprava no 1º minuto saía sem atributo.
+        (async () => {
+            try { await Utils.initFBSDK(appConfig, granted); } catch (e) { expoUtilsWarn("initFBSDK:", e); }
+            await Utils.setupAttribution(rckey, granted, attStatus);
+        })().catch((e) => expoUtilsWarn("setupAttribution:", e));
+
+        // Push (iOS e Android) — não é tracking de IDFA, roda independente do ATT.
+        let pushStatus = "skipped";
+        if (fcmTrackingAllowed) {
+            try { pushStatus = await Utils.requestPushPermission(); } catch (e) { expoUtilsWarn("requestPushPermission:", e); }
+        }
+        reportConsentFlow(attStatus, pushStatus).catch(() => {});
+
+        // TikTok/link-in-bio inicializam para SKAdNetwork/atribuição agregada (não recebem IDFA
+        // do nosso código); cada um grava o próprio atributo no RevenueCat quando sobe.
         try { await Utils.initTikTokSDK(remoteConfigs, rckey); }             catch (e) { expoUtilsWarn("initTikTokSDK:", e); }
         try { await Utils.initLinkInBioTracking(remoteConfigs, appConfig); } catch (e) { expoUtilsWarn("initLinkInBioTracking:", e); }
-        // O diálogo de update obrigatório é crítico e roda ANTES da atribuição: a setupAttribution
-        // é best-effort e pode pendurar numa promise nativa de terceiro que nunca resolve
-        // (try/catch não captura hang) — o diálogo não pode ficar atrás dela.
         try { await Utils.checkForRequiredUpdateDialog(); }                  catch (e) { expoUtilsWarn("checkForRequiredUpdateDialog:", e); }
-        try { await Utils.setupAttribution(rckey, granted); }                catch (e) { expoUtilsWarn("setupAttribution:", e); }
 
         return granted;
     },
@@ -1084,7 +1131,7 @@ const Utils = {
     logFirstOpenOnce: async (appConfig?: AppConfig) => {
         if (await AsyncStorage.getItem("@first_open_logged")) return;
         await AsyncStorage.setItem("@first_open_logged", "true");
-        await logEvent(getAnalytics(getApp()), (appConfig?.expo?.slug || "unknown").replace(/\W/g, "_").slice(0, 40));
+        logUtilsEvent((appConfig?.expo?.slug || "unknown").replace(/\W/g, "_").slice(0, 40));
     },
 
     initLinkInBioTracking: async (remoteConfig: RemoteConfigUtilsType, appConfig: AppConfig) => {
@@ -1096,7 +1143,20 @@ const Utils = {
             TrendingsTracker.init({apiUrl, appId});
             if ((await AsyncStorage.getItem("tr_is_first_launch_tracking")) != "true") {
                 await AsyncStorage.setItem("tr_is_first_launch_tracking", "true");
-                TrendingsTracker.trackInstall();
+                // O backend casa o install com a impressão web (match por IP) e devolve a
+                // campanha. Antes a resposta era descartada e Media Source / Campaign ficavam
+                // vazios no RevenueCat mesmo com a origem conhecida. Não é aguardado: o
+                // trackInstall tem timeout próprio (5s) e nada abaixo na fila depende dele.
+                TrendingsTracker.trackInstall()
+                    .then((result) => {
+                        logUtilsEvent("install_attribution", {source: "link_in_bio", matched: result?.matched === true, campaign: result?.campaign_id});
+                        if (result?.matched !== true) return;
+                        return setRcAttributesLate("lib", async () => {
+                            await Purchases.setMediaSource("link_in_bio");
+                            if (result.campaign_id) await Purchases.setCampaign(String(result.campaign_id));
+                        });
+                    })
+                    .catch((e) => expoUtilsWarn("initLinkInBioTracking/trackInstall:", e));
             }
         } catch {}
     },
@@ -1120,6 +1180,11 @@ const Utils = {
             if ((await AsyncStorage.getItem("tk_is_first_launch")) != "true") {
                 TiktokAdsEvents.trackTTEvent(TikTokStandardEvents.install_app);
                 await AsyncStorage.setItem("tk_is_first_launch", "true");
+            }
+            // Anonymous id do TikTok no customer do RevenueCat — gravado AQUI, onde o SDK já
+            // está de pé (antes ficava no fim da setupAttribution, atrás da fila inteira).
+            if (rckey) {
+                setRcAttributesLate("tt", async () => Purchases.setAttributes({TikTokGetAnonymousID: await TiktokAdsEvents.getAnonymousID()}));
             }
         }
     },
@@ -1200,17 +1265,25 @@ const Utils = {
 
     updateRCStatusMessagingTopic: async (appConfig?: AppConfig, rckey?: string) => {
         if (!rckey) return;
-        // subscribe/unsubscribe exigem APNS token no iOS — pula se indisponível (ex.: simulador)
-        if (!(await Utils.ensureApnsReady())) return;
         try {
-
-            const messaging = getMessaging(getApp());
-
-            const slug = appConfig?.expo?.slug || "default-topic";
             const customerInfo = await Purchases.getCustomerInfo();
 
             // Determina o status detalhado
             const status = Utils.getRevenueCatStatus(customerInfo);
+
+            // User property `rc_status` (free/trial/intro/active/cancelled/billing_issue/expired/
+            // refunded): todo evento do GA4 passa a poder ser quebrado por assinante × free.
+            // Fica ANTES do portão de APNS — em simulador/sem APNS o tópico é pulado, a
+            // property não. O user_id é reafirmado porque um logIn/restore troca o App User ID.
+            setUtilsUserProperty("rc_status", status);
+            try { setUtilsUserId(await Purchases.getAppUserID()); } catch {}
+
+            // subscribe/unsubscribe exigem APNS token no iOS — pula se indisponível (ex.: simulador)
+            if (!(await Utils.ensureApnsReady())) return;
+
+            const messaging = getMessaging(getApp());
+
+            const slug = appConfig?.expo?.slug || "default-topic";
 
             const newTopic = `${slug}-purchase-${status}`;
             const previousTopic = await AsyncStorage.getItem("FCM_CURRENT_TOPIC");
@@ -1218,14 +1291,14 @@ const Utils = {
             // Se o topic mudou, desinscreve do anterior e inscreve no novo
             if (previousTopic && previousTopic !== newTopic) {
                 await unsubscribeFromTopic(messaging, previousTopic);
-                logEvent(getAnalytics(getApp()), "fcm_topic_unsubscribe", {topic: previousTopic}).catch(() => {});
+                logUtilsEvent("fcm_topic_unsubscribe", {topic: previousTopic});
                 expoUtilsLog("Unsubscribed from topic:", previousTopic);
             }
 
             if (previousTopic !== newTopic) {
                 await subscribeToTopic(messaging, newTopic);
                 await AsyncStorage.setItem("FCM_CURRENT_TOPIC", newTopic);
-                logEvent(getAnalytics(getApp()), "fcm_topic_subscribe", {topic: newTopic, status}).catch(() => {});
+                logUtilsEvent("fcm_topic_subscribe", {topic: newTopic, status});
                 expoUtilsLog("Subscribed to topic:", newTopic);
             }
         } catch (error) {
@@ -1234,27 +1307,16 @@ const Utils = {
     },
 
     /**
-     * Cada set é isolado em try/catch próprio: a rejeição de UM SDK de terceiro não pode
-     * derrubar os sets seguintes (antes, a 1ª falha abortava a cadeia inteira e o customer
-     * ficava sem NENHUM atributo no RevenueCat). Ordem: do mais confiável/rápido (RevenueCat/
-     * Firebase, sempre presentes) para o mais frágil/lento (FB SDK, APNS até 10s, TikTok).
+     * Fase 2 da atribuição do RevenueCat: device identifiers, FB anonymous id, push token e geo
+     * (utils/attribution.ts). A fase 1 — AdServices, Firebase app instance id, atributos de
+     * contexto, user_id do GA4 — sai no boot, logo após o Purchases.configure, e é garantida
+     * aqui também para quem chama esta função na mão. Cada etapa tem timeout próprio, a fase
+     * termina com um sync FORÇADO e emite `rc_attribution` (a prova de que saiu do aparelho).
+     * Memoizada (1x por sessão). Nunca lança.
+     * @param attStatus  status do ATT para a telemetria; omitido, é derivado de attGranted.
      */
-    setupAttribution: async (rckey?: string, attGranted: boolean = false) => {
-        if (!rckey) return;
-        try { await Purchases.enableAdServicesAttributionTokenCollection(); } catch (e) { expoUtilsWarn("setupAttribution/adServices:", e); } // Apple AdServices: permitido sem ATT
-        if (attGranted) {
-            // collectDeviceIdentifiers lê o IDFA — só coletamos com consentimento ATT concedido.
-            try { await Purchases.collectDeviceIdentifiers(); } catch (e) { expoUtilsWarn("setupAttribution/deviceIdentifiers:", e); }
-        }
-        try { await Purchases.setFirebaseAppInstanceID(await getAppInstanceId(getAnalytics(getApp()))); } catch (e) { expoUtilsWarn("setupAttribution/firebaseInstanceId:", e); }
-        try { await Purchases.setFBAnonymousID(await AppEventsLogger.getAnonymousID()); } catch (e) { expoUtilsWarn("setupAttribution/fbAnonymousId:", e); }
-        // Push token exige APNS no iOS — pula só esta etapa se indisponível (ex.: simulador).
-        try {
-            if (await Utils.ensureApnsReady()) {
-                await Purchases.setPushToken(await getToken(getMessaging(getApp())));
-            }
-        } catch (e) { expoUtilsWarn("setupAttribution/pushToken:", e); }
-        try { await Purchases.setAttributes({TikTokGetAnonymousID: await TiktokAdsEvents.getAnonymousID()}); } catch (e) { expoUtilsWarn("setupAttribution/tiktok:", e); }
+    setupAttribution: async (rckey?: string, attGranted: boolean = false, attStatus?: string) => {
+        await runAttributionPhase2(rckey, attStatus ?? (Platform.OS === "ios" ? (attGranted ? "granted" : "denied") : "na"));
     },
 
     setupGlobalConfigs: async (appConfig?: any, remoteConfigs?: RemoteConfigUtilsType, adUnits?: object) => {
@@ -1263,6 +1325,11 @@ const Utils = {
         }
         if (getExpoUtilsDisableLogs(appConfig)) {
             (global as any).disableExpoUtilsLogs = true;
+        }
+        // Geo por IP (utils/geo.ts) é LIGADA por padrão; ["expo-utils", {"geoAttributes": false}]
+        // desliga no app.json (o Remote Config `geo_lookup_enabled: false` desliga sem build).
+        if (getExpoUtilsOption(appConfig, "geoAttributes") === false) {
+            (global as any).expoUtilsGeoDisabled = true;
         }
         if (adUnits) {
             (global as any).adUnits = adUnits;

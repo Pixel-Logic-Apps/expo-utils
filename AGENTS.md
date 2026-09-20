@@ -18,10 +18,62 @@ Atualize o doc se voce alterar qualquer um destes:
 - CLI (`bin/install.js`): flags novas/renomeadas/comportamento de `--new`, `--skadnetwork`, `--hot-updater`, etc.
 - Breaking changes de runtime (ads, paywall, ATT, babel plugin path, file-system legacy, etc.)
 - Armadilhas novas descobertas ao migrar um app real
+- Atribuicao do RevenueCat / analytics: fases, atributos gravados no customer, keys `geo_lookup_*`,
+  evento ou parametro novo (esse ultimo tambem em `docs/ANALYTICS-EVENTS.md` — ver secao propria abaixo)
 
 O doc e o roteiro que **qualquer IA** segue para upgrade. Se o codigo mudar e o doc nao, o upgrade quebra na mao de quem copiar o checklist.
 
 Tambem: se `index.ts` exportar API publica nova, mantenha `index.d.ts` em sync (o playbook cita deep import quando o `.d.ts` fica atrasado).
+
+
+## Integracao externa so e "ok" medida NO DESTINO (REGRA)
+
+Nunca declarar "ok/garantido" para integracao com servico externo (atributos do RevenueCat, evento do
+GA4, topico FCM…) com base em leitura de codigo ou em try/catch bem isolado. So vale com o dado visto
+**no destino** — customer no dashboard do RC, DebugView do GA4 — vindo de um build real. Sem poder medir,
+escreva literalmente: "verifiquei que nao quebra; NAO verifiquei que chega".
+
+Origem: em 02/07/2026 a atribuicao foi dada como resolvida (cada set em try/catch) e em 20/09/2026 um
+assinante real apareceu com TODOS os atributos vazios — ninguem tinha olhado um customer no RC. Ao mexer
+em SDK de terceiro, leia o fonte de verdade (os `Pods/` e AARs dos apps locais), nao a memoria.
+
+
+## Analytics e atribuicao do RevenueCat (v1.4.0)
+
+- **Todo evento passa por `logUtilsEvent` (`utils/analytics.ts`)** — nunca `logEvent(...).catch()` direto:
+  o RNFB 26 tipa `logEvent` como `void` (nao compila) e sem catch a rejeicao vira unhandled rejection.
+  O helper e modulo-folha (nao importa nada da lib), nunca lanca, converte boolean em 1/0 e corta string
+  em 100 chars. Em dev imprime `[expo-utils] event <nome> {...}` no Metro.
+- **Mudou evento, parametro ou user property → atualize `docs/ANALYTICS-EVENTS.md` na mesma tarefa.** E o
+  catalogo que diz o que registrar como dimensao personalizada no GA4 (parametro nao registrado so existe
+  no DebugView/BigQuery). Limites: nome de evento ≤ 40, valor de param ≤ 100, **user property ≤ 36** (por
+  isso o App User ID do RC, com 47 chars, vai em `setUserId`).
+- **Atribuicao em duas fases (`utils/attribution.ts`)**: fase 1 no boot logo apos o `Purchases.configure`
+  (AdServices, Firebase app instance id, atributos de contexto, storefront, `user_id` do GA4); fase 2 em
+  cadeia DESTACADA logo apos o ATT (device ids SEMPRE, FB anon id, push token, geo). Cada etapa tem
+  timeout (`runStep`), cada fase termina com sync forcado **imediato** e o evento `rc_attribution`.
+  Atributo novo do boot entra numa das fases; atributo de SDK que sobe tarde usa `setRcAttributesLate`.
+  Nao volte a pendurar atribuicao no fim de fila serial nem atras de prompt.
+- **Nada no caminho critico pode depender de `setTimeout`**: o Android SUSPENDE os timers do JS enquanto a
+  Activity esta pausada por um dialogo do sistema (permissao de push, UMP, folha de compra). Medido no
+  emulador: o envio com debounce de 2s so saiu 150s depois, quando o dialogo foi respondido; com o envio
+  imediato a fase 2 sai em ~6,6s com o dialogo na frente. Debounce so para sets avulsos/tardios.
+- **Geo por IP (`utils/geo.ts`) vem LIGADA** e usa uma CADEIA de provedores gratuitos sem chave
+  (`GEO_PROVIDERS`: ipwho.is → BigDataCloud client-side → GeoJS), com cache de 7 dias. Mesma regra do
+  `PLAY_READERS`: servico gratis morre — se um cair, troque a entrada e teste. Aqui `curl` PROVA (o fetch do
+  RN nao aplica CORS). So `https` (ATS do iOS). Descartados e por que estao no topo do arquivo. Desliga por
+  `geo_lookup_enabled: false` (Remote Config) ou `{"geoAttributes": false}` (plugin); `geo_lookup_url`
+  aponta para endpoint proprio. Cidade/estado no customer = "Coarse Location" no rotulo das lojas.
+- **Push**: `push_received` (foreground), `push_received_bg` (background) e `push_opened`
+  (`onNotificationOpenedApp` + `getInitialNotification`, dedup pelo ultimo `message_id` persistido) em
+  `utils/push-analytics.ts`. O `message_id` NAO casa sender × aparelho em envio por topico — o id de
+  correlacao e o `push_id` que o sender manda em `data`. Limites de plataforma documentados no README.
+- **Fatos do SDK do RevenueCat lidos no fonte** (iOS 5.84/5.88 em `expo-urna-v2/ios/Pods/RevenueCat`,
+  Android 10.21.1 no cache do Gradle): `setFBAnonymousID` ja chama `collectDeviceIdentifiers` sozinho
+  (condicionar ao ATT nao protege nada); o SDK so ENVIA atributos em compra, background/foreground e
+  login; `syncAttributesAndOfferingsIfNeeded` tem limite de 5/min (a lib fica em 4 por janela de 60s e
+  o excedente ESPERA a janela); iOS `setPushToken` grava `$apnsTokens` (tem que ser o token APNS, nao o
+  FCM); product id com `:` (`assinatura:basePlan`) = Google Play.
 
 
 ## Cross-promo (OBRIGATORIO em todo app)
@@ -190,6 +242,10 @@ Central initialization module with a `prepare()` function that:
 - Requests iOS tracking permissions
 - Checks for required app updates
 - Subscribes to Firebase topic based on app slug
+- Dispara a **fase 1 da atribuicao do RevenueCat** logo apos o `Purchases.configure` (destacada, nao atrasa o
+  splash) e arma o **watchdog do `handleReady`** (30s sem `handleReady` → `expoUtilsWarn`). UMP/ATT/push/FB/
+  TikTok/fase 2 NAO rodam no `prepare()`: rodam no `Utils.handleReady` → `requestTrackingWhenActive`
+- Mantem a user property `rc_status` e o `user_id` do GA4 (= App User ID do RC) a cada `customerInfo`
 - Loga um evento cujo **nome é o slug do app**, 1x por instalação, via `Utils.logFirstOpenOnce()` — flag `@first_open_logged` no AsyncStorage; roda no bloco não-bloqueante do boot (não atrasa o splash). O slug passa por `.replace(/\W/g, "_").slice(0, 40)` porque nome de evento GA4 só aceita `[A-Za-z0-9_]` e no máximo 40 chars — `titulo-eleitor` vira `titulo_eleitor`.
 
 **Important**: dependencias (inclusive as opcionais) entram como `import` no topo do arquivo — ver "Imports (REGRA OBRIGATORIA)" em Common Patterns. A protecao contra pacote ausente/erro de SDK e o try/catch em volta da chamada, nunca import tardio.
@@ -397,11 +453,28 @@ Hard-won lessons from debugging consumer apps — they affect anyone integrating
 - **React StrictMode (dev) runs mount effects twice** — boot callbacks fire twice in dev unless guarded (module-level `bootDone` pattern in `Utils.handleReady`; ref guard for `onReady` in `ExpoUtilsLayout`; `preparePromise` no `prepare()`; `listenerRegistered` no `setupAppOpenListener`).
 - **iOS drops overlapping `alert()`s silently** (RN doesn't queue `UIAlertController`) — two back-to-back alerts show only the first, which reads as "code stopped in the middle". Use o `queueAlert(title, message)` do Utils (serializa; o push em foreground já usa) ou encadeie via callback do botão.
 - **Expo dev lazy bundling**: grepping Metro's `entry.bundle` for app code is a false negative — app modules aren't in the initial bundle.
+- **Android pausa os timers do JS com dialogo do sistema na frente** (permissao, UMP, compra): `setTimeout` so dispara quando a Activity volta. Chamada nativa e `fetch` seguem funcionando. Nada que precise sair DURANTE um prompt pode depender de timer/debounce.
+- **`__DEV__` nao existe fora do runtime do RN** (headless, `bun test`): em modulo novo use `typeof __DEV__ !== "undefined" && __DEV__`.
 - **`expoUtilsWarn` emite telemetria**: além do `console.warn` (suprimível com `disableWarnings`), cada mensagem única vira 1 evento `expo_utils_warn` no Firebase Analytics (param `message`, 100 chars; dedup por sessão, cap 50; roda MESMO com `disableWarnings` — é a visibilidade de produção). Best-effort: nunca lança nem recursa.
 - **Promo × ATT**: `usePromotional.show()` espera `waitAttFlowDone()` (resolvido pelo `requestTrackingWhenActive` após o prompt do ATT, com fallback de 15s) antes de agendar o modal — a `Modal` do RN não disputa a janela do prompt do sistema. O gate só arma quando `prepare()` roda; `usePromotional` standalone não espera nada.
 - **Todo o hardening de runtime de 2026-07-11** (21 itens: guards de RevenueCat não-configurado, ads que nunca penduram, banners sem crash de unitId, etc.) está documentado com tabela completa em `docs/auditoria-runtime-2026-07-11.md`.
 
 ## Testing Strategy
+
+### Logica pura e tipos (sem aparelho)
+
+- `./tests/run.sh` — testes (`bun test`) da logica que nao depende de UI: analytics, atribuicao (ordem das
+  fases, timeout de etapa pendurada, janela de envios), geo (parsers com o formato REAL de cada provedor,
+  cadeia de fallback, cache, chaves de desligar) e push. Cada arquivo roda em **processo proprio**: o
+  `mock.module` do bun e global e vaza entre arquivos, e os modulos guardam estado de sessao. Os mocks dos
+  modulos nativos ficam em `tests/helpers/rn-mocks.ts`. `tests/` nao entra no pacote npm.
+- Typecheck: o Metro NAO checa tipos e o pacote distribui `.ts`/`.tsx` — rode `tsc` contra os `node_modules`
+  de apps host reais, de preferencia com versoes diferentes do RNFB (24, 25 e 26 tipam `logEvent` diferente).
+  Receita sem tocar no app host: pasta temporaria com `node_modules` → symlink pro `node_modules` do host,
+  `expo-utils` → symlink pro repo, e um `tsconfig.json` com `extends: "expo/tsconfig.base"`,
+  `preserveSymlinks: true` e `include` apontando pra `expo-utils/index.ts` + `expo-utils/utils/**`.
+
+### App de teste
 
 Since this is a library:
 

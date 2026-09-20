@@ -1463,3 +1463,67 @@ O que achei no código (`Utils.setupAttribution`, `Utils.ts:1242`, chamado no fi
   com flags (att_granted, rckey_real, device_ids_coletados, push_token_set) para enxergar o porquê em
   produção; (b) chamar `collectDeviceIdentifiers()` sempre (idfa só sai com ATT, idfv/IP saem sempre);
   (c) conferir APNS vs FCM no `setPushToken`; (d) Firebase user property com o RC App User ID / status premium.
+
+### Atribuição RevenueCat — diagnóstico fechado + plano (sessão seguinte, mesmo dia)
+**Corrige a seção acima** (os "candidatos" eram hipótese; li o fonte dos SDKs nos Pods/AAR dos apps locais):
+- O customer do print é **Android** (`...weekly:weekly` = `assinatura:basePlan`, formato Google Play) —
+  APNS / ATT Consent / idfa / idfv vazios por plataforma. Dos 16 campos só FCM, IP e GPS Ad ID
+  deveriam estar cheios.
+- Candidato 1 ("idfv/IP só com ATT") **não explica o vazio**: `setFBAnonymousID` chama
+  `collectDeviceIdentifiers` sozinho nas duas plataformas, então IP vazio prova que a cadeia inteira
+  não rodou-e-sincronizou. O `if (attGranted)` não protege nada.
+- Candidato 2 (FCM no lugar do APNS) é bug real **só no iOS** e deixaria o campo com valor errado, não vazio.
+- Causa estrutural: `setupAttribution` é o último passo de uma fila serial com 3 prompts e getters sem
+  timeout, e o SDK só envia atributos em compra/background — quem compra no 1º minuto e não volta sai vazio.
+  Armadilha extra: só roda se o layout chama `Utils.handleReady` (o README diz que é o `prepare()`).
+- Gaps de analytics confirmados: zero eventos em `PaywallUtils`, `ask-for-review`, `cross-promo-card`;
+  nenhum `setUserId`/user property; `trackInstall()` devolve `{matched, campaign_id}` e é descartado.
+- Pedido do usuário: atributos de **região, língua, país, estado, cidade** no RC. País/língua/região saem
+  sem rede (`expo-localization` + `Purchases.getStorefront()`); estado/cidade só por IP → endpoint
+  próprio via Remote Config `geo_lookup_url` (opt-in: muda o rótulo de privacidade). No GA4 geo já é automático.
+- **Plano completo: `.claude/PLANO-1.4.0-atribuicao-analytics.md`** (fases, critérios de aceite medidos
+  no destino, docs a atualizar, decisões em aberto). **Nada implementado.**
+
+---
+
+# 2026-09-20 — 1.4.0: atribuição RevenueCat em 2 fases, geo por IP, funis e push aberta
+
+**Pedido:** "faça tudo e feche como 1.4.0", geo **ligada por padrão** e obtida por IP com serviço
+gratuito (por último), + rastrear notificações recebidas **e abertas**. Plano: `.claude/PLANO-1.4.0-atribuicao-analytics.md` (§0 = o que foi entregue).
+
+### O que entrou
+- `utils/analytics.ts` — `logUtilsEvent`/`setUtilsUserId`/`setUtilsUserProperty`: logger único, módulo-folha,
+  nunca lança, boolean→1/0. **Zerou os 8 erros de TS** com RNFB 26 (`logEvent` tipado `void`): 6 no
+  `Utils.ts` + `LoadAdsManager` + `modal-promotional-content`. Em dev imprime cada evento no Metro.
+- `utils/attribution.ts` — **fase 1** no boot logo após o `Purchases.configure` (AdServices, Firebase app
+  instance id, contexto, storefront, `user_id` do GA4) e **fase 2** em cadeia destacada pós-ATT (device ids
+  sempre, FB anon id, push token, geo). `runStep` = timeout por etapa; sync forçado; evento `rc_attribution`.
+  iOS: `setPushToken` agora recebe o token **APNS**; o FCM do iOS vai em `fcm_token` (custom).
+- `utils/geo.ts` — cadeia gratuita sem chave: **ipwho.is → BigDataCloud (client-side) → GeoJS**, termos
+  lidos e os três testados ao vivo; cache 7d; `geo_lookup_enabled`, `geo_lookup_url`, `{"geoAttributes": false}`.
+  Descartados: ipapi.co (403 Cloudflare p/ não-browser), ip-api.com (só HTTP + não-comercial), db-ip free
+  (limite diário já estourado), ipinfo sem token.
+- `utils/push-analytics.ts` — `push_received`, `push_received_bg`, **`push_opened`** (`onNotificationOpenedApp`
+  + `getInitialNotification`, dedup por `message_id`), params `topic` (do `from`), `push_id`, `latency_s`.
+- Funis: `paywall_*` (novo `placement` em `PaywallOptions`, `trackView`/`trackClose`), `review_*` (com `style`),
+  `promo_*` no `CrossPromoCard`, `consent_flow`, `install_attribution` (link-in-bio → `$mediaSource`/`$campaign`).
+  User properties `rc_status` e `att_status`. Watchdog de `handleReady` (30s).
+- Docs: `docs/ANALYTICS-EVENTS.md` (novo), README, UPGRADE (§4.2.1, armadilhas 21–26), AGENTS.md (regra
+  "integração externa só é ok medida no destino"), `templates/AGENTS.md` (REGRA 7).
+- `tests/` (24 testes, `./tests/run.sh`, um processo por arquivo — o `mock.module` do bun vaza entre arquivos).
+
+### Descoberto MEDINDO (não estava no plano)
+**O Android suspende os timers do JS enquanto a Activity está pausada por diálogo do sistema.** Com o
+debounce de 2s a fase 2 só reportou aos **150 s** (depois de eu responder a permissão de push no emulador).
+Com envio **imediato** ao fim de cada fase: fase 1 em **1,6 s**, fase 2 em **6,6 s** com o diálogo na frente.
+Os testes também pegaram `__DEV__` inexistente fora do runtime do RN (a etapa `uid` falhava).
+
+### Verificado × NÃO verificado
+- Verificado: `tsc` contra 3 hosts (RNFB 24.1.1/25.1.0/26.4.0) = 0 erros; 24 testes; geo ao vivo; boot completo
+  no emulador Android (clone do `/tmp/rtdemo/demo`, Metro próprio na 8082 — o da outra sessão, 8081, intacto).
+- **NÃO verificado:** atributo visível no customer do RevenueCat (no emulador a key era falsa → `synced:0`,
+  "credentials issue"), eventos no DebugView, iOS, `push_opened` em aparelho. Falta rodar o §7 do plano num
+  app com keys reais.
+- Não feito de propósito: Play Install Referrer (módulo nativo novo sem como validar build aqui).
+- Pendências do usuário: ligar RC→Firebase e Apple Search Ads no dashboard do RC; declarar "Coarse Location"
+  nas lojas (ou desligar a geo); mandar `data.push_id` no `gpt-notification-system`; token npm vence 20/09 23:40.

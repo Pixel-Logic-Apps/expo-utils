@@ -119,6 +119,17 @@ export interface RemoteConfigUtilsType {
     // (usado quando o lookup na loja falha ou o app ainda não é encontrado).
     ios_store_version?: string;
     android_store_version?: string;
+    /**
+     * Geo por IP (país/estado/cidade como atributos do customer no RevenueCat). LIGADA por
+     * padrão; `false` desliga sem build novo. Ver `utils/geo.ts`.
+     */
+    geo_lookup_enabled?: boolean;
+    /**
+     * Endpoint PRÓPRIO de geo (https), tentado antes dos provedores gratuitos embutidos.
+     * Contrato da resposta: `{country, region, regionCode, city}` (ex.: Cloudflare Worker
+     * devolvendo `request.cf`).
+     */
+    geo_lookup_url?: string;
 }
 
 /**

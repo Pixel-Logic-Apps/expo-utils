@@ -9,6 +9,11 @@ export {getLocalizedMessages, translations, getSystemLanguage} from "./utils/i18
 export {default as RouteTracker} from "./utils/RouteTracker";
 export {generatePlacementId, isPlacementBlocked, setCurrentRoute, getCurrentRoute, setBlocklist} from "./utils/AdPlacementTracker";
 export {logAdRevenue} from "./utils/ad-revenue";
+export {logUtilsEvent, setUtilsUserId, setUtilsUserProperty} from "./utils/analytics";
+export type {AnalyticsParams} from "./utils/analytics";
+export {setRevenueCatAttributes, scheduleRcSync, getContextAttributes} from "./utils/attribution";
+export {lookupGeo, GEO_PROVIDERS} from "./utils/geo";
+export type {GeoResult} from "./utils/geo";
 export {PaywallController, PaywallUtils, usePaywall} from "./utils/PaywallUtils";
 export type {PaywallConfig, PaywallItem, PaywallLoadResult, PaywallOptions, PaywallProductConfig, PaywallPurchaseResult, UsePaywallOptions, UsePaywallResult} from "./utils/PaywallUtils";
 export {CrossPromoCard} from "./utils/cross-promo-card";
