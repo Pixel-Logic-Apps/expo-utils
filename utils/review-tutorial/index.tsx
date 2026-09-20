@@ -101,6 +101,7 @@ export function ReviewTutorial({
             params.locale,
             params.reviewText,
             params.dir,
+            params.align,
             params.labels,
             params.timings,
             htmlOverride,

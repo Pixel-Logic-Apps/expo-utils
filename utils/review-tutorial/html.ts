@@ -37,6 +37,13 @@ export interface ReviewTutorialParams {
     reviewText?: string;
     /** Direção do texto. Default: ltr (ar/he/fa/ur viram rtl automaticamente). */
     dir?: "ltr" | "rtl";
+    /**
+     * Onde o canvas fica quando o slot não tem o aspecto 426:240. O encaixe é `contain`, então
+     * sobra faixa da cor de fundo: "center" (default) divide a sobra em cima e embaixo; "top"
+     * cola o vídeo na borda de cima e manda a sobra toda para baixo — para slots que encostam
+     * numa linha/header, onde a faixa de cima leria como folga.
+     */
+    align?: "center" | "top";
     /** Duração das transições em segundos. Eventos posteriores acompanham o ajuste. */
     timings?: ReviewTutorialTimings;
 }
@@ -205,6 +212,8 @@ export function buildTutorialHtml(params: ReviewTutorialParams): string {
         '<meta charset="utf-8">' +
         '<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">' +
         "<style>" + CSS.replace(/__ACCENT__/g, accent)
+            .replace("__ALIGN_ITEMS__", params.align === "top" ? "flex-start" : "center")
+            .replace("__ORIGIN__", params.align === "top" ? "top center" : "center")
             .replace("__ANNOT_RULES__", annotRules(dir === "rtl")) + "</style></head><body>" +
         '<div class="fit"><div class="canvas">' +
 
@@ -472,9 +481,9 @@ html,body{width:100%;height:100%;overflow:hidden;background:#FDFDFD}
 body{font-family:Roboto,'Helvetica Neue',Arial,sans-serif;color:#202124}
 :root{--accent:__ACCENT__;--surface:#FDFDFD;--text:#202124;--text2:#5F6368;--red:#FF0000;--direction:1}
 html[dir=rtl]{--direction:-1}
-.fit{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}
+.fit{position:absolute;inset:0;display:flex;align-items:__ALIGN_ITEMS__;justify-content:center}
 .canvas{position:relative;width:426px;height:240px;overflow:hidden;background:var(--surface);
-  transform:scale(var(--s,1));transform-origin:center;flex:none}
+  transform:scale(var(--s,1));transform-origin:__ORIGIN__;flex:none}
 .camera,.phone{position:absolute;inset:0}
 .scr{position:absolute;inset:0;opacity:0;background:var(--surface);overflow:hidden}
 .launcher{animation:sA 19s infinite linear;transform-origin:177px 134px;background:#D8D7DE}

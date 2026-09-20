@@ -72,6 +72,18 @@ export type PromotionalConfig = {
     nthImpression?: string;
 };
 
+/**
+ * Layout do AskForReviewOverlay.
+ *  - `bottomsheet` card ancorado embaixo, com respiro lateral, botoes lado a lado.
+ *                  PADRAO e comportamento historico — app que nao setar nada nao muda.
+ *  - `formsheet`   sheet colado nas bordas (100% de largura, sem padding lateral) ocupando
+ *                  1/3 da altura da tela; a midia encolhe pra caber, botoes lado a lado.
+ *  - `centered`    card no meio da tela, botoes empilhados e de largura total.
+ *  - `fullscreen`  tela inteira com X no canto, botoes empilhados, de largura total e
+ *                  ancorados no rodape.
+ */
+export type ReviewStyle = "bottomsheet" | "formsheet" | "centered" | "fullscreen";
+
 export interface RemoteConfigUtilsType {
     is_ads_enabled: boolean;
     min_version: number;
@@ -81,6 +93,11 @@ export interface RemoteConfigUtilsType {
     review_type_delay?: number;
     /** ms antes do review aparecer (askForReview). Override local: 3º arg `showDelay`. */
     review_show_delay?: number;
+    /**
+     * Layout do AskForReviewOverlay, trocável sem release. Override local: prop `variant`.
+     * Ausente ou inválido cai em `bottomsheet` (o layout histórico).
+     */
+    review_style?: ReviewStyle;
     /**
      * Mostra o tutorial animado da Play Store no AskForReviewOverlay (prop `tutorial`)
      * em vez da imagem estática. Android apenas; requer `react-native-webview`.

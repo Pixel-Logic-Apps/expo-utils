@@ -93,6 +93,7 @@ Após criar seu projeto no Firebase Console, vá em **Remote Config** e adicione
   "review_type": "popup",
   "review_type_delay": 0,
   "review_show_delay": 0,
+  "review_style": "bottomsheet",
   "repeat_ads_count": 3,
   "ad_blocklist": [],
   "promotional": {
@@ -219,6 +220,7 @@ Para uso sem hook, use `new PaywallController({t})` ou os métodos estáticos de
 | `review_type` | string | Modo de review: `"store-review"`, `"popup"` ou `"dialog"` |
 | `review_type_delay` | number | ms até habilitar botão "Agora não" no popup de review (ex: 3000 = 3s) |
 | `review_show_delay` | number | ms antes do review **aparecer** (usado por `askForReview` se `showDelay` não for passado) |
+| `review_style` | string | layout do popup: `"bottomsheet"` (padrão, card embaixo) \| `"formsheet"` (sheet 100% largura sem raio, metade da tela, X + 1 botão) \| `"centered"` (card no meio, botões empilhados) \| `"fullscreen"` (tela cheia, X + 1 botão no rodapé). Override local: prop `variant` |
 | `repeat_ads_count` | number | Quantidade de ações antes de mostrar anúncio |
 | `ad_blocklist` | string[] | Lista de placement IDs bloqueados |
 | `promotional` | object | Configuração de conteúdo promocional (veja seção dedicada) |

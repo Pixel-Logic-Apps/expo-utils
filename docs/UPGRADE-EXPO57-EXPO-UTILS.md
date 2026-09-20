@@ -621,6 +621,7 @@ Para preencher o `cross_promo` (e o `promotional` do parâmetro `utils`) sem dig
   "review_type": "store-review",
   "review_type_delay": 0,
   "review_show_delay": 0,
+  "review_style": "bottomsheet",
   "review_tutorial_enabled": false,
   "repeat_ads_count": 3,
   "ad_blocklist": [],
@@ -631,6 +632,52 @@ Para preencher o `cross_promo` (e o `promotional` do parâmetro `utils`) sem dig
 ```
 
 Valores de `review_type`: `"store-review"` | `"popup"` | `"dialog"`.
+
+### 5.4.0 Layout do popup (`review_style`)
+
+Troca o desenho do `AskForReviewOverlay` **sem release**. Três valores:
+
+| valor | layout |
+|---|---|
+| `bottomsheet` | card embaixo com respiro lateral, **dois botões** lado a lado — **padrão**, é o layout histórico |
+| `formsheet` | sheet colado nas bordas (100% de largura, **sem cantos arredondados**), **metade da altura da tela**, entra **só deslizando**, **X** num cabeçalho separado por uma linha acima da mídia, e **um botão só** de largura total |
+| `centered` | card no meio da tela, **dois botões** empilhados e de largura total |
+| `fullscreen` | tela inteira, **X** no canto, **um botão só** de largura total ancorado no rodapé |
+
+Nos layouts com **X**, ele *é* o "Agora não": o botão secundário não é renderizado e o X fica
+**escondido enquanto o `review_type_delay` corre**, aparecendo quando o contador zera. Assim o
+delay continua valendo sem precisar do botão com `(3s)`.
+
+Ausente ou com valor desconhecido cai em `bottomsheet`, então **nenhum app existente muda de
+aparência** ao subir a versão. Override local: prop `variant` do overlay (a prop ganha do RC).
+
+```tsx
+<AskForReviewOverlay visible={v} onClose={c} variant="fullscreen" />
+```
+
+A animação de
+entrada acompanha o layout: `bottomsheet` e `formsheet` deslizam de baixo, `centered` e
+`fullscreen` entram com fade/escala. O `formsheet` arredonda só os cantos de cima (está colado
+nas laterais) e o `fullscreen` não arredonda nada. O slot de mídia vai a 240 no `fullscreen`,
+fica em 200 no `bottomsheet`/`centered` e no `formsheet` usa `flex: 1` — fica com o que sobrar
+depois do cabeçalho, do texto e do botão, então a proporção se mantém em qualquer aparelho.
+**Cantos em squircle, sem dependência.** Card (`bottomsheet` 40, `centered` 28), botões (20) e
+mídia (24) usam superelipse em vez do arco circular do `borderRadius` — `utils/squircle.tsx`, um
+9-slice de `View` + `Image` com `tintColor`, PNGs embutidos em `utils/squircle-assets.ts`
+(gerados por `docs/squircle-gen.py`). Nada a instalar: não usa `react-native-svg` nem módulo
+nativo (`borderCurve: "continuous"` é só iOS; `clipToOutline` com path só clipa em Android novo).
+`radius` tem a MESMA leitura visual de `borderRadius: radius` — o canto ocupa 1,6·r de aresta com
+expoente 3,4282, que iguala a profundidade de corte do círculo. As três regras que o arquivo
+documenta vieram de defeito medido em aparelho: nada se sobrepõe (o Android aplica `opacity` por
+filho, sobreposição vira cruz sob alpha — inclusive no `TouchableOpacity` pressionado), tudo em
+pixel físico inteiro por `left`/`top` (o Yoga posiciona `bottom`/`right` contra a dimensão não
+arredondada do pai e desloca 1px), e o PNG vem de uma cadeia de tamanhos (reamostrar mais que
+~18% serrilha ou borra). `layouts` de canto reto (`formsheet`, `fullscreen`) não usam squircle.
+
+A altura do `formsheet` é `FORMSHEET_FRACTION` (0.5) de `useWindowDimensions().height`, então
+acompanha rotação e split-screen; é uma constante só, em `utils/ask-for-review.tsx`.
+Com 1/3 sobravam só 93dp pra mídia e o tutorial ficava 165×93; com metade sobram 246dp e ele
+encosta nas duas bordas (412×232 num aparelho de 922dp).
 
 ### 5.4.1 Tutorial animado da Play Store (`review_tutorial_enabled`)
 
@@ -720,6 +767,12 @@ Pontos de atenção:
   release. O data URI não passa pelo pipeline de asset, então é igual nos dois.
   Se o RC já fornece `review_tutorial_html`, ele continua tendo precedência sobre o template
   atualizado; remova ou regenere esse override para receber as correções visuais.
+- `align` (`"center"` | `"top"`, default `"center"`) decide onde o vídeo fica quando o slot não tem
+  o aspecto 426:240. O encaixe é `contain`, então sobra uma faixa da cor de fundo: `"center"` a
+  divide em cima e embaixo, `"top"` cola o vídeo na borda de cima e manda a sobra toda para baixo.
+  O `formsheet` usa `"top"` sozinho, porque lá a mídia encosta na linha do header e a faixa de
+  cima leria como folga. **Não resolva isso com margem negativa no slot**: a sobra é interna à
+  WebView, muda por aparelho, e a mídia desenha por cima do header — cobriria a linha.
 - As durações agora podem ser ajustadas pela prop `timings`, também dentro de
   `tutorial` do overlay: `tutorial={{timings: {slideDown: 1.0, accountOpen: 0.6}}}`.
   Os valores são **segundos** e deslocam os próximos eventos juntos; campos omitidos usam

@@ -1379,3 +1379,53 @@ await askForReview(undefined, undefined, 3000); // override local
 - Destino: `expo-utils/docs/STORE-READY-PLAYBOOK.md`
 
 Playbook operacional (pldev + Fastlane + AI) para deixar app Expo store-ready com gate humano passo a passo. Ainda **não commitado** no repo expo-utils nesta sessão (só copiado).
+
+
+---
+
+# 2026-09-20 — Review tutorial em produção, `review_style`, squircle e ícone automático (1.3.1)
+
+**Pedido inicial:** ver o tutorial de avaliação num app de verdade, resolver os outros idiomas,
+fazer funcionar sem parâmetro, medir/comprimir o tamanho e não publicar os HTMLs de teste.
+
+### Tutorial de avaliação (`utils/review-tutorial/`)
+- **31 idiomas** em `labels.ts`, **extraídos do APK da Play Store** (não traduzidos). Fonte: o
+  universal `/product/priv-app/Phonesky/Phonesky.apk` de um emulador `google_apis_playstore` +
+  `aapt2 dump resources`; o `base.apk` instalado só traz o idioma do aparelho. Os rótulos escritos
+  à mão estavam errados em vários pontos (`Manage apps & device`, `Write feedback`,
+  pt `Sem classificação`…). Cinco abas vêm do backend da Play e seguem só em pt/en/es.
+- **Fonte Roboto embutida removida** (−34,8 KB): é Android-only e o Android já tem
+  `<family name="roboto">`. HTML gerado: 127 → 75 KB.
+- `defaultUserName` por idioma ("Você") + avatar laranja fixo quando não vem `userName`
+  (hashear o nome traduzido daria uma cor por idioma). O círculo cinza do header virou avatar.
+- `align: "top"` para o formsheet (o `contain` centralizava e deixava faixa sob a linha do header).
+- HTMLs de preview fora do npm (`"!utils/review-tutorial/*.html"`): pacote 544 → ~262 KB.
+
+### Ícone do app sem parâmetro (`app.plugin.js` → `withAppIconDataUri`)
+O config plugin reduz `expo.icon` para 96px e grava o data URI em `extra.expoUtilsAppIcon`; o
+overlay lê de `Constants.expoConfig`. **Não toca no `app.json`** (só o `app.config` gerado).
+Usa `jimp-compact` (vem com `@expo/image-utils`) — **`sharp` NÃO é dep do Expo**, só aparecia no
+expo-urna por causa do miniflare. Motivo de ser no plugin: em release no Android o asset do
+bundle vira nome de drawable e `appIcon={require()}` some em silêncio.
+
+### `review_style` (Remote Config) / prop `variant`
+`bottomsheet` (padrão, histórico) · `formsheet` (100% largura, metade da tela, sem raio, só
+slide-up sem bounce, X em header próprio) · `centered` (botões empilhados) · `fullscreen` (X +
+1 botão no rodapé). Nos layouts com X ele **é** o "Agora não" e só aparece quando o
+`review_type_delay` zera. Card do Android subiu para `marginBottom: 60` (ficava sobre a nav bar).
+
+### Squircle sem dependência (`utils/squircle.tsx` + `squircle-assets.ts`)
+9-slice de `View` + `Image` com `tintColor`. Três regras, todas de defeito medido em aparelho:
+nada se sobrepõe (Android aplica opacity por filho → cruz sob alpha), tudo em px físico por
+`left`/`top` (Yoga posiciona `bottom`/`right` contra o pai não arredondado → 1px de erro), PNG de
+uma cadeia de tamanhos. `radius` lê igual a `borderRadius`: caixa 1,6·r, expoente 3,4282.
+Gerador: `docs/squircle-gen.py`.
+
+### Armadilhas desta sessão (também na memória do projeto)
+- `bun add <tarball>` **reusa o cache por nome@versão** — instala código velho mesmo com
+  `--force`. Extrair o tar por cima de `node_modules/expo-utils` e conferir com grep.
+- Metro não checa tipos: rodar `tsc` num app host antes de fechar versão (pegou chave duplicada).
+- Pendência conhecida, anterior a esta sessão: 6 erros de TS em `Utils.ts`
+  (`logEvent(...).catch()` contra a tipagem `void` do RNFB novo).
+
+**Resultado:** tudo verificado no emulador Android (app em `/tmp/rtdemo/demo`). iOS não testado.
