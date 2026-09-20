@@ -15,6 +15,7 @@ import {
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as StoreReview from "expo-store-review";
 import * as Application from "expo-application";
+import Constants from "expo-constants";
 import {getLocales} from "expo-localization";
 import {expoUtilsLog} from "./Utils";
 import {ReviewTutorial, ReviewTutorialParams} from "./review-tutorial";
@@ -523,6 +524,7 @@ const AskForReviewOverlay: React.FC<AskForReviewOverlayProps> = ({
                                     appName={Application.applicationName || ""}
                                     locale={getLocales()?.[0]?.languageCode || "en"}
                                     html={global.remoteConfigUtils?.review_tutorial_html}
+                                    appIconUrl={Constants.expoConfig?.extra?.expoUtilsAppIcon}
                                     {...(typeof tutorial === "object" ? tutorial : {})}
                                 />
                             ) : (

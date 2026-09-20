@@ -348,6 +348,7 @@ Detectar package manager: lockfile (`package-lock.json` → npm, `bun.lock` → 
     "analyticsOnDeviceConversion": true,
     "usageDescriptions": true,
     "androidKotlinAdsFix": true,
+    "appIcon": true,
     "firebaseLogLevel": "error",
     "disableAdsIfBuildIsNewerThanStore": true
   }
@@ -700,6 +701,20 @@ Pontos de atenção:
   Abra o HTML com `#t=12.2` para inspecionar um instante. Veja
   [os parâmetros e a API de captura](../utils/review-tutorial/README.md).
   Essa descoberta do ícone é do script: no componente, use `appIcon` ou `appIconUrl`.
+- **O ícone do app entra sozinho, sem você fazer nada.** O config plugin (`withAppIconDataUri`,
+  opt-out `{ "appIcon": false }`) lê `expo.android.icon` / `expo.icon`, reduz para 96px com o
+  `sharp` (que já vem com o Expo) e grava o data URI em `extra.expoUtilsAppIcon`; o
+  `ask-for-review` lê de `Constants.expoConfig`. **Não mexe no `app.json`** — o config muda só em
+  memória e sai no `app.config` gerado dentro do APK/IPA, que já é ignorado pelo git. Usa spread
+  no `extra`, então `eas.projectId` / `router.origin` continuam lá. Medido: ~8 KB de data URI,
+  119 ms na primeira resolução e 13 ms depois (cache em `node_modules/.cache/expo-utils/`,
+  chaveado por mtime+tamanho do ícone, porque `getConfig` roda em todo `metro start`). Sem
+  ícone, sem `sharp` ou erro no encode: não faz nada e o tutorial cai no círculo com a inicial.
+  Vale para apps que já existem — basta rebuildar, nenhum arquivo do projeto muda.
+  Motivo de ser no plugin e não em runtime: em release no Android o asset do bundle vira **nome
+  de drawable** (`expo-asset` seta `localUri = uri` quando a URI não tem `:`), e aí o
+  `FileSystem.readAsStringAsync` falha — `appIcon={require(...)}` funciona no dev e some no
+  release. O data URI não passa pelo pipeline de asset, então é igual nos dois.
   Se o RC já fornece `review_tutorial_html`, ele continua tendo precedência sobre o template
   atualizado; remova ou regenere esse override para receber as correções visuais.
 - As durações agora podem ser ajustadas pela prop `timings`, também dentro de

@@ -549,6 +549,39 @@ function withIosMediationPods(config, networks) {
  * ⚠️ Adapter só serve ad depois de configurar a fonte na UI do AdMob (grupo de mediação +
  * ad unit mapeado); sem isso só pesa o build.
  */
+/**
+ * Embute o ícone do app (96px, data URI) em `extra.expoUtilsAppIcon`, lido em runtime pelo
+ * tutorial de avaliação via `Constants.expoConfig`. Não toca no app.json: o config muda só em
+ * memória e sai no `app.config` gerado dentro do APK/IPA.
+ *
+ * O `sharp` (que vem com o Expo) é async e config plugin é síncrono, daí o execFileSync; o
+ * resultado fica em cache por mtime+tamanho do ícone, senão pagaria ~100ms a cada `getConfig`
+ * (que roda em todo metro start). Sem ícone, sem sharp ou com erro: não faz nada e o tutorial
+ * cai no círculo com a inicial.
+ */
+function withAppIconDataUri(config) {
+    try {
+        const root = config._internal?.projectRoot || process.cwd();
+        const icon = path.resolve(root, config.android?.icon || config.icon || "");
+        const {mtimeMs, size} = fs.statSync(icon);
+        const cache = path.join(root, "node_modules", ".cache", "expo-utils", `icon-${size}-${Math.round(mtimeMs)}.txt`);
+        let b64;
+        if (fs.existsSync(cache)) {
+            b64 = fs.readFileSync(cache, "utf8");
+        } else {
+            const script = 'require("sharp")(process.argv[1]).resize(96,96,{fit:"inside"}).png({compressionLevel:9,palette:true}).toBuffer().then(b=>process.stdout.write(b.toString("base64")))';
+            b64 = require("child_process").execFileSync(process.execPath, ["-e", script, icon], {cwd: root, maxBuffer: 1 << 24}).toString();
+            fs.mkdirSync(path.dirname(cache), {recursive: true});
+            fs.writeFileSync(cache, b64);
+        }
+        // spread: `extra` carrega eas.projectId, router.origin e o que mais o app puser
+        config.extra = {...config.extra, expoUtilsAppIcon: "data:image/png;base64," + b64};
+    } catch {
+        /* ícone ausente, sharp ausente ou falha de encode: segue sem ícone */
+    }
+    return config;
+}
+
 function withExpoUtils(config, options = {}) {
     let result = withSkAdNetworkItems(config);
     if (options?.usageDescriptions !== false) {
@@ -578,6 +611,9 @@ function withExpoUtils(config, options = {}) {
     }
     if (options?.androidKotlinAdsFix !== false) {
         result = withAndroidGradleHeap(withAndroidKotlinMetadataSkip(result));
+    }
+    if (options?.appIcon !== false) {
+        result = withAppIconDataUri(result);
     }
     if (options?.mediation !== false) {
         const networks = resolveMediationNetworks(options?.mediation);
