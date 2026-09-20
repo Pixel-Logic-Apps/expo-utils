@@ -1429,3 +1429,37 @@ Gerador: `docs/squircle-gen.py`.
   (`logEvent(...).catch()` contra a tipagem `void` do RNFB novo).
 
 **Resultado:** tudo verificado no emulador Android (app em `/tmp/rtdemo/demo`). iOS não testado.
+
+### Publicação e pós-release (mesma sessão)
+- **`expo-utils@1.3.1` publicado no npm** (conta `developerpixellogicapps`, é `latest`). Antes do publish:
+  typecheck com `tsc` num app host de verdade (o Metro não checa tipos e o pacote distribui `.tsx`)
+  — pegou chaves duplicadas (`noSidePadding`/`fillsScreen`) no preset `bottomsheet` de
+  `ask-for-review.tsx`, corrigidas. Pendência anterior a esta sessão, NÃO resolvida: 6 erros de TS
+  em `Utils.ts` (`logEvent(...).catch()` contra a tipagem `void` do RNFB novo).
+- **Token npm**: veio do usuário direto (não estava no backup do Drive — varri por nome, por conteúdo
+  <256KB e o backup de 4GB inflado; só havia `.npmrc` de terceiros/swagger e docs do próprio npm).
+  Gravado em `~/.npmrc` desta máquina; **vence hoje 20/09 23:40 (Brasília)** — recriar depois.
+
+### Atribuição RevenueCat — atributos vazios no dashboard (investigado, NÃO corrigido)
+Usuário mostrou um assinante ativo (eyeidentifier) com TODOS os atributos vazios no RC: Name, E-mail,
+Phone, APNS, FCM, IP, ATT Consent, idfa, idfv, GPS Ad ID, Media Source, Campaign, Ad Group, Ad.
+O que achei no código (`Utils.setupAttribution`, `Utils.ts:1242`, chamado no fim de `requestTrackingWhenActive`):
+- **Coisas que O CÓDIGO TENTA setar** (então "não implementado" é falso): `collectDeviceIdentifiers`
+  (idfa/idfv/ip), `setFirebaseAppInstanceID`, `setFBAnonymousID`, `setPushToken`, `setAttributes({TikTok…})`,
+  `enableAdServicesAttributionTokenCollection`.
+- **Gaps que explicam o dashboard vazio (candidatos, precisam confirmação em device):**
+  1. `collectDeviceIdentifiers()` só roda com `attGranted === true`. Mas **idfv e IP não dependem de ATT** —
+     usuário que nega ATT fica sem idfv/IP também, quando podiam ser coletados. IDFA sim depende.
+  2. `setPushToken(getToken(getMessaging()))` passa o **token FCM**; no iOS `setPushToken` espera o
+     **APNS token** (a lib já tem `getAPNSToken` via `ensureApnsReady`). Suspeita de APNS errado/vazio.
+  3. **Name / E-mail / Phone**: nunca setados (`setEmail`/`setPhoneNumber`/`setDisplayName` não existem no
+     código) — vazios por design, não bug.
+  4. **Media Source / Campaign / Ad Group / Ad**: vêm de SDK de atribuição (AppsFlyer/Adjust) — sem um,
+     ficam vazios.
+- **Sem visibilidade**: `setupAttribution` é fire-and-forget; toda falha vira `expoUtilsWarn`. Não há
+  como saber em produção se coletou. **Nenhuma user property/`setUserId` no Firebase Analytics** liga
+  RC↔GA4 (o inverso, `setFirebaseAppInstanceID`, já existe).
+- **Ideias discutidas para a próxima versão (não implementadas):** (a) evento `rc_attribution` no Analytics
+  com flags (att_granted, rckey_real, device_ids_coletados, push_token_set) para enxergar o porquê em
+  produção; (b) chamar `collectDeviceIdentifiers()` sempre (idfa só sai com ATT, idfv/IP saem sempre);
+  (c) conferir APNS vs FCM no `setPushToken`; (d) Firebase user property com o RC App User ID / status premium.
