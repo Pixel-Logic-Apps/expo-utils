@@ -1,5 +1,66 @@
 # Chat History - expo-utils
 
+## 2026-09-20 - Review tutorial: reprodução do GIF, editor de animações e inglês
+
+**Pedido e contexto:** reproduzir o GIF `/Users/plapps/Downloads/ob_04.gif` em HTML, com alta fidelidade visual, para reutilizar o tutorial de avaliação em vários apps sem gravar cada um manualmente. Referência: 426 × 240, 190 frames, 19 segundos. Nome, ícone, idioma e comentário devem ser configuráveis. O usuário pediu comparação frame a frame e inspeção visual, com uso econômico de tokens.
+
+**Decisões do usuário que devem ser preservadas:**
+
+- Manter o início (launcher e splash) feito nativamente em HTML/SVG. O usuário rejeitou a substituição do launcher por um print.
+- Após os ajustes visuais, o usuário disse que o resultado ficou excelente e pediu controles para alterar a duração das animações entre eventos.
+- A abertura do menu da conta deve permanecer centralizada e subir verticalmente, sem deslocamento horizontal ou escala na entrada. Não deve vir do canto direito.
+- Os tempos abaixo foram fornecidos pelo usuário e aplicados como **padrão da biblioteca**, inclusive quando `timings` é omitido ou parcial:
+
+```json
+{
+  "timings": {
+    "storeOpen": 0.7,
+    "homeEnter": 1.35,
+    "accountOpen": 1.05,
+    "manageOpen": 1.35,
+    "slideDown": 0.25,
+    "reviewsOpen": 0.5,
+    "composerOpen": 0.65,
+    "typing": 3.9
+  }
+}
+```
+
+**Implementação em `utils/review-tutorial/`:**
+
+- `html.ts`: ajustados splash/ícone da Play Store, enquadramento e transições, entrada de Gerenciar apps, carregamento de avaliações, campo do comentário, digitação e cursor. Launcher com 12 ícones HTML/SVG e splash SVG. Textos e dados do app continuam dinâmicos.
+- Animações e digitação compartilham o relógio de `document.timeline`; os tempos de referência continuam baseados nos 19 segundos originais. Alterar uma duração remapeia os keyframes e desloca os eventos seguintes juntos, sem perder sincronização. O preset aprovado resulta em **21,85 segundos por ciclo**.
+- Digitação respeita grafemas (`Intl.Segmenter` com fallback), com limite de 500 codepoints. Corrigidos limites temporais do cursor e substituição de comentários que contêm `$&`. Mantido fallback para ícone inválido.
+- Menu da conta: cartão de 288 px, centro em x=213 no canvas de 426 px; entrada exclusivamente por `translateY`. O fundo decorativo também foi alinhado. A transição posterior para Gerenciar apps mantém seus próprios movimentos.
+- `art.ts` e `ROBOTO-LICENSE.txt`: fonte Roboto incorporada e recursos decorativos estáticos (laterais/banner). Não substituem o launcher ou o splash por screenshots.
+- `timings.ts`: oito transições tipadas, intervalos de referência e `defaultDuration` com o preset acima. Durações aceitas entre 0,05 e 30 segundos; valores omitidos/inválidos usam o padrão.
+- `index.tsx`: prop opcional `timings`, tipo `ReviewTutorialTimings` disponível pelo módulo, dependências do `useMemo` incluindo `userEmail` e `timings`. Não foram adicionados exports no `index.ts` da raiz.
+- `editor.ts` / `editor.html`: editor visual com sliders e entradas numéricas, reprodução de um trecho em loop, play/pause, avanço de 0,1 s, scrub, cópia/download do JSON e exportação do HTML independente. Layout adaptado para celular. Salva ajustes por app e preset; a chave inclui os padrões para evitar que uma configuração antiga esconda os novos tempos. “Restaurar padrão” restaura o preset aprovado.
+- API de inspeção: `window.reviewTutorialReady`; `window.reviewTutorial.duration`, `seek(seconds)`, `play()`, `pause()`, `setTimings(values)` e `getState()`. `#t=...` abre pausado no instante informado; segundos se referem ao ciclo ajustado.
+- `preview.ts`: CLI Bun sem dependências adicionais. Aceita `--project`, `--params`, `--icon`, `--app-name`, `--locale` e `--output`. `--project` lê nome/ícone de `app.json` e incorpora o ícone local. Não executa configurações dinâmicas do Expo. Gera tutorial e editor juntos.
+
+**Versão em inglês:**
+
+- `result-en.html` e `result-en-editor.html` gerados com os mesmos tempos aprovados; `result.html` e `editor.html` mantêm o exemplo em português.
+- Inglês disponível com `locale="en"` no componente ou `--locale en` no CLI. Inclui os nomes traduzíveis do launcher, textos do fluxo e comentário padrão “Love this app!”. Nome do produto é o nome informado pelo app, sem tradução automática.
+- Exemplo para outro app: `bun utils/review-tutorial/preview.ts --project /caminho/do/app --locale en --output utils/review-tutorial/result-en.html`.
+- Para regenerar exatamente os exemplos desta sessão, os parâmetros estão em `/tmp/review-tutorial-qa/params.json`: `bun utils/review-tutorial/preview.ts --params /tmp/review-tutorial-qa/params.json` e, para inglês, adicionar `--locale en --output utils/review-tutorial/result-en.html`. Esse arquivo em `/tmp` é temporário; o gerador e os HTMLs finais estão no repositório.
+
+**Documentação:** criado `utils/review-tutorial/README.md` com uso, editor, tempos e idiomas. Atualizado `docs/UPGRADE-EXPO57-EXPO-UTILS.md` na mesma tarefa, incluindo props, defaults, CLI e duração do ciclo.
+
+**Validação realizada:**
+
+- Referência extraída nos 190 frames e comparada visualmente com capturas do gerador, incluindo launcher/splash, transições e digitação. O objetivo foi alta fidelidade; não foi declarada identidade pixel a pixel.
+- QA em Chrome com Playwright: relógio compartilhado, seek/pause/play/loop, digitação, PT/EN/ES/RTL, escaping, limite de texto, fallback do ícone e dimensionamento. Editor: alteração de tempos, loop do trecho, persistência, reset, exportação e layout móvel.
+- Abertura centralizada do menu conferida em 52 posições, incluindo duração alterada, RTL e editor.
+- Validação final do preset e do inglês passou em `preset-en.mjs`: os oito tempos exatos em PT/EN e nos dois editores; ciclo de 21,85 s; primeira letra em 15,05 s; comentário completo em 19,05 s; menu centralizado; labels em inglês; overrides parciais e reset. Imagens de launcher, conta, avaliações e comentário em inglês também inspecionadas visualmente.
+- Typecheck estrito dos módulos do gerador/editor/CLI e `git diff --check` passaram. Não foi feito build de um app host ou teste em WebView de dispositivo nesta etapa.
+- Ferramentas, scripts e capturas de QA ficam em `/tmp/review-tutorial-qa/`, com dependências de teste fora do repositório. Alguns scripts anteriores assumem o ciclo original de 19 s; ajustar expectativas antes de reutilizá-los. O teste do preset atual é `node /tmp/review-tutorial-qa/preset-en.mjs`.
+
+**Estado ao salvar:** mudanças implementadas e validadas localmente, sem commit ou publicação. Últimos pedidos de aplicar o preset e disponibilizar inglês atendidos. O usuário ainda não deu feedback sobre o preview em inglês. Preservar os arquivos modificados e os novos arquivos listados acima ao continuar.
+
+---
+
 ## 2026-05-28 - Inicialização da memória + contexto v1.0.27
 
 ### Tarefa: Auto-atualização da memória do Claude Code
@@ -1318,4 +1379,3 @@ await askForReview(undefined, undefined, 3000); // override local
 - Destino: `expo-utils/docs/STORE-READY-PLAYBOOK.md`
 
 Playbook operacional (pldev + Fastlane + AI) para deixar app Expo store-ready com gate humano passo a passo. Ainda **não commitado** no repo expo-utils nesta sessão (só copiado).
-

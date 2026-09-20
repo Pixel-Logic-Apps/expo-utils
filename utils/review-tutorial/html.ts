@@ -1,25 +1,18 @@
 /**
- * Tutorial "como avaliar o app na Play Store", em HTML/CSS/JS.
- *
- * Substitui o GIF gravado de tela (426x240, 19 s, 10 fps). Toda a animação é CSS: uma única
- * animação mestre de 19 s compartilhada por todos os elementos, então nada sai de sincronia.
- * O JS cuida apenas dos dois textos que mudam de valor (texto digitado e contador n/500) e
- * do fator de escala do canvas.
- *
- * Arquitetura em 3 camadas (a gravação original prova que é assim):
- *   1. .phone   - as 7 telas, em fluxo normal, autoradas a 426px de largura (~426dp)
- *   2. .camera  - um transform por cena. TODO movimento "grande" do original e camera;
- *                 nao existe scroll em nenhum momento dos 19 s
- *   3. .annot   - seta e retangulo vermelhos, FORA da camera, em coordenadas do canvas
- *
- * Autorado no mesmo sistema de coordenadas da fonte: canvas de 426x240.
+ * Replays the supplied 426 × 240, 190-frame recording with live, localized UI.
+ * CSS scene keyframes and typing share one document.timeline clock. Camera moves
+ * belong to each scene, so opening a screen never transforms the outgoing one.
+ * Static decoration is embedded; app/account text and icons remain parameters.
  */
 
 import {getPlayLabels, PlayLabels} from "./labels";
+import {COMPOSER_BACKDROP, REVIEWS_BACKDROP, SHEET_BACKDROP, STORE_BANNER} from "./art";
+import {REVIEW_TUTORIAL_TRANSITIONS, ReviewTutorialTimings} from "./timings";
 
 export interface ReviewTutorialParams {
-    /** Nome do app, como aparece na lista e no header do composer. */
-    appName: string;
+    /** Nome do app, como aparece na lista e no header do composer.
+     *  Omitido no componente: cai em `Application.applicationName`. */
+    appName?: string;
     /** URL https do ícone do app. Sem isso, cai num círculo com a inicial. */
     appIconUrl?: string;
     /** Nome exibido do usuário no composer. */
@@ -42,6 +35,8 @@ export interface ReviewTutorialParams {
     reviewText?: string;
     /** Direção do texto. Default: ltr (ar/he/fa/ur viram rtl automaticamente). */
     dir?: "ltr" | "rtl";
+    /** Duração das transições em segundos. Eventos posteriores acompanham o ajuste. */
+    timings?: ReviewTutorialTimings;
 }
 
 const RTL_LOCALES = ["ar", "he", "fa", "ur", "iw"];
@@ -88,7 +83,7 @@ function star(filled: boolean, size: number): string {
         "M12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z";
     return filled
         ? '<svg class="st" width="' + size + '" height="' + size + '" viewBox="0 0 24 24"><path d="' + path + '" fill="var(--accent)"/></svg>'
-        : '<svg class="st" width="' + size + '" height="' + size + '" viewBox="0 0 24 24"><path d="' + path + '" fill="none" stroke="#9AA0A6" stroke-width="1.6"/></svg>';
+        : '<svg class="st" width="' + size + '" height="' + size + '" viewBox="0 0 24 24"><path d="' + path + '" fill="none" stroke="#808482" stroke-width="1.6"/></svg>';
 }
 
 function starRow(count: number, size: number, gap: number): string {
@@ -99,6 +94,13 @@ function starRow(count: number, size: number, gap: number): string {
 
 /** Ícone Material outline, monocromático, recolorido por currentColor. */
 function icon(name: string, size: number): string {
+    const outline: Record<string, string> = {
+        stars: '<circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="m12 5.5 1.8 4 4.4.4-3.3 2.9 1 4.3-3.9-2.2-3.9 2.2 1-4.3-3.3-2.9 4.4-.4z"/>',
+        storage: '<g fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 3h18v7H3zM3 14h18v7H3z"/><path d="M5 6.5h3M5 17.5h3"/></g>',
+        devices: '<g fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 17V3h18v14h-4M6 6h12"/><rect x="4" y="11" width="5" height="10" rx="1"/><rect x="14" y="9" width="6" height="10" rx="1"/></g>',
+        apps: '<g fill="none" stroke="currentColor" stroke-width="1.5"><rect x="4" y="3" width="16" height="18" rx="1"/><path d="M7 7h2m2 0h2m2 0h2M7 11h2m2 0h2m2 0h2M7 15h2m2 0h2m2 0h2"/></g>',
+    };
+    if (outline[name]) return '<svg class="ic" width="' + size + '" height="' + size + '" viewBox="0 0 24 24" fill="currentColor">' + outline[name] + '</svg>';
     const paths: Record<string, string> = {
         apps: "M4 8h4V4H4v4zm6 12h4v-4h-4v4zm-6 0h4v-4H4v4zm0-6h4v-4H4v4zm6 0h4v-4h-4v4zm6-10v4h4V4h-4zm-6 4h4V4h-4v4zm6 6h4v-4h-4v4zm0 6h4v-4h-4v4z",
         back: "M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z",
@@ -124,13 +126,13 @@ function icon(name: string, size: number): string {
 }
 
 /** Triângulo de 4 cunhas da Play Store (marca registrada — geometria fiel). */
-function playLogo(size: number): string {
+function playLogo(size: number, className = ""): string {
     return (
-        '<svg width="' + size + '" height="' + size + '" viewBox="0 0 24 24">' +
-        '<path fill="#00D0FF" d="M3.6 1.8c-.4.3-.6.8-.6 1.4v17.6c0 .6.2 1.1.6 1.4l.1.1L13.8 12v-.2L3.7 1.8z"/>' +
-        '<path fill="#FFCE00" d="M17.2 15.4l-3.4-3.4v-.2l3.4-3.4.1.1 4 2.3c1.2.7 1.2 1.8 0 2.4l-4.1 2.2z"/>' +
-        '<path fill="#FF3A44" d="M17.3 15.3 13.8 12 3.6 22.2c.4.4 1 .5 1.7.1l12-6.9z"/>' +
-        '<path fill="#00E676" d="M17.3 8.7 5.3 1.8c-.7-.4-1.3-.3-1.7.1L13.8 12z"/>' +
+        '<svg class="' + className + '" width="' + size + '" height="' + size + '" viewBox="0 0 24 24">' +
+        '<path fill="#4285F4" d="M3.6 1.8c-.4.3-.6.8-.6 1.4v17.6c0 .6.2 1.1.6 1.4l.1.1L13.8 12v-.2L3.7 1.8z"/>' +
+        '<path fill="#FBBC04" d="M17.2 15.4l-3.4-3.4v-.2l3.4-3.4.1.1 4 2.3c1.2.7 1.2 1.8 0 2.4l-4.1 2.2z"/>' +
+        '<path fill="#EA4335" d="M17.3 15.3 13.8 12 3.6 22.2c.4.4 1 .5 1.7.1l12-6.9z"/>' +
+        '<path fill="#34A853" d="M17.3 8.7 5.3 1.8c-.7-.4-1.3-.3-1.7.1L13.8 12z"/>' +
         "</svg>"
     );
 }
@@ -154,7 +156,7 @@ function appIcon(url: string | undefined, name: string, size: number, radius: nu
 /** Linha de menu do bottom sheet da conta. */
 function menuRow(iconName: string, label: string, badge?: string, k?: string): string {
     return (
-        '<div class="mrow"' + (k ? ' data-k="' + k + '"' : "") + '>' + icon(iconName, 22) +
+        '<div class="mrow"' + (k ? ' data-k="' + k + '"' : "") + '>' + icon(iconName, 14) +
         '<span class="mlabel">' + esc(label) + "</span>" +
         (badge ? '<span class="mbadge">' + esc(badge) + "</span>" : "") +
         "</div>"
@@ -163,7 +165,7 @@ function menuRow(iconName: string, label: string, badge?: string, k?: string): s
 
 function statusBar(clock: string): string {
     return (
-        '<div class="sbar"><span class="clock">' + esc(clock) + "</span>" +
+        '<div class="sbar"><span class="clock">' + esc(clock) + ' <span class="s-warning">▲</span></span>' +
         '<span class="sicons">' +
         '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 21 1 8c6.2-5.3 15.8-5.3 22 0z"/></svg>' +
         '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M2 22h20V2z"/></svg>' +
@@ -183,7 +185,7 @@ export function buildTutorialHtml(params: ReviewTutorialParams): string {
     const clock = params.clock || localClock();
     const email = params.userEmail || "";
     const accent = params.accent || "#0B57D0";
-    const review = params.reviewText || L.sampleReview;
+    const review = params.reviewText ?? L.sampleReview;
     const lang = (params.locale || "en").split("-")[0].toLowerCase();
     const dir = params.dir || (RTL_LOCALES.indexOf(lang) >= 0 ? "rtl" : "ltr");
 
@@ -201,10 +203,10 @@ export function buildTutorialHtml(params: ReviewTutorialParams): string {
         '<div class="camera"><div class="phone">' +
 
         /* A - launcher */
-        '<section class="scr launcher">' + launcherGrid(L) + "</section>" +
+        '<section class="scr launcher">' + launcherGrid(L, lang) + "</section>" +
 
         /* B - splash da Play */
-        '<section class="scr splash">' + playLogo(58) + "</section>" +
+        '<section class="scr splash"><div class="splash-window"></div>' + playLogo(68, 'splash-logo') + '<i class="spinner"></i></section>' +
 
         /* C - home da Play Store */
         '<section class="scr playhome">' + statusBar(clock) +
@@ -232,12 +234,12 @@ export function buildTutorialHtml(params: ReviewTutorialParams): string {
         menuRow("bell", L.notificationsOffers, "1") +
         menuRow("card", L.paymentsSubscriptions) +
         menuRow("shield", L.playProtect) +
-        menuRow("stars", L.playPoints) +
         menuRow("folder", L.library) +
+        menuRow("stars", L.playPoints) +
         "</div></div></section>" +
 
         /* E - gerenciar apps e dispositivos */
-        '<section class="scr manage">' + statusBar(clock) +
+        '<section class="scr manage"><div class="mg-content">' +
         '<div class="mg-actions"><span>' + esc(L.updateAll) + "</span><span>" +
         esc(L.seeDetails) + "</span></div>" +
         '<div class="mg-row">' + icon("storage", 22) +
@@ -248,18 +250,18 @@ export function buildTutorialHtml(params: ReviewTutorialParams): string {
         '<div class="mg-sub">' + esc(L.noDeviceSynced) + "</div></div></div>" +
         '<div class="mg-row tap" data-k="ratings">' + icon("stars", 22) +
         '<div class="mg-body"><div class="mg-title">' + esc(L.ratingsReviews) + "</div></div></div>" +
-        "</section>" +
+        "</div></section>" +
 
         /* F - tela Avaliacoes */
-        '<section class="scr reviews">' + statusBar(clock) +
+        '<section class="scr reviews"><div class="rv-card">' + statusBar(clock) +
         '<div class="rv-top">' + icon("back", 22) + "<h1>" + esc(L.reviewsTitle) + "</h1></div>" +
         '<div class="rv-tabs"><span class="on">' + esc(L.tabNotRated) + "</span><span>" +
         esc(L.tabPosted) + "</span></div>" +
-        '<div class="rv-item">' + appIcon(params.appIconUrl, appName, 44, 10) +
+        '<div class="rv-item">' + appIcon(params.appIconUrl, appName, 38, 8) +
         '<div class="rv-body"><div class="rv-name">' + esc(appName) + "</div>" +
         '<div class="rv-sub">' + esc(subtitle) + "</div></div></div>" +
-        '<div class="rv-stars" data-k="rvstars">' + starRow(0, 19, 47) + starRow(5, 19, 47) + "</div>" +
-        '<div class="rv-feedback">' + esc(L.sendFeedback) + "</div></section>" +
+        '<div class="rv-stars" data-k="rvstars">' + starRow(0, 24, 42) + starRow(5, 24, 42) + "</div>" +
+        '<div class="rv-feedback">' + esc(L.sendFeedback) + "</div></div></section>" +
 
         /* G - composer de avaliacao */
         '<section class="scr composer"><div class="cp-card">' + statusBar(clock) +
@@ -272,9 +274,9 @@ export function buildTutorialHtml(params: ReviewTutorialParams): string {
         esc(initial) + '</span><span class="cp-uname">' + esc(userName) + "</span></div>" +
         '<p class="cp-notice">' + esc(L.privacyNotice) +
         ' <span class="cp-more">' + esc(L.learnMore) + "</span></p>" +
-        '<div class="cp-stars">' + starRow(5, 17, 25) + "</div>" +
+        '<div class="cp-stars">' + starRow(5, 22, 20) + "</div>" +
         '<div class="cp-field" data-k="field"><span class="cp-ph">' + esc(L.describeExperience) + "</span>" +
-        '<span class="cp-typed"></span><i class="caret"></i></div>' +
+        '<span class="cp-input"><span class="cp-typed"></span><i class="caret"></i></span></div>' +
         '<div class="cp-count"><span class="cp-n">0</span>/500</div>' +
         "</div></section>" +
 
@@ -285,13 +287,23 @@ export function buildTutorialHtml(params: ReviewTutorialParams): string {
         annotations() +
 
         "</div></div>" +
-        "<script>" + JS.replace(/__REVIEW__/g, escJs(review)) + "</script>" +
+        '<script id="tutorial-timings" type="application/json">' + JSON.stringify(params.timings || {}).replace(/</g, "\\u003c") + '</script>' +
+        "<script>" + JS.replace(/__REVIEW__/g, () => escJs(review))
+            .replace("__TRANSITIONS__", () => JSON.stringify(REVIEW_TUTORIAL_TRANSITIONS)) + "</script>" +
         "</body></html>"
     );
 }
 
 /** Ícones do launcher: aproximações simples, só o alvo (Play Store) carrega significado. */
 const LAUNCHER_ART: Record<string, string> = {
+    phone:
+        '<svg viewBox="0 0 24 24" width="31" height="31"><path fill="#1A73E8" d="M6.6 10.8c1.4 2.8 3.6 5 6.4 6.4l2.1-2.1c.3-.3.7-.4 1.1-.2 1.2.4 2.5.6 3.8.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1C10.6 21 3 13.4 3 4c0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.6.6 3.8.1.4 0 .8-.2 1.1z"/></svg>',
+    files:
+        '<svg viewBox="0 0 24 24" width="31" height="31"><path fill="#DADCE0" d="M5 2h9l5 5v15H5z"/><path fill="#F1F3F4" d="M14 2v6h5z"/><path fill="#FBBC04" d="M10 10h12v11H10z"/><path fill="#4285F4" d="M2 16h8v6H2z"/></svg>',
+    youtube:
+        '<svg viewBox="0 0 24 24" width="31" height="31"><rect x="1" y="5" width="22" height="15" rx="4" fill="#F00"/><path fill="#FFF" d="m10 9 6 3.5-6 3.5z"/></svg>',
+    ytmusic:
+        '<svg viewBox="0 0 24 24" width="33" height="33"><circle cx="12" cy="12" r="11" fill="#FF0033"/><circle cx="12" cy="12" r="7.5" fill="none" stroke="#FFF"/><path fill="#FFF" d="m10 8 6 4-6 4z"/></svg>',
     photos:
         '<svg viewBox="0 0 24 24" width="32" height="32">' +
         '<path fill="#F9AB00" d="M12 3c2.2 0 4 1.8 4 4v4h-4a4 4 0 0 1-4-4 4 4 0 0 1 4-4z" opacity=".9"/>' +
@@ -327,18 +339,24 @@ const LAUNCHER_ART: Record<string, string> = {
         '<path d="m8.6 12.2 2.3 2.3 4.5-4.6" stroke="#fff" stroke-width="1.8" fill="none" stroke-linecap="round"/></svg>',
 };
 
-function launcherGrid(L: PlayLabels): string {
+function launcherGrid(L: PlayLabels, lang: string): string {
+    const names: Record<string, string[]> = {
+        pt: ["Fotos", "Mensagens", "Relógio", "Segurança", "Telefone", "Arquivos"],
+        en: ["Photos", "Messages", "Clock", "Safety", "Phone", "Files"],
+        es: ["Fotos", "Mensajes", "Reloj", "Seguridad", "Teléfono", "Archivos"],
+    };
+    const [photos, messages, clock, security, phone, files] = names[lang] || names.en;
     const cells: Array<[string, string]> = [
-        ["photos", "Fotos"],
+        ["photos", photos],
         ["gmail", "Gmail"],
         ["google", "Google"],
         ["maps", "Maps"],
-        ["messages", "Mensagens"],
+        ["messages", messages],
         ["play", L.playStore],
-        ["clock", "Relógio"],
-        ["security", "Segurança"],
-        ["phone", "Telefone"],
-        ["files", "Arquivos"],
+        ["clock", clock],
+        ["security", security],
+        ["phone", phone],
+        ["files", files],
         ["youtube", "YouTube"],
         ["ytmusic", "YT Music"],
     ];
@@ -361,7 +379,7 @@ function launcherGrid(L: PlayLabels): string {
 const ANNOTATIONS: Array<[number, number, number, number, number, number, number, number]> = [
     /* x, y, largura, altura, setaW, setaH, aparece(s), some(s) */
     [126, 112, 106, 44, 17, 30, 0.0, 1.5],   /* A1 icone da Play Store no launcher */
-    [302, 45, 112, 45, 18, 30, 2.6, 3.8],    /* A2 avatar do perfil */
+    [302, 45, 112, 45, 18, 30, 2.8, 3.6],    /* A2 avatar do perfil */
     [102, 58, 118, 50, 21, 34, 4.0, 5.5],    /* A3 "Gerenciar apps e dispositivos" */
     [24, 52, 148, 62, 26, 42, 5.8, 7.6],     /* A4 "Notas e avaliacoes" */
     [230, 138, 148, 62, 25, 41, 8.7, 9.6],   /* A5 estrelas 4 e 5 da lista */
@@ -375,7 +393,7 @@ const ARROW_GAP = 9;
 const PULSE = 1.0;
 const TOTAL = 19;
 
-const pct = (t: number) => ((t / TOTAL) * 100).toFixed(3);
+const pct = (t: number) => ((t / TOTAL) * 100).toFixed(6);
 
 /**
  * Regras de posicao e de pulso das anotacoes.
@@ -411,13 +429,15 @@ function annotRules(rtl: boolean): string {
         }
         rect.push("100%{transform:scale(1)}");
         arrow.push("100%{transform:translateY(0)}");
+        out.push(timeline("an" + n, [[0, "opacity:" + (appear === 0 ? "1" : "0")],
+            [appear, "opacity:1"], [vanish, "opacity:0"], [TOTAL, "opacity:0"]]));
         out.push("@keyframes rct" + n + "{" + rect.join("") + "}");
         out.push("@keyframes arw" + n + "{" + arrow.join("") + "}");
     });
     return out.join("\n");
 }
 
-/** Sete anotacoes estaticas/** Sete anotacoes estaticas; cada uma acende no seu intervalo com corte seco (step-end). */
+/** Sete anotacoes estaticas; cada uma acende no seu intervalo com corte seco (step-end). */
 function annotations(): string {
     let out = "";
     for (let i = 1; i <= 7; i++) {
@@ -431,338 +451,308 @@ function annotations(): string {
     return out;
 }
 
+/** Seconds, rather than rounded percentages, are the source of truth. */
+function timeline(name: string, frames: Array<[number, string]>): string {
+    return "@keyframes " + name + "{" + frames.map(([t, style]) => pct(t) + "%{" + style + "}").join("") + "}";
+}
+
 const CSS = `
 *{box-sizing:border-box;margin:0;padding:0;-webkit-font-smoothing:antialiased}
 html,body{width:100%;height:100%;overflow:hidden;background:#FDFDFD}
-body{font-family:Roboto,'Google Sans','Helvetica Neue',system-ui,sans-serif;color:#202124}
-:root{--accent:__ACCENT__;--surface:#FDFDFD;--tonal:#F8F7FC;--text:#202124;
-  --text2:#5F6368;--divider:#C6C6C6;--red:#FF0000}
+body{font-family:Roboto,'Helvetica Neue',Arial,sans-serif;color:#202124}
+:root{--accent:__ACCENT__;--surface:#FDFDFD;--text:#202124;--text2:#5F6368;--red:#FF0000;--direction:1}
+html[dir=rtl]{--direction:-1}
 .fit{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}
 .canvas{position:relative;width:426px;height:240px;overflow:hidden;background:var(--surface);
   transform:scale(var(--s,1));transform-origin:center;flex:none}
-.camera{position:absolute;inset:0;transform-origin:0 0;animation:camera 19s infinite step-end}
-.phone{position:absolute;inset:0}
-/* telas autoradas direto no espaco do canvas (426x240) */
+.camera,.phone{position:absolute;inset:0}
 .scr{position:absolute;inset:0;opacity:0;background:var(--surface);overflow:hidden}
-.launcher{animation:sA 19s infinite linear;transform-origin:177px 134px}
-.splash{animation:sB 19s infinite linear;transform-origin:177px 134px}
-.playhome{animation:sC 19s infinite linear}
-.sheet{animation:sD 19s infinite linear}
+.launcher{animation:sA 19s infinite linear;transform-origin:177px 134px;background:#D8D7DE}
+.splash{animation:sB 19s infinite linear;background:transparent}
+.playhome{animation:sC 19s infinite linear;transform-origin:0 0}
+.sheet{animation:sD 19s infinite linear;background:var(--surface) url('${SHEET_BACKDROP}') calc(50% - 11px) center/cover no-repeat}
 .manage{animation:sE 19s infinite linear}
-.reviews{animation:sF 19s infinite linear}
-.composer{animation:sG 19s infinite linear}
-.splash svg{animation:splashLogo 19s infinite linear}
-/* clarao branco do corte em 7,9 s (frame f079 e branco puro) */
-.flash{position:absolute;inset:0;background:#FFF;opacity:0;pointer-events:none;
-  animation:flash 19s infinite step-end}
+.reviews{animation:sF 19s infinite linear;background:url('${REVIEWS_BACKDROP}') center/cover}
+.composer{animation:sG 19s infinite linear;background:url('${COMPOSER_BACKDROP}') center/cover}
+.flash{position:absolute;inset:0;background:var(--surface);opacity:0;pointer-events:none;animation:flash 19s infinite step-end}
+.ic,.st{flex:none;display:block}
+.appicon{display:block;object-fit:cover;flex:none}
+.ph{display:flex;align-items:center;justify-content:center;color:#fff}
+.sbar{display:flex;align-items:center;justify-content:space-between;height:26px;
+  padding:0 12px 8px;color:#5F6368;font-size:11px;line-height:14px}
+.s-warning{font-size:10px}
+.sicons{display:flex;align-items:center;gap:2px}
+.sicons svg{width:12px;height:12px}
+.sicons svg:last-child{width:8px}
 
-.sbar{display:flex;align-items:center;justify-content:space-between;height:24px;
-  padding:0 12px;color:var(--text);font-size:11px}
-.clock{font-weight:500}
-.sicons{display:flex;align-items:center;gap:3px}
-
-/* ---------- A launcher (ref f005) ---------- */
-.launcher{background:#D8D7DE}
-.lg{display:grid;grid-template-columns:repeat(4,1fr);padding:19px 62px 0;row-gap:31px}
-.lg-cell{display:flex;flex-direction:column;align-items:center;gap:14px}
-.lg-icon{width:40px;height:40px;border-radius:50%;background:#FFF;display:flex;
+/* Launcher: 46px icons on the original 72 × 95px grid. */
+.lg{display:grid;grid-template-columns:repeat(4,46px);padding:17px 82px 0;column-gap:26px;row-gap:28px}
+.lg-cell{display:flex;flex-direction:column;align-items:center;gap:9px}
+.lg-icon{width:46px;height:46px;flex:none;border-radius:50%;background:#FFF;display:flex;
   align-items:center;justify-content:center;box-shadow:0 1px 2px rgba(0,0,0,.16)}
-.lg-label{font-size:10px;color:#1F1F1F;letter-spacing:.1px;line-height:10px}
+.lg-icon svg{display:block}
+.lg-label{font-size:10px;line-height:12px;color:#1F1F1F;white-space:nowrap}
 
-/* ---------- B splash (ref f020) ---------- */
-.splash{display:flex;align-items:center;justify-content:center;background:#FFF}
+/* The window and its logo have separate, measured trajectories. */
+.splash-window{position:absolute;background:var(--surface);animation:splashWindow 19s infinite linear}
+.splash-logo{position:absolute;width:68px;height:68px;inset-inline-start:179px;top:90px;
+  animation:splashLogo 19s infinite linear}
+.spinner{position:absolute;left:212px;top:223px;width:3px;height:7px;border-left:1px solid #1d7198;
+  border-radius:50%;opacity:0;animation:spinner 19s infinite step-end}
 
-/* ---------- C play home (ref f032) ---------- */
-.playhome .sbar{justify-content:flex-end}
+.playhome .sbar{justify-content:flex-end;padding-inline-end:36px}
+.playhome .sicons svg{width:18px;height:18px}
+.playhome .sicons svg:last-child{width:13px}
 .playhome .clock{display:none}
-.ph-top{padding:24px 46px 0 14px}
+.ph-top{padding:22px 46px 0 14px}
 .ph-search{display:flex;align-items:center;gap:20px;height:40px;justify-content:flex-end}
-.ph-hint{display:none}
 .ph-bell{position:relative;color:var(--text2);display:flex}
-.dot{position:absolute;top:-2px;right:-3px;background:#D93025;color:#FFF;font-size:9px;
-  font-style:normal;width:15px;height:15px;border-radius:50%;display:flex;
-  align-items:center;justify-content:center}
-.ph-avatar{width:40px;height:40px;border-radius:50%;background:#E4E4E6;flex:none}
-.ph-tabs{display:flex;gap:60px;padding:39px 0 0;margin-left:-106px;font-size:18px;
-  color:var(--text2);white-space:nowrap}
-.ph-tabs .on{color:var(--accent);font-weight:500}
-.ph-banner{position:absolute;left:0;right:0;top:168px;bottom:0;overflow:hidden;
-  background:#6AABDB}
-.ph-banner i{position:absolute;left:-6%;width:112%;height:19px;display:block;filter:blur(7px)}
-.ph-banner i:nth-child(1){top:-2px;background:linear-gradient(90deg,#5EA9DC,#60A9DC,#65AADA,#67AADA,#68ABDB,#6CACDC,#6CACDC,#6AACDC)}
-.ph-banner i:nth-child(2){top:16px;background:linear-gradient(90deg,#5AA8DC,#67A6D5,#5D9ECD,#6FA7CF,#689997,#69ACDD,#8385A6,#769BCA)}
-.ph-banner i:nth-child(3){top:34px;background:linear-gradient(90deg,#6AA0B8,#A6A3C0,#7B9AC0,#A5918C,#6E7F37,#7391B3,#987F89,#8D86AE)}
-.ph-banner i:nth-child(4){top:52px;height:26px;background:linear-gradient(90deg,#AD9A5D,#BB97A4,#8D8090,#A88945,#848448,#80838A,#9B7F95,#957B97)}
+.dot{position:absolute;top:-2px;right:-3px;background:#B83A28;color:#FFF;font-size:10px;
+  font-style:normal;width:17px;height:17px;border-radius:50%;display:flex;align-items:center;justify-content:center}
+.ph-avatar{width:40px;height:40px;border:1px solid #dedee0;border-radius:50%;background:#efeff1;flex:none}
+.ph-tabs{display:flex;gap:60px;padding:36px 0 0;margin-inline-start:-102px;font-size:18px;
+  line-height:22px;color:var(--text2);white-space:nowrap}
+.ph-tabs .on{color:var(--accent)}
+.ph-banner{position:absolute;inset-inline:0;top:168px;height:72px;
+  background:url('${STORE_BANNER}') center/cover;animation:bannerIn 19s infinite step-end}
 
-/* ---------- D bottom sheet (ref f045) ---------- */
-.sheet{background:linear-gradient(90deg,rgba(0,0,0,.62) 0,rgba(0,0,0,.05) 62px,
-  rgba(0,0,0,.05) calc(100% - 62px),rgba(0,0,0,.62) 100%)}
-.sh-card{position:absolute;left:82px;right:58px;top:-72px;bottom:-40px;
-  box-shadow:0 0 9px 4px rgba(0,0,0,.82);
-  background:#F8F4FC;border-radius:26px 26px 0 0;padding-top:16px;
-  animation:sheetUp 19s infinite}
-.sh-word{text-align:center;font-size:22px;font-weight:500;letter-spacing:-.5px;
-  margin-bottom:14px}
-.sh-word b{font-weight:500}
-.sh-acct{display:flex;align-items:center;gap:12px;padding:0 20px 16px}
-.sh-mail{flex:1;font-size:13px;color:var(--text);white-space:nowrap;overflow:hidden;
-  text-overflow:ellipsis}
+.sh-card{position:absolute;inset-inline:69px;top:-92px;bottom:-100px;
+  background:#F8F7FC;border-radius:24px 24px 0 0;padding-top:16px;
+  transform-origin:center top;animation:sheetUp 19s infinite linear}
+.sh-word{text-align:center;font-size:22px;line-height:26px;letter-spacing:-.5px;margin-bottom:14px}
+.sh-word b{font-weight:400}
+.sh-acct{display:flex;align-items:center;gap:12px;height:56px;padding:0 20px 16px}
+.sh-avatar{width:28px;height:28px;border-radius:50%;color:white;display:flex;align-items:center;justify-content:center;flex:none}
+.sh-mail{flex:1;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .sh-caret{color:var(--text2);display:flex;transform:rotate(90deg)}
-.sh-pill{margin:0 auto 16px;width:max-content;max-width:88%;border:1px solid #B6B5B4;
-  border-radius:16px;padding:6px 14px;font-size:12px;color:var(--text)}
-.sh-menu{background:transparent;padding:0}
-.mrow{display:flex;align-items:center;gap:13px;height:38px;padding:0 20px 0 23px;
-  color:var(--text2)}
-.mlabel{flex:1;font-size:12px;color:var(--text);white-space:nowrap;overflow:hidden;
-  text-overflow:ellipsis}
-.mbadge{font-size:11px;color:var(--text2)}
+.sh-pill{margin:0 auto 16px;width:max-content;max-width:92%;border:1px solid #B6B5B4;
+  border-radius:5px;padding:5px 10px;font-size:10px;line-height:14px;white-space:nowrap}
+.sh-menu{border-top:1px solid #eeedf0}
+.mrow{display:flex;align-items:center;gap:18px;height:38px;padding:0 18px 0 28px;color:var(--text2)}
+.mlabel{flex:1;font-size:10px;line-height:14px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mbadge{font-size:9px}
 
-/* ---------- E gerenciar apps (ref f078; a camera aproxima em 5,8-7,5 s) ---------- */
-.manage .sbar{display:none}
-.mg-actions{display:flex;gap:30px;padding:18px 0 0 100px;font-size:13px;
-  color:var(--accent);font-weight:500}
-.mg-row{display:flex;align-items:flex-start;gap:18px;padding:22px 24px 0 46px;
-  color:var(--text2)}
-.mg-row.tap{padding-top:14px;padding-bottom:14px;margin-top:8px;
-  animation:tapRipple 19s infinite step-end}
-@keyframes tapRipple{0%{background:transparent}40%{background:#EDEDED}
-  41.579%{background:transparent}100%{background:transparent}}
+/* Author at the unzoomed f078 geometry; pan only this screen's content. */
+.mg-content{position:absolute;inset:0;transform-origin:0 0;animation:manageView 19s infinite linear}
+[dir=rtl] .mg-content{transform-origin:100% 0}
+.mg-actions{position:absolute;inset-inline-start:97px;top:18px;display:flex;gap:26px;
+  font-size:13px;line-height:16px;color:var(--accent)}
+.mg-row{position:absolute;inset-inline:50px 0;top:83px;display:flex;gap:25px;color:var(--text2)}
+.mg-row:nth-child(3){top:157px}
+.mg-row.tap{top:209px;padding-block:8px;animation:tapRipple 19s infinite step-end}
 .mg-body{flex:1;min-width:0}
-.mg-title{font-size:15px;color:var(--text)}
-.mg-title.one{white-space:nowrap;overflow:hidden;text-overflow:clip}
-.mg-sub{font-size:12px;color:var(--text2);margin-top:3px}
-.mg-bar{margin-top:9px;height:4px;border-radius:2px;background:#DADCE0;overflow:hidden;
-  margin-right:30px}
-.mg-bar i{display:block;height:100%;width:45%;background:var(--accent)}
+.mg-title{font-size:15px;line-height:19px;color:var(--text);white-space:nowrap}
+.mg-sub{font-size:13px;line-height:17px;color:var(--text2);margin-top:4px}
+.mg-bar{margin-top:15px;height:4px;background:#DADCE0;overflow:hidden}
+.mg-bar i{display:block;height:100%;width:47%;background:var(--accent)}
 
-/* ---------- F avaliacoes (ref f090) ---------- */
-.rv-top{display:flex;align-items:center;gap:18px;padding:10px 18px 0 25px;color:var(--text)}
-.rv-top h1{font-size:19px;font-weight:400}
-.rv-tabs{display:flex;gap:26px;padding:15px 18px 0 66px;font-size:12px;color:var(--text2);
-  border-bottom:1px solid #E8EAED}
-.rv-tabs .on{color:var(--accent);font-weight:500;box-shadow:inset 0 -3px 0 var(--accent);
-  padding-bottom:8px}
-.rv-item{display:flex;align-items:center;gap:12px;padding:28px 18px 0 60px}
+.rv-card{position:absolute;inset-block:0;inset-inline:50px 48px;background:var(--surface)}
+.rv-top{display:flex;align-items:center;gap:20px;padding:5px 14px 0;color:var(--text)}
+.rv-top h1{font-size:18px;line-height:24px;font-weight:400}
+.rv-tabs{position:absolute;inset-inline:0;top:70px;height:33px;display:flex;gap:26px;padding-inline-start:15px;
+  font-size:11px;line-height:26px;color:var(--text2);border-bottom:1px solid #d1d1d1;white-space:nowrap}
+.rv-tabs .on{color:#14648b;border-bottom:2px solid #14648b}
+.rv-item{position:absolute;inset-inline:18px 8px;top:113px;display:flex;align-items:flex-start;gap:13px}
 .rv-body{flex:1;min-width:0}
-.rv-name{font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.rv-sub{font-size:10px;color:var(--text2);margin-top:3px;white-space:nowrap;overflow:hidden;
-  text-overflow:clip}
-.rv-stars{position:relative;height:42px;margin-top:3px}
-.rv-stars .stars{position:absolute;left:71px;top:0}
+.rv-name{font-size:12px;line-height:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rv-sub{font-size:10px;line-height:13px;color:#808080;white-space:nowrap;overflow:hidden;text-overflow:clip}
+.rv-stars{position:absolute;inset-inline-start:18px;top:157px;height:28px;width:288px}
+.rv-stars .stars{position:absolute;inset:0}
 .rv-stars .stars:nth-child(1){animation:starEmpty 19s infinite step-end}
 .rv-stars .stars:nth-child(2){opacity:0;animation:starFull 19s infinite step-end}
-.rv-feedback{padding:24px 18px 0 69px;font-size:11px;color:var(--accent)}
+.rv-feedback{position:absolute;inset-inline-start:18px;top:205px;font-size:11px;line-height:14px;color:#14648b}
+.rv-item,.rv-stars,.rv-feedback{animation:reviewContent 19s infinite linear}
 
-/* ---------- G composer (ref f110) — grade vertical medida no frame ---------- */
-.composer{background:#FAFAFA}
-.cp-card{position:absolute;left:78px;right:78px;top:0;bottom:0;background:#FFF}
-.composer .sbar{height:14px;font-size:9px;padding:0 8px}
-.cp-head{display:flex;align-items:center;gap:8px;padding:10px 6px 5px;
-  border-bottom:1px solid var(--divider);color:var(--text2)}
-.cp-headbody{flex:1;min-width:0;margin-right:22px}
-.cp-name{font-size:11px;line-height:11px;color:var(--text);white-space:nowrap;
-  overflow:hidden;text-overflow:ellipsis}
-.cp-sub{font-size:9px;line-height:9px;color:var(--text2);white-space:nowrap;
-  overflow:hidden;text-overflow:ellipsis;margin-top:3px}
-.cp-post{font-size:10px;font-weight:500;color:#A7A7A7;padding-right:2px;
-  animation:postOn 19s infinite step-end}
-.cp-user{display:flex;align-items:center;gap:12px;padding:12px 10px 0 4px}
-.cp-avatar{width:29px;height:29px;border-radius:50%;color:#FFF;font-size:14px;
+.cp-card{position:absolute;inset-block:0;inset-inline:71px;background:var(--surface)}
+.composer .sbar{height:16px;padding:0 12px;font-size:9px;line-height:12px}
+.composer .sicons svg{width:11px;height:11px}
+.cp-head{position:absolute;inset-inline:0;top:16px;height:40px;display:flex;align-items:center;gap:10px;
+  padding:0 10px;border-bottom:1px solid #bfc0c1;color:var(--text2)}
+.cp-headbody{flex:1;min-width:0;margin-inline-end:66px}
+.cp-name{font-size:11px;line-height:15px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cp-sub{font-size:10px;line-height:13px;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cp-post{position:absolute;inset-inline-end:20px;top:16px;font-size:10px;line-height:12px;color:#A7A7A7}
+.cp-user{position:absolute;top:73px;inset-inline:11px 10px;display:flex;align-items:flex-start;gap:11px}
+.cp-avatar{width:29px;height:29px;border-radius:50%;color:#FFF;font-size:17px;
   display:flex;align-items:center;justify-content:center;flex:none}
-.cp-uname{font-size:9px;line-height:9px}
-.cp-notice{margin-top:2px;padding:0 36px 0 45px;font-size:11px;line-height:14px;
-  color:#3C4043}
+.cp-uname{font-size:9px;line-height:12px;padding-top:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cp-notice{position:absolute;inset-inline:51px 13px;top:92px;height:52px;font-size:10px;line-height:14px;color:#3C4043}
 .cp-more{text-decoration:underline;color:var(--text2)}
-.cp-stars{padding:4px 10px 0 42px}
-.cp-field{position:relative;margin:0 10px;border:1px solid var(--accent);
-  border-radius:4px;padding:9px 10px;height:60px;font-size:10px;color:var(--text)}
-.cp-ph{color:var(--text2);animation:phOff 19s infinite step-end}
-.cp-typed{position:absolute;left:10px;top:9px}
-.caret{position:absolute;width:1.5px;height:12px;background:var(--accent);left:10px;top:9px;
-  animation:caretOn 19s infinite step-end,blink 1s infinite step-end}
-.cp-count{text-align:right;padding:4px 12px 0;font-size:8px;color:var(--text2)}
+.cp-stars{position:absolute;inset-inline-start:47px;top:150px}
+.cp-field{position:absolute;inset-inline:17px;top:189px;height:39px;border:1px solid #929292;
+  border-radius:2px;font-size:11px;line-height:14px;color:var(--text)}
+.cp-field.focused{border-color:#14648b;box-shadow:inset 0 0 0 .3px #14648b}
+.cp-ph{position:absolute;inset-inline:10px;top:10px;color:#777;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cp-input{position:absolute;inset-inline:10px;top:10px;height:17px;overflow:hidden;white-space:pre;unicode-bidi:plaintext}
+.cp-typed{white-space:pre}
+.caret{display:inline-block;width:1px;height:15px;background:#14648b;vertical-align:-3px}
+.cp-count{position:absolute;inset-inline-end:17px;top:232px;font-size:8px;line-height:8px;color:var(--text2)}
 .stars{display:flex;align-items:center}
 
-/* ---------- camada 3: anotacoes (fora da camera) ---------- */
 .annot{position:absolute;opacity:0;pointer-events:none}
-.arect{position:absolute;inset:0;border:2px solid var(--red);border-radius:2px;
-  transform-origin:center}
+.arect{position:absolute;inset:0;border:2px solid var(--red);transform-origin:center}
 .achev{position:absolute;left:50%}
-
 __ANNOT_RULES__
 
-/* ---------- timeline mestre: 19 s, % = t/19 ---------- */
-/* telas ja estao em coordenadas do canvas: a camera so atua nos zooms reais */
-@keyframes camera{
-  0%      {transform:none}
-  7.895%  {transform:translate(-125px,-94px) scale(1.6)}
-  10%     {transform:none}
-  30.526% {transform:translate(-24px,-102px) scale(1.09)}
-  41.053% {transform:none}
-  100%    {transform:none}
-}
-/* A launcher -> o app "abre": zoom no icone e fade (1,5-1,9 s) */
-@keyframes sA{
-  0%{opacity:1;transform:scale(1)}
-  7.632%{opacity:1;transform:scale(1);animation-timing-function:cubic-bezier(.4,0,.8,.3)}
-  10%{opacity:0;transform:scale(2.6)}
-  10.01%{opacity:0;transform:scale(1)}
-  100%{opacity:0;transform:scale(1)}
-}
-/* B splash: a janela branca cresce a partir do icone e o logo assenta */
-@keyframes sB{
-  0%{opacity:0;clip-path:circle(0% at 177px 134px)}
-  7.894%{opacity:0;clip-path:circle(0% at 177px 134px)}
-  7.895%{opacity:1;clip-path:circle(0% at 177px 134px);
-    animation-timing-function:cubic-bezier(.05,.7,.1,1)}
-  9.474%{opacity:1;clip-path:circle(130% at 177px 134px)}
-  12.632%{opacity:1;clip-path:circle(130% at 177px 134px)}
-  13.684%{opacity:0;clip-path:circle(130% at 177px 134px)}
-  100%{opacity:0;clip-path:circle(0% at 177px 134px)}
-}
-@keyframes splashLogo{
-  0%,7.895%{opacity:1;transform:scale(2) translateY(-42px);
-    animation-timing-function:cubic-bezier(.2,.7,.3,1)}
-  9.474%{opacity:1;transform:scale(.62) translateY(0)}
-  10.526%{opacity:1;transform:scale(1) translateY(0)}
-  11.053%{opacity:1;transform:scale(1) translateY(0)}
-  12.632%{opacity:0;transform:scale(1) translateY(0)}
-  100%{opacity:0;transform:scale(1) translateY(0)}
-}
-/* C home da Play: fade de entrada; fica por baixo da sheet ate o cross-dissolve */
-@keyframes sC{
-  0%{opacity:0}
-  13.158%{opacity:0}
-  13.684%{opacity:1}
-  28.947%{opacity:1}
-  30.526%{opacity:0}
-  100%{opacity:0}
-}
-/* D bottom sheet: scrim em fade e card deslizando de baixo (3,7-4,0 s) */
-@keyframes sD{
-  0%{opacity:0}
-  19.473%{opacity:0}
-  19.474%{opacity:1}
-  28.947%{opacity:1}
-  30.526%{opacity:0}
-  100%{opacity:0}
-}
-@keyframes sheetUp{
-  0%{transform:translateY(300px)}
-  19.474%{transform:translateY(300px);animation-timing-function:cubic-bezier(.25,.5,.35,1)}
-  21.316%{transform:translateY(0)}
-  100%{transform:translateY(0)}
-}
-/* E gerenciar apps: cross-dissolve com a sheet (5,5-5,8 s) — f056 mostra as duas */
-@keyframes sE{
-  0%{opacity:0}
-  28.947%{opacity:0}
-  30.526%{opacity:1}
-  41.316%{opacity:1}
-  41.842%{opacity:0}
-  100%{opacity:0}
-}
-/* clarao branco do corte (7,85-8,0 s) */
-@keyframes flash{
-  0%{opacity:0}
-  41.316%{opacity:1}
-  42.105%{opacity:0}
-  100%{opacity:0}
-}
-/* F avaliacoes: entra com escala 0,93 -> 1 */
-@keyframes sF{
-  0%{opacity:0;transform:scale(.93)}
-  41.841%{opacity:0;transform:scale(.93)}
-  43.158%{opacity:1;transform:scale(1)}
-  50.526%{opacity:1;transform:scale(1)}
-  51.579%{opacity:0;transform:scale(1)}
-  100%{opacity:0;transform:scale(.93)}
-}
-/* G composer: cross-dissolve com assentamento de escala (9,8-10,1 s) */
-@keyframes sG{
-  0%{opacity:0;transform:scale(.97)}
-  50.526%{opacity:0;transform:scale(.97)}
-  51.579%{opacity:1;transform:scale(.985)}
-  53.158%{opacity:1;transform:scale(1)}
-  100%{opacity:1;transform:scale(1)}
-}
-
-/* estrelas da lista: as 5 preenchem num unico frame (9,6 s) e revertem no seguinte */
-@keyframes starEmpty{0%{opacity:1}50.526%{opacity:0}51.053%{opacity:1}100%{opacity:1}}
-@keyframes starFull{0%{opacity:0}50.526%{opacity:1}51.053%{opacity:0}100%{opacity:0}}
-
-/* caret pisca desde f109 (10,9 s); Postar habilita em f122 (12,2 s) */
-@keyframes caretOn{0%{opacity:0}57.368%{opacity:1}100%{opacity:1}}
-@keyframes blink{0%,49%{opacity:1}50%,100%{opacity:0}}
-/* medido nos frames: cinza ate 12,2 s, azul de 12,2 a 17,4 s, cinza de novo
-   a partir de 17,4 s (o botao desabilita depois do envio) */
-@keyframes postOn{
-  0%{color:#A7A7A7}
-  64.211%{color:var(--accent)}
-  91.316%{color:var(--accent)}
-  91.579%{color:#A7A7A7}
-  100%{color:#A7A7A7}
-}
-@keyframes phOff{0%{opacity:1}64.211%{opacity:0}100%{opacity:0}}
-
-/* anotacoes: corte seco na entrada e na saida */
-@keyframes an1{0%{opacity:1}7.895%{opacity:0}100%{opacity:0}}
-@keyframes an2{0%{opacity:0}13.684%{opacity:1}20%{opacity:0}100%{opacity:0}}
-@keyframes an3{0%{opacity:0}21.053%{opacity:1}28.947%{opacity:0}100%{opacity:0}}
-@keyframes an4{0%{opacity:0}30.526%{opacity:1}40%{opacity:0}100%{opacity:0}}
-@keyframes an5{0%{opacity:0}45.789%{opacity:1}50.526%{opacity:0}100%{opacity:0}}
-@keyframes an6{0%{opacity:0}56.842%{opacity:1}64.737%{opacity:0}100%{opacity:0}}
-@keyframes an7{0%{opacity:0}85.789%{opacity:1}95.263%{opacity:0}100%{opacity:0}}
+${timeline("sA", [[0,"opacity:1;transform:scale(1)"],[1.4,"opacity:1;transform:scale(1)"],[1.5,"opacity:1;transform:scale(.94)"],[1.6,"opacity:0;transform:scale(.94)"],[19,"opacity:0"]])}
+${timeline("sB", [[0,"opacity:0"],[1.499,"opacity:0"],[1.5,"opacity:1"],[2.599,"opacity:1"],[2.6,"opacity:0"],[19,"opacity:0"]])}
+${timeline("splashWindow", [[0,"left:154px;top:111px;width:46px;height:46px;border-radius:23px"],
+  [1.4,"left:154px;top:111px;width:46px;height:46px;border-radius:23px"],
+  [1.5,"left:139px;top:23px;width:103px;height:154px;border-radius:30px"],
+  [1.6,"left:95px;top:-240px;width:232px;height:720px;border-radius:0;box-shadow:0 0 0 18px #d8d7de"],
+  [1.7,"left:113px;top:-240px;width:200px;height:720px;border-radius:0;box-shadow:0 0 0 2px #d8d7de,0 0 0 200px #fdfdfd"],
+  [1.8,"left:123px;top:-240px;width:181px;height:720px;border-radius:0;box-shadow:0 0 0 1px #eee,0 0 0 200px #fdfdfd"],
+  [1.9,"left:0;top:-240px;width:426px;height:720px;border-radius:0;box-shadow:none"],
+  [19,"left:0;top:-240px;width:426px;height:720px;border-radius:0;box-shadow:none"]])}
+${timeline("splashLogo", [[0,"opacity:1;transform:translate(-36px,10px) scale(.5)"],
+  [1.4,"opacity:1;transform:translate(-36px,10px) scale(.5)"],
+  [1.5,"opacity:1;transform:translate(-23px,-25px) scale(1.2)"],
+  [1.6,"opacity:1;transform:translate(0,-80px) scale(1.43)"],
+  [1.7,"opacity:1;transform:translate(0,-23px) scale(1.12)"],
+  [1.8,"opacity:1;transform:translate(0,0) scale(1)"],[2.1,"opacity:1;transform:translate(0,0) scale(1)"],
+  [2.2,"opacity:.35;transform:translate(0,0) scale(1)"],[2.3,"opacity:0;transform:translate(0,0) scale(1)"],[19,"opacity:0"]])}
+${timeline("spinner", [[0,"opacity:0"],[2.4,"opacity:.65"],[2.6,"opacity:0"],[19,"opacity:0"]])}
+${timeline("sC", [[0,"opacity:0;transform:scale(.72)"],[2.599,"opacity:0;transform:scale(.72)"],
+  [2.6,"opacity:1;transform:scale(.85)"],[2.7,"opacity:1;transform:scale(1)"],[3.8,"opacity:1"],[3.9,"opacity:0"],[19,"opacity:0"]])}
+${timeline("bannerIn", [[0,"filter:none;opacity:0"],[2.7,"filter:grayscale(1);opacity:.25"],[2.8,"filter:none;opacity:1"],[3,"filter:none;opacity:1"],[19,"filter:none;opacity:1"]])}
+${timeline("sD", [[0,"opacity:0"],[3.7,"opacity:0"],[3.8,"opacity:1"],[5.5,"opacity:1"],[5.7,"opacity:0"],[19,"opacity:0"]])}
+/* The account menu opens vertically at its final width and horizontal position. */
+${timeline("sheetUp", [[0,"transform:translateY(332px)"],[3.7,"transform:translateY(332px)"],
+  [3.8,"transform:translateY(180px)"],[3.9,"transform:translateY(65px)"],
+  [4,"transform:none"],[5.5,"transform:none"],
+  [5.6,"transform:translate(-14px,-97px) scale(1.12)"],[5.7,"transform:translate(-25px,-215px) scale(1.3)"],[19,"transform:translate(-25px,-215px) scale(1.3)"]])}
+${timeline("sE", [[0,"opacity:0"],[5.4,"opacity:0"],[5.5,"opacity:.12"],[5.6,"opacity:.72"],[5.7,"opacity:1"],[7.8,"opacity:1"],[7.9,"opacity:0"],[19,"opacity:0"]])}
+${timeline("manageView", [[0,"transform:none"],[5.5,"transform:none"],
+  [5.6,"transform:translate(calc(-3px * var(--direction)),-48px) scale(1.07)"],
+  [5.7,"transform:translate(calc(-26px * var(--direction)),-186px) scale(1.25)"],
+  [5.8,"transform:translate(calc(-35px * var(--direction)),-212px) scale(1.3)"],
+  [7.5,"transform:translate(calc(-35px * var(--direction)),-212px) scale(1.3)"],
+  [7.6,"transform:translate(calc(-24px * var(--direction)),-196px) scale(1.23)"],
+  [7.7,"transform:translate(calc(-10px * var(--direction)),-142px) scale(1.14)"],[7.8,"transform:none"],[19,"transform:none"]])}
+${timeline("tapRipple", [[0,"background:transparent"],[7.7,"background:#EDEDED"],[7.9,"background:transparent"],[19,"background:transparent"]])}
+${timeline("flash", [[0,"opacity:0"],[7.9,"opacity:1"],[8,"opacity:0"],[19,"opacity:0"]])}
+${timeline("sF", [[0,"opacity:0;transform:scale(1)"],[7.999,"opacity:0;transform:scale(1)"],[8,"opacity:1;transform:scale(1)"],
+  [9.7,"opacity:1;transform:scale(1)"],[9.8,"opacity:.5;transform:scale(.98)"],[9.9,"opacity:0;transform:scale(.97)"],[19,"opacity:0"]])}
+${timeline("reviewContent", [[0,"opacity:0"],[8.2,"opacity:0"],[8.3,"opacity:.55"],[8.4,"opacity:1"],[19,"opacity:1"]])}
+${timeline("sG", [[0,"opacity:0;transform:scale(1.05)"],[9.7,"opacity:0;transform:scale(1.05)"],[9.8,"opacity:.25;transform:scale(1.05)"],
+  [9.9,"opacity:1;transform:scale(1.03)"],[10,"opacity:1;transform:scale(1)"],[19,"opacity:1;transform:scale(1)"]])}
+${timeline("starEmpty", [[0,"opacity:1"],[9.6,"opacity:0"],[9.7,"opacity:1"],[19,"opacity:1"]])}
+${timeline("starFull", [[0,"opacity:0"],[9.6,"opacity:1"],[9.7,"opacity:0"],[19,"opacity:0"]])}
 `;
 
-/* JS mínimo: escala do canvas + os dois textos que mudam de valor. */
 const JS = `
 (function(){
-  var TEXT="__REVIEW__";
-  var START=12.2,END=16.2,DUR=19;
-  function fit(){
-    var s=Math.min(window.innerWidth/426,window.innerHeight/240);
-    document.documentElement.style.setProperty('--s',s);
-  }
-  fit();window.addEventListener('resize',fit);
-  var typed=document.querySelector('.cp-typed');
-  var caret=document.querySelector('.caret');
-  var count=document.querySelector('.cp-n');
-  var t0=performance.now();
-  /* QA: #t=12.5 congela a pagina nesse instante (comparacao frame a frame) */
-  var FREEZE=null;
-  var m=/[#&]t=([0-9.]+)/.exec(location.hash||'');
-  if(m){
-    FREEZE=parseFloat(m[1]);
-    var st=document.createElement('style');
-    st.textContent='*{animation-delay:-'+FREEZE+'s !important;animation-play-state:paused !important}';
-    document.head.appendChild(st);
-  }
-  /* pausas medidas na fonte: a digitacao nao e uniforme */
-  var HOLD=[[13.8,14.0],[14.8,15.4]];
-  function held(t){
-    var extra=0;
-    for(var i=0;i<HOLD.length;i++){
-      if(t>HOLD[i][1])extra+=HOLD[i][1]-HOLD[i][0];
-      else if(t>HOLD[i][0])extra+=t-HOLD[i][0];
+  var TEXT="__REVIEW__",DUR=19;
+  var TRANSITIONS=__TRANSITIONS__,timings={},segments=[],sourceFrames=[];
+  function remap(t,inverse){
+    var shift=0;
+    for(var i=0;i<segments.length;i++){
+      var s=segments[i];
+      var start=inverse?s.at:s.start,end=inverse?s.until:s.end;
+      var targetStart=inverse?s.start:s.at,targetEnd=inverse?s.end:s.until;
+      if(t<start)return t+shift;
+      if(t<=end)return targetStart+(t-start)/(end-start)*(targetEnd-targetStart);
+      shift=targetEnd-end;
     }
-    return extra;
+    return t+shift;
+  }
+  function setTimings(values){
+    var wasPlaying=!paused;
+    var at=remap(paused?position:normalize((document.timeline.currentTime-epoch)/1000),true);
+    timings={};var shift=0;
+    segments=TRANSITIONS.map(function(s){
+      var value=values&&values[s.key];
+      var duration=typeof value==='number'&&Number.isFinite(value)?Math.min(30,Math.max(.05,value)):s.defaultDuration;
+      timings[s.key]=Math.round(duration*1000000)/1000000;
+      var segment={key:s.key,start:s.start,end:s.end,at:s.start+shift,until:s.start+shift+duration};
+      shift+=duration-(s.end-s.start);return segment;
+    });
+    DUR=19+shift;
+    animations.forEach(function(a,i){
+      a.effect.setKeyframes(sourceFrames[i].map(function(frame){
+        var copy=Object.assign({},frame);delete copy.computedOffset;
+        copy.offset=Math.max(0,Math.min(1,remap(frame.computedOffset*19,false)/DUR));
+        return copy;
+      }));
+      a.effect.updateTiming({duration:DUR*1000});
+    });
+    seek(remap(at,false));if(wasPlaying)play();
+  }
+  var units=typeof Intl.Segmenter==='function'
+    ? Array.from(new Intl.Segmenter(undefined,{granularity:'grapheme'}).segment(TEXT),function(s){return s.segment;})
+    : Array.from(TEXT);
+  var lengths=[0],clipped=[];
+  for(var j=0;j<units.length;j++){
+    var length=lengths[lengths.length-1]+Array.from(units[j]).length;
+    if(length>500)break;
+    clipped.push(units[j]);lengths.push(length);
+  }
+  units=clipped;
+  /* First visible frame of each of the 20 characters in the recording. Pauses are real. */
+  var KEYS=[12.2,12.4,12.6,12.9,13.0,13.2,13.3,13.4,13.5,13.6,13.7,14.0,14.2,14.3,14.4,14.5,14.8,15.6,15.8,16.1];
+  var typed=document.querySelector('.cp-typed'),input=document.querySelector('.cp-input');
+  var caret=document.querySelector('.caret'),count=document.querySelector('.cp-n');
+  var field=document.querySelector('.cp-field'),ph=document.querySelector('.cp-ph'),post=document.querySelector('.cp-post');
+  var animations=[],epoch=0,paused=true,position=0,raf=0;
+  function fit(){document.documentElement.style.setProperty('--s',Math.min(innerWidth/426,innerHeight/240));}
+  fit();addEventListener('resize',fit);
+  function normalize(t){return ((t%DUR)+DUR)%DUR;}
+  function draw(t){
+    var progress=-1;
+    for(var i=0;i<KEYS.length;i++){
+      if(t+1e-6>=KEYS[i]){
+        progress=i;
+        if(i<KEYS.length-1)progress+=Math.min(1,(t-KEYS[i])/(KEYS[i+1]-KEYS[i]));
+      }
+    }
+    var n=progress<0?0:Math.min(units.length,1+Math.floor(progress*(units.length-1)/(KEYS.length-1)+1e-6));
+    var text=units.slice(0,n).join('');
+    if(typed.textContent!==text){
+      typed.textContent=text;count.textContent=String(lengths[n]);
+      input.scrollLeft=document.documentElement.dir==='rtl'?-input.scrollWidth:input.scrollWidth;
+    }
+    var focused=t+1e-7>=10.9;
+    field.classList.toggle('focused',focused);
+    ph.style.visibility=text?'hidden':'visible';
+    caret.style.visibility=focused&&(Math.floor((t-10.9+1e-7)*2)%2===0)?'visible':'hidden';
+    post.style.color=text&&t<17.4?'var(--accent)':'#A7A7A7';
   }
   function tick(){
-    var t=FREEZE!==null?FREEZE:((performance.now()-t0)/1000)%DUR;
-    var n=0;
-    if(t>=START){
-      var tc=Math.min(t,END);
-      var eff=tc-START-held(tc);
-      n=Math.max(0,Math.min(TEXT.length,Math.round(eff/((END-START-held(END))/TEXT.length))));
-    }
-    var s=TEXT.slice(0,n);
-    if(typed.textContent!==s){
-      typed.textContent=s;
-      count.textContent=String(n);
-      caret.style.left=(12+typed.offsetWidth)+'px';
-    }
+    if(paused)return;
+    position=normalize((document.timeline.currentTime-epoch)/1000);draw(remap(position,true));
+    raf=requestAnimationFrame(tick);
   }
-  setInterval(tick,100);tick();
+  function seek(t){
+    if(!Number.isFinite(t))return;
+    paused=true;cancelAnimationFrame(raf);position=normalize(t);
+    animations.forEach(function(a){a.pause();a.currentTime=position*1000;});draw(remap(position,true));
+  }
+  function play(){
+    if(!paused)return;
+    paused=false;epoch=document.timeline.currentTime-position*1000;
+    animations.forEach(function(a){a.play();a.startTime=epoch;});tick();
+  }
+  function pause(){seek(paused?position:(document.timeline.currentTime-epoch)/1000);}
+  /* Capture/export tools use this exact renderer, including caret, text and CSS. */
+  function getState(){
+    var time=paused?position:normalize((document.timeline.currentTime-epoch)/1000);
+    return {time:time,sourceTime:remap(time,true),duration:DUR,playing:!paused,
+      timings:Object.assign({},timings),segments:segments.map(function(s){return Object.assign({},s);})};
+  }
+  window.reviewTutorial={get duration(){return DUR;},seek:seek,play:play,pause:pause,setTimings:setTimings,getState:getState};
+  var initial=/[#&]t=([0-9.]+)/.exec(location.hash||'');
+  window.reviewTutorialReady=Promise.all([
+    document.fonts.ready,
+    Promise.all(Array.from(document.images).filter(function(im){return im.src.indexOf('data:')===0;}).map(function(im){return im.decode().catch(function(){});})),
+  ]).then(function(){
+    animations=document.getAnimations();
+    sourceFrames=animations.map(function(a){return a.effect.getKeyframes();});
+    /* Keep longer translations inside the measured notice area. */
+    var notice=document.querySelector('.cp-notice'),size=10;
+    while(notice.scrollHeight>notice.clientHeight&&size>8){size-=.25;notice.style.fontSize=size+'px';notice.style.lineHeight=(size*1.4)+'px';}
+    setTimings(JSON.parse(document.getElementById('tutorial-timings').textContent));
+    seek(initial?parseFloat(initial[1]):0);
+    if(!initial)play();
+  });
 })();
 `;

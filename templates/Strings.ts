@@ -4,6 +4,10 @@ import {Platform} from "react-native";
 // O hotUpdaterUrl (servidor de OTA do Hot Updater) é o mesmo para iOS e Android.
 const common = {
     hotUpdaterUrl: "https://YOUR-WORKER.workers.dev/api/check-update",
+    // Ícone do app. O expo-utils usa no tutorial de avaliação (AskForReviewOverlay
+    // com `tutorial`), que mostra o app do jeito que ele aparece na Play Store.
+    // Sem isso o tutorial cai num círculo com a inicial do nome.
+    appIcon: require("${iconPath}"),
 };
 
 const ios = {

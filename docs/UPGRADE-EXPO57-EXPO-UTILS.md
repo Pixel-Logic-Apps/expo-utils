@@ -634,7 +634,7 @@ Valores de `review_type`: `"store-review"` | `"popup"` | `"dialog"`.
 ### 5.4.1 Tutorial animado da Play Store (`review_tutorial_enabled`)
 
 O `AskForReviewOverlay` aceita a prop `tutorial`, que troca a imagem estática do card por um
-tutorial animado de 19 s mostrando o caminho até a avaliação na Play Store. Ele é renderizado
+tutorial animado de 21,85 s por padrão mostrando o caminho até a avaliação na Play Store. Ele é renderizado
 como HTML/CSS/JS numa WebView, então **nome do app, ícone, nome do usuário, idioma, cor de
 destaque e relógio são parâmetros** — nada fica queimado num arquivo de mídia.
 
@@ -679,12 +679,39 @@ Pontos de atenção:
 - Desenhado para o aspecto **1,775:1** — é o mesmo do slot de mídia do overlay
   (`width: "100%", height: 200`).
 - Os rótulos da própria Play Store (`Gerenciar apps e dispositivos`, `Notas e avaliações`,
-  `Postar`…) estão preenchidos em **pt/en/es**; os demais locales caem no inglês. Para
-  completar, extraia as strings oficiais do APK da Play Store — o procedimento está no topo de
-  `utils/review-tutorial/labels.ts`. **Não traduza à mão**: o usuário vai procurar na tela
-  dele exatamente o rótulo que o Google usa.
+  `Postar`…) estão preenchidos nos **31 idiomas** da tabela `TRANSLATIONS` de `ask-for-review.tsx`,
+  **extraídos do APK da Play Store** (não traduzidos à mão) — o procedimento com `adb` + `aapt2`
+  está no topo de `utils/review-tutorial/labels.ts`, e é o mesmo para atualizar quando o Google
+  mudar um rótulo. **Não traduza à mão**: o usuário vai procurar na tela dele exatamente o
+  rótulo que o Google usa.
+  Cinco rótulos não existem no APK porque a Play os recebe do backend — as quatro abas da home
+  (`tabForYou`, `tabTrending`, `tabWorkApps`, `tabKids`) e `tabPosted`. Esses seguem em pt/en/es
+  e caem no inglês nos demais; são decoração, nenhuma seta do tutorial aponta para eles.
+- **Sem fonte embutida.** O Android já usa Roboto como fonte de sistema, então o tutorial pede
+  `font-family: Roboto` e não carrega `@font-face`. Isso tirou 34,8 KB do bundle e ainda melhorou
+  o texto (a fonte de sistema tem os pesos reais, o subset embutido só tinha o 400 e caía no
+  sistema mesmo para cirílico/CJK/árabe). Como o tutorial é Android-only, não há perda.
 - `review_tutorial_html` (RC) substitui o HTML inteiro. É a válvula para corrigir um redesenho
   da Play Store nos apps já publicados, sem release.
+- O renderer sincroniza transições, digitação e cursor no mesmo loop (21,85 s no preset atual). Nome,
+  ícone e textos continuam dinâmicos; o launcher e o logo da Play são HTML/SVG.
+  Para gerar e conferir um preview com nome e ícone lidos do `app.json` do host:
+  `bun utils/review-tutorial/preview.ts --project ../meu-app --locale pt --output /tmp/tutorial.html`.
+  Abra o HTML com `#t=12.2` para inspecionar um instante. Veja
+  [os parâmetros e a API de captura](../utils/review-tutorial/README.md).
+  Essa descoberta do ícone é do script: no componente, use `appIcon` ou `appIconUrl`.
+  Se o RC já fornece `review_tutorial_html`, ele continua tendo precedência sobre o template
+  atualizado; remova ou regenere esse override para receber as correções visuais.
+- As durações agora podem ser ajustadas pela prop `timings`, também dentro de
+  `tutorial` do overlay: `tutorial={{timings: {slideDown: 1.0, accountOpen: 0.6}}}`.
+  Os valores são **segundos** e deslocam os próximos eventos juntos; campos omitidos usam
+  os padrões de `utils/review-tutorial/timings.ts`: `storeOpen: 0.7`, `homeEnter: 1.35`,
+  `accountOpen: 1.05`, `manageOpen: 1.35`, `slideDown: 0.25`, `reviewsOpen: 0.5`,
+  `composerOpen: 0.65`, `typing: 3.9` (loop de **21,85 s**).
+  O script acima também gera um `*-editor.html` (ou `editor.html`
+  na saída padrão), com sliders, repetição de trecho e exportação de JSON/HTML.
+  O HTML exportado já contém as durações escolhidas e pode substituir o override do RC.
+  Para ver em inglês, use `--locale en` no script ou `locale: "en"` nas props do tutorial.
 
 ### 5.5 Optional chaining
 

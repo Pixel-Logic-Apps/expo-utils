@@ -29,7 +29,8 @@
         "index.ts",
         "index.d.ts",
         "README.md",
-        "CLAUDE.md"
+        "CLAUDE.md",
+        "!utils/review-tutorial/*.html"
     ],
     "type": "commonjs",
     "types": "./index.d.ts",
