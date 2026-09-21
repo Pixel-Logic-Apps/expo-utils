@@ -34,13 +34,13 @@ não há user property para eles.
 |--------|-----------|-----------|
 | `rc_attribution` | `phase` (1\|2), `steps_ok`, `steps_fail` (`id:fail`\|`id:timeout`), `ms` (desde o início do JS), `synced` (1 enviado · 2 atributos enviados mas a busca de ofertas falhou — projeto do RC sem offering · 0 falhou · -1 SDK sem o método), `att` (só fase 2) | `phase`, `steps_fail`, `synced` |
 | `consent_flow` | `ump` (`obtained`·`not_required`·`required`·`denied`·`timeout`·`skipped`·`error`), `att`, `push` (`granted`·`denied`·`never_ask_again`·`provisional`·`ephemeral`·`undetermined`·`skipped`·`error`) | os três |
-| `install_attribution` | `source` (`link_in_bio`), `matched` (1\|0), `campaign` | `source`, `matched` |
+| `install_attribution` | `source` (`play_referrer` · `link_in_bio`), `matched` (1 = veio de campanha/link · 0 = orgânico ou sem match), `media_source`, `campaign` | `source`, `matched`, `media_source` |
 | `expo_utils_warn` | `message` (100 chars; dedup por sessão, teto de 50) | `message` |
 | `cfg_integrity` | `cfg_hash`, `ad_count`, `is_ads_enabled`, `min_version`, `app_version` | — |
 | `<slug_do_app>` | — (1x por instalação) | — |
 
 Ids de etapa do `rc_attribution` — fase 1: `adsvc` (AdServices, iOS), `fid` (Firebase app
-instance id), `ctx` (atributos de contexto), `store` (storefront), `uid` (user_id do GA4);
+instance id), `ctx` (atributos de contexto), `store` (storefront), `ref` (Play Install Referrer, só Android), `uid` (user_id do GA4);
 fase 2: `ids` (device identifiers), `fb` (FB anonymous id), `push`, `geo`. Etapa `skip` (não se
 aplica: push em simulador, geo desligada) não entra em nenhuma das duas listas.
 
@@ -120,7 +120,7 @@ no console + link AdMob ↔ Firebase).
 
 Reservados: `$firebaseAppInstanceId`, `$idfa`/`$idfv`/`$gpsAdId`/`$ip`, `$fbAnonId`,
 `$apnsTokens` (iOS) / `$fcmTokens` (Android), `$attConsentStatus` (o SDK grava sozinho),
-`$mediaSource`/`$campaign` (match do link-in-bio). Custom: `language`, `locale`, `device_region`,
+`$mediaSource`/`$campaign`/`$adGroup`/`$ad`/`$keyword`/`$creative` (Play Install Referrer no Android; match do link-in-bio). Custom: `install_referrer`, `install_medium`, `gclid`, `language`, `locale`, `device_region`,
 `currency`, `timezone`, `store_country`, `geo_country`, `geo_state`, `geo_state_code`, `geo_city`,
 `geo_source`, `app_version`, `build_number`, `expo_utils_version`, `os_version`, `device_model`,
 `install_date`, `fcm_token` (iOS), `TikTokGetAnonymousID`.

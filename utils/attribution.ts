@@ -11,6 +11,7 @@ import pkg from "../package.json";
 import Utils, {expoUtilsLog, expoUtilsWarn} from "./Utils";
 import {logUtilsEvent, setUtilsUserId} from "./analytics";
 import {lookupGeo, toGeoAttributes} from "./geo";
+import {mapInstallReferrer} from "./install-referrer";
 
 // Atribuição do RevenueCat em DUAS fases + envio forçado + telemetria.
 //
@@ -210,6 +211,22 @@ export const runAttributionPhase1 = (rckey?: string): Promise<void> => {
             if (!storefront?.countryCode) return "skip";
             await Purchases.setAttributes({store_country: storefront.countryCode});
         });
+        // Origem do install (só Android): Play Install Referrer → Media Source / Campaign / Ad Group /
+        // Ad / Keyword / Creative do RevenueCat. É metadado de campanha, não dado pessoal, e o
+        // referrer nunca muda — vai na fase 1 para o 1º recibo já sair atribuído. Ver install-referrer.ts.
+        if (Platform.OS === "android") {
+            await runStep("ref", async () => {
+                const attribution = mapInstallReferrer(await Application.getInstallReferrerAsync());
+                if (!attribution) return "skip";
+                await Purchases.setAttributes({...attribution.reserved, ...attribution.custom});
+                logUtilsEvent("install_attribution", {
+                    source: "play_referrer",
+                    matched: !attribution.organic,
+                    media_source: attribution.reserved.$mediaSource,
+                    campaign: attribution.reserved.$campaign,
+                });
+            });
+        }
         // Liga GA4 → RC: user_id do Analytics = App User ID do RevenueCat. É também o que a
         // integração RevenueCat → Firebase usa para amarrar os eventos server-side ao usuário.
         await runStep("uid", async () => {
@@ -218,7 +235,7 @@ export const runAttributionPhase1 = (rckey?: string): Promise<void> => {
             // typeof: fora do runtime do RN (headless, testes) o global __DEV__ não existe.
             if (typeof __DEV__ !== "undefined" && __DEV__) expoUtilsLog("[expo-utils] RC appUserID (busque por ele no dashboard):", appUserId);
         });
-        const ids = ["adsvc", "fid", "ctx", "store", "uid"];
+        const ids = ["adsvc", "fid", "ctx", "store", "ref", "uid"];
         scheduleRcSync(true).then((synced) => report(1, ids, synced));
     })();
     return phase1Promise;

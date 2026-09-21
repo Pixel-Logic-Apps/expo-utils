@@ -20,6 +20,7 @@ export const state = {
     storage: new Map<string, string>(),
     storefront: {countryCode: "GB"} as {countryCode: string} | null,
     geo: "ok" as "ok" | "fail", // resposta do 1º provedor de geo por IP
+    installReferrer: "utm_source=google-play&utm_medium=organic",
     fetched: [] as string[],
 };
 
@@ -79,6 +80,7 @@ export function installMocks() {
         nativeApplicationVersion: "2.1.0",
         nativeBuildVersion: "42",
         getInstallationTimeAsync: () => Promise.resolve(new Date("2026-08-15T07:53:00Z")),
+        getInstallReferrerAsync: () => Promise.resolve(state.installReferrer),
     }));
     mock.module("expo-device", () => ({osVersion: "14", modelName: "Pixel 8"}));
     mock.module("expo-localization", () => ({

@@ -68,6 +68,10 @@ em SDK de terceiro, leia o fonte de verdade (os `Pods/` e AARs dos apps locais),
   atributos e so depois busca as ofertas; projeto do RC sem offering/produto rejeita com o codigo 23
   (CONFIGURATION_ERROR) **com os atributos ja no customer** (medido em 21/09/2026 no dashboard). Por isso
   `scheduleRcSync` resolve `2` para os codigos 23/2 (lado das ofertas) e so trata como falha (`0`) o resto.
+- **Origem do install no Android (`utils/install-referrer.ts`)**: `Application.getInstallReferrerAsync()` (expo-application, ja peer dep — NAO
+  precisa de modulo nativo novo; em 20/09 deixei isso de fora alegando o contrario sem conferir) → `$mediaSource`/`$campaign`/`$adGroup`/
+  `$ad`/`$keyword`/`$creative` na fase 1. Google Ads so entrega `gclid` (campanha/keyword/criativo nao chegam ao aparelho); Meta/TikTok
+  nada; sideload = `Organic`. O SDK do RC nao coleta mais Android ID e a lib tambem nao (politica do Play: Ad ID × id persistente).
 - **Push**: `push_received` (foreground), `push_received_bg` (background) e `push_opened`
   (`onNotificationOpenedApp` + `getInitialNotification`, dedup pelo ultimo `message_id` persistido) em
   `utils/push-analytics.ts`. O `message_id` NAO casa sender × aparelho em envio por topico — o id de

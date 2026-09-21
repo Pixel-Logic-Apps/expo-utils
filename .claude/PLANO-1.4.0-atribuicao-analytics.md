@@ -18,7 +18,7 @@
 | Push recebida + **aberta** (pedido extra) | feito | `utils/push-analytics.ts` |
 | C1 link-in-bio → `$mediaSource`/`$campaign` + `install_attribution` | feito | `Utils.initLinkInBioTracking` |
 | C2 Apple Search Ads | código pronto (token do AdServices sai na fase 1); **falta ligar a integração no dashboard do RC** (manual) | — |
-| C3 Play Install Referrer | **NÃO feito, de propósito**: exige módulo nativo novo em todo app do portfólio e não há como validar o build nativo aqui | — |
+| C3 Play Install Referrer | **feito em 21/09** — eu tinha deixado de fora alegando que exigia módulo nativo novo; estava errado: `expo-application` já tem `getInstallReferrerAsync()`. Verificado no destino: Media Source = `Organic` no customer Android (sideload). Referrer de campanha só dá pra testar com o app na Play | `utils/install-referrer.ts` |
 
 **Mudança de desenho descoberta medindo (não estava no plano):** o envio com debounce de 2s (A5) ficava
 congelado no Android enquanto o diálogo de permissão de push estava na tela — o Android suspende os timers

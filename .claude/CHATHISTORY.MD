@@ -1574,3 +1574,21 @@ Os testes também pegaram `__DEV__` inexistente fora do runtime do RN (a etapa `
 ### NÃO verificado
 iOS inteiro (ATT, APNS no `setPushToken`, AdServices), `push_opened` com o app FECHADO (dev client abre o launcher),
 link-in-bio/TikTok (dependem de Remote Config), aparelho físico.
+
+### 2026-09-21 (cont.) — iOS verificado, origem do install no Android e evidências
+- **iOS no destino** (simulador iPhone 17 Pro Max, ATT gravado como NEGADO no TCC.db do simulador — sem acesso de
+  acessibilidade pra tocar no prompt): customer no RC com `ATT Consent: Denied`, `idfa` zerado, **`idfv`**, IP, FB Anon ID,
+  Firebase App Instance ID, contexto (`store_country: USA`, alpha-3) e `geo_*`. `rc_attribution`: fase 1
+  `adsvc,fid,ctx,store,uid` em ~2,1s; fase 2 `ids,fb,geo` em ~6,3s, `synced:1`, `att: denied`. Build iOS do projeto novo ok.
+  Ambiente: `pod` só abre com `RUBYOPT=-rlogger` (activesupport 6.1 × concurrent-ruby 1.3.8 no Ruby 2.6 do sistema) e o UDID
+  de simulador do `templates/AGENTS.md` (REGRA 0) não existe mais no Xcode 27 — usar o nome "iPhone 17 Pro Max".
+- **Origem do install (C3 do plano) — feita:** `utils/install-referrer.ts` lê o Play Install Referrer por
+  `Application.getInstallReferrerAsync()` e grava `$mediaSource/$campaign/$adGroup/$ad/$keyword/$creative` na fase 1
+  (+ `install_referrer`, `install_medium`, `gclid`). Verificado no destino: **Media Source = Organic** no customer Android.
+  Eu tinha adiado isso dizendo que exigia módulo nativo novo — errado, o `expo-application` já tinha a API.
+- **Limites reais (respondidos ao usuário):** Google Ads só entrega `gclid` no aparelho (campanha/keyword/criativo só via
+  Google Ads↔GA4 ou MMP); Meta/TikTok nada; Android ID não é mais coletado pelo SDK do RC (e não gravamos: política do Play);
+  APNS só em iPhone físico.
+- **Evidências:** `~/Documents/projetos/expo-utils-lab/evidencias/` (12 prints + `logs-do-teste.txt` + `LEIA-ME.md`),
+  incluindo o DebugView com `push_received`, `push_received_bg` e `push_opened`. O usuário procurou esses eventos na tela
+  do FCM/Messaging — eles são eventos do **Analytics** (DebugView/Events), não aparecem em Messaging.

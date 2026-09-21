@@ -14,7 +14,8 @@ test("fase 1: grava contexto + firebase id + storefront + user_id, força o sync
 
     expect(callNames()).not.toContain("enableAdServicesAttributionTokenCollection"); // só iOS
     expect(callsOf("setFirebaseAppInstanceID")).toEqual([["setFirebaseAppInstanceID", "fid-123"]]);
-    const [context, store] = callsOf("setAttributes").map((call) => call[1]);
+    const [context, store, referrer] = callsOf("setAttributes").map((call) => call[1]);
+    expect(referrer).toMatchObject({$mediaSource: "Organic", install_medium: "organic"});
     expect(context).toMatchObject({
         language: "pt",
         locale: "pt-BR",
@@ -36,7 +37,7 @@ test("fase 1: grava contexto + firebase id + storefront + user_id, força o sync
     expect(callsOf("syncAttributesAndOfferingsIfNeeded")).toHaveLength(1);
 
     const [event] = eventsOf("rc_attribution");
-    expect(event.params).toMatchObject({phase: 1, steps_ok: "fid,ctx,store,uid", steps_fail: "", synced: 1});
+    expect(event.params).toMatchObject({phase: 1, steps_ok: "fid,ctx,store,ref,uid", steps_fail: "", synced: 1});
 });
 
 test("fase 2: device ids SEMPRE + fb + push (FCM no Android) + geo, num envio só e sem depender de timer", async () => {

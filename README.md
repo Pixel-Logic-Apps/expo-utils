@@ -473,6 +473,24 @@ Até a 1.3.x a atribuição era o **último** passo de uma fila serial (splash �
 - **iOS**: `setPushToken` recebe o token **APNS** (é o que o campo `$apnsTokens` espera); o token FCM vai na chave custom `fcm_token`. Android: `setPushToken(fcm)` → `$fcmTokens`.
 - TikTok e link-in-bio gravam o próprio atributo quando o SDK deles sobe. Se o `trackInstall()` do link-in-bio casar o install, grava `$mediaSource = "link_in_bio"` + `$campaign` (e emite `install_attribution`).
 
+### Origem do install: Media Source, Campaign, Ad Group, Ad, Keyword, Creative
+
+| Plataforma | De onde vem | O que preenche |
+|------------|-------------|----------------|
+| **Android** | Play Install Referrer (`Application.getInstallReferrerAsync()` — já é peer dep, sem módulo nativo novo), lido na fase 1 | `utm_source` → Media Source · `utm_campaign` → Campaign · `utm_adgroup` → Ad Group · `utm_ad` → Ad · `utm_term` → Keyword · `utm_content` → Creative. Custom: `install_referrer` (cru), `install_medium`, `gclid` |
+| **iOS** | Apple Search Ads: o token do AdServices sai na fase 1 e o **próprio RevenueCat** resolve Media Source / Campaign / Ad Group / Keyword | exige ligar a integração de Apple Search Ads no dashboard do RC |
+| as duas | match do link-in-bio (`trends_tracking_url`) | Media Source = `link_in_bio` + Campaign |
+
+Limites que **não são da lib**:
+
+- **Google Ads (campanha de app)**: o referrer traz só o id do clique (`gclid`/`gbraid`/`wbraid`). Nome de campanha, grupo, palavra-chave e criativo **não chegam ao aparelho** — só via vínculo Google Ads ↔ Firebase/GA4 ou via MMP (AppsFlyer, Adjust…). A lib marca Media Source = `Google Ads` e guarda o `gclid` para cruzar depois.
+- **Meta / TikTok**: não passam referrer utilizável; sem MMP não há atribuição determinística por install.
+- **Instalação sem link** (busca na loja, sideload): Media Source = `Organic`.
+- **Android ID**: o SDK do RevenueCat **não coleta mais** (não existe `$androidId` no SDK Android 10.x) e a lib não grava de propósito — a política do Google Play proíbe associar o Advertising ID a identificador persistente do aparelho sem consentimento explícito, e o GPS Ad ID já vai.
+- **APNS**: só existe em **iPhone físico** (simulador não tem APNS) e só no iOS; em customer Android o campo fica vazio por plataforma.
+
+Para testar um referrer de campanha de verdade o app precisa estar na Play (faixa de teste interno) e ser instalado por um link `…/details?id=<pacote>&referrer=utm_source%3D…`; por `adb install` o referrer é sempre o orgânico.
+
 ### Atributos de contexto no customer (chaves custom)
 
 | Atributo | Exemplo | Fonte |

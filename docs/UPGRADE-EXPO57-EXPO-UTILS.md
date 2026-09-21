@@ -539,6 +539,7 @@ requestTrackingWhenActive       UMP → ATT → [FB → ATRIBUIÇÃO FASE 2] (de
 
 - **Fase 1** (sem consentimento): AdServices (iOS), `$firebaseAppInstanceId`, atributos de contexto
   (`language`, `locale`, `device_region`, `currency`, `timezone`, `store_country`, `app_version`…),
+  origem do install no Android (Play Install Referrer → Media Source / Campaign / Keyword / Creative),
   `setUserId` do GA4 = App User ID do RevenueCat.
 - **Fase 2** (pós-ATT, não espera push/TikTok): device identifiers **sempre**, `$fbAnonId`, push token,
   geo por IP. Cada etapa com timeout; cada fase termina com `syncAttributesAndOfferingsIfNeeded()`
