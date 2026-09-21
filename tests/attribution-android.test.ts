@@ -15,7 +15,8 @@ test("fase 1: grava contexto + firebase id + storefront + user_id, força o sync
     expect(callNames()).not.toContain("enableAdServicesAttributionTokenCollection"); // só iOS
     expect(callsOf("setFirebaseAppInstanceID")).toEqual([["setFirebaseAppInstanceID", "fid-123"]]);
     const [context, store, referrer] = callsOf("setAttributes").map((call) => call[1]);
-    expect(referrer).toMatchObject({$mediaSource: "Organic", install_medium: "organic"});
+    expect(referrer).toMatchObject({install_medium: "organic"});
+    expect(referrer.$mediaSource).toBeUndefined(); // orgânico não queima o Media Source (1ª gravação vence no RC)
     expect(context).toMatchObject({
         language: "pt",
         locale: "pt-BR",

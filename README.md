@@ -478,16 +478,36 @@ Até a 1.3.x a atribuição era o **último** passo de uma fila serial (splash �
 | Plataforma | De onde vem | O que preenche |
 |------------|-------------|----------------|
 | **Android** | Play Install Referrer (`Application.getInstallReferrerAsync()` — já é peer dep, sem módulo nativo novo), lido na fase 1 | `utm_source` → Media Source · `utm_campaign` → Campaign · `utm_adgroup` → Ad Group · `utm_ad` → Ad · `utm_term` → Keyword · `utm_content` → Creative. Custom: `install_referrer` (cru), `install_medium`, `gclid` |
+| **Android**, anúncio da **Meta** | o mesmo referrer, que a Meta manda **cifrado** — a lib abre no aparelho com a chave do app (seção abaixo) | Media Source = `Instagram Ads` / `Facebook Ads` / `Meta Audience Network` / `Messenger Ads` · Campaign · Ad Group (conjunto) · Ad, com os **nomes reais**. Custom: `meta_*` |
 | **iOS** | Apple Search Ads: o token do AdServices sai na fase 1 e o **próprio RevenueCat** resolve Media Source / Campaign / Ad Group / Keyword | exige ligar a integração de Apple Search Ads no dashboard do RC |
 | as duas | match do link-in-bio (`trends_tracking_url`) | Media Source = `link_in_bio` + Campaign |
 
 Limites que **não são da lib**:
 
 - **Google Ads (campanha de app)**: o referrer traz só o id do clique (`gclid`/`gbraid`/`wbraid`). Nome de campanha, grupo, palavra-chave e criativo **não chegam ao aparelho** — só via vínculo Google Ads ↔ Firebase/GA4 ou via MMP (AppsFlyer, Adjust…). A lib marca Media Source = `Google Ads` e guarda o `gclid` para cruzar depois.
-- **Meta / TikTok**: não passam referrer utilizável; sem MMP não há atribuição determinística por install.
-- **Instalação sem link** (busca na loja, sideload): Media Source = `Organic`.
+- **Meta (Facebook/Instagram)**: no **Android** vem no referrer, cifrado — ver a seção abaixo. No **iOS** não existe equivalente: sem MMP/SKAdNetwork não há atribuição determinística por install.
+- **TikTok**: não passa referrer utilizável em nenhuma plataforma; sem MMP não há atribuição determinística.
+- **Instalação sem link** (busca na loja, sideload): a lib **não grava** Media Source — marca só `install_medium = organic`. Motivo medido no dashboard (21/09/2026, com atributo-controle na mesma gravação): no RevenueCat os campos de atribuição são **“primeira gravação vence”** — regravar `$mediaSource`/`$campaign` pelo SDK não substitui o valor. Um `Organic` escrito no boot bloqueava qualquer fonte melhor que chegasse depois (match do link-in-bio, Apple Search Ads, MMP).
 - **Android ID**: o SDK do RevenueCat **não coleta mais** (não existe `$androidId` no SDK Android 10.x) e a lib não grava de propósito — a política do Google Play proíbe associar o Advertising ID a identificador persistente do aparelho sem consentimento explícito, e o GPS Ad ID já vai.
 - **APNS**: só existe em **iPhone físico** (simulador não tem APNS) e só no iOS; em customer Android o campo fica vazio por plataforma.
+
+### Anúncio da Meta (Facebook / Instagram) no Android — sem MMP
+
+Quando o install vem de um anúncio da Meta, o `utm_content` do referrer é um JSON `{"source": {"data": "<hex>", "nonce": "<hex>"}, "a": <app id>, "t": <timestamp>}` cifrado com **AES-256-GCM**. A lib detecta esse formato sozinha e:
+
+| Situação | O que vai para o customer |
+|----------|---------------------------|
+| **Com a chave** | Media Source pela plataforma que serviu o anúncio (`Instagram Ads`, `Facebook Ads`, `Meta Audience Network`, `Messenger Ads`), **Campaign**, **Ad Group** (conjunto de anúncios) e **Ad** com os nomes reais; custom `meta_campaign_group_name`, `meta_campaign_name`, `meta_adgroup_name`, `meta_ad_id`, `meta_account_id`, `meta_objective`, `meta_placement` (ex.: `instagram:instagram_stories`) |
+| **Sem a chave** (ou chave errada) | Media Source = `Instagram Ads` / `Facebook Ads` (pela dica do `utm_source`, que a Meta avisa **não ser garantida**) ou `Meta Ads`; e o dado cifrado é **guardado** em `meta_ref_nonce` + `meta_ref_data_1..4` para abrir depois, fora do app |
+
+**Configurar a chave** (uma das duas; o Remote Config vence):
+
+1. Meta for Developers → seu app → **Configurações do app → Básico → Android → “Install Referrer Decryption Key”** (hex de 64 caracteres).
+2. Remote Config, dentro do parâmetro `utils`: `"meta_install_referrer_key": "<chave>"` — troca sem publicar versão; **ou** no `Strings.ts`: `metaInstallReferrerKey: "<chave>"`.
+
+A decriptação é TypeScript puro (`utils/aes-gcm.ts`, sem módulo nativo, validada contra o `crypto` do Node e o vetor do NIST; ~6 ms no Hermes) e confere a **tag** do GCM: chave errada ou dado adulterado nunca vira atributo lixo — cai no caminho “sem chave”. O evento `install_attribution` ganha o parâmetro `meta` (`decrypted` · `encrypted` · `decrypt_failed`) para medir em produção se a chave está certa.
+
+Limites: só **Android**; só clique + install na mesma sessão da Play (view-through e install dias depois não passam pelo referrer); a Meta usa a nomenclatura legada (`campaign_group` = campanha, `campaign` = conjunto, `adgroup` = anúncio) — a lib já traduz. A chave só abre a metadata de campanha do **seu próprio** app; ainda assim prefira o Remote Config, que permite rotacionar. **Testado com um referrer sintético no formato da Meta, aberto no aparelho e conferido no dashboard do RevenueCat — ainda não com um anúncio real** (exige o app publicado na Play com campanha rodando). Quem precisa do mapeamento fora do boot: `mapInstallReferrer(referrer, {metaKey})` é exportado.
 
 Para testar um referrer de campanha de verdade o app precisa estar na Play (faixa de teste interno) e ser instalado por um link `…/details?id=<pacote>&referrer=utm_source%3D…`; por `adb install` o referrer é sempre o orgânico.
 

@@ -1592,3 +1592,25 @@ link-in-bio/TikTok (dependem de Remote Config), aparelho físico.
 - **Evidências:** `~/Documents/projetos/expo-utils-lab/evidencias/` (12 prints + `logs-do-teste.txt` + `LEIA-ME.md`),
   incluindo o DebugView com `push_received`, `push_received_bg` e `push_opened`. O usuário procurou esses eventos na tela
   do FCM/Messaging — eles são eventos do **Analytics** (DebugView/Events), não aparecem em Messaging.
+
+### 2026-09-21 (cont. 2) — anúncio da Meta sem MMP + regra "primeira gravação vence" do RevenueCat
+- **Pergunta do usuário:** "tem como saber se veio do instagram tiktok facebook sem usar o MMP?" → 3 propostas; ele escolheu a **1**
+  (tratar o install referrer dos anúncios da Meta no Android).
+- **Feito:** `utils/aes-gcm.ts` (AES-256-GCM só decriptação, TS puro — Hermes não tem WebCrypto; validado contra o `crypto` do Node
+  com 200 casos aleatórios + vetor NIST + adulteração) e `mapMetaReferrer` em `utils/install-referrer.ts`. Chave: Remote Config
+  `meta_install_referrer_key` (prioridade) ou `AppStrings.metaInstallReferrerKey`. Com chave: Media Source pela plataforma
+  (`Instagram Ads`/`Facebook Ads`/`Meta Audience Network`/`Messenger Ads`) + Campaign/Ad Group/Ad com nomes reais + `meta_*`;
+  sem chave: marca a rede e guarda `meta_ref_nonce` + `meta_ref_data_1..4`. Evento `install_attribution` ganhou o param `meta`.
+  Export novo: `mapInstallReferrer`.
+- **Verificado no destino (lab, Android):** referrer sintético no formato da Meta aberto NO APARELHO em 6 ms e os 4 campos
+  visíveis no customer do RC (evidência 13). **NÃO verificado com anúncio real** (exige app na Play + campanha).
+- **Descoberta medindo — atribuição do RC é "primeira gravação vence":** no customer antigo o `Organic` do boot (16:20 UTC)
+  não virou `Instagram Ads` (16:48) embora o `$campaign` da MESMA chamada tenha chegado. Teste de confirmação com
+  atributo-controle: `setAttributes({$mediaSource: "Sobrescrita Teste", $campaign: "Campanha Sobrescrita", overwrite_probe})`
+  → `overwrite_probe` chegou (17:03 UTC), `$mediaSource`/`$campaign` ficaram como estavam (última atualização 16:51) —
+  evidências 14a/14b. Consequência: install orgânico **não grava mais** `$mediaSource` (só `install_medium = organic`).
+- **Armadilha de procedimento:** com simulador iOS e emulador Android no MESMO Metro, o Fast Refresh aplicou a edição só no iOS;
+  o Android seguiu no bundle antigo e o atributo-controle "não chegava". Editou a tela de teste → recarregar o app Android do zero
+  (force-stop + deep link do dev client) antes de concluir qualquer coisa. E os logs do Metro dos dois aparelhos vêm misturados.
+- **Pendente (pedido no meio da tarefa):** propostas para o pxdash / previsibilidade de campanha, ARPU e receita rumo a US$ 100k/mês
+  — é PERGUNTA: responder com proposta, não codar o pxdash sem ok.

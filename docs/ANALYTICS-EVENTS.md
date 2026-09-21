@@ -34,7 +34,7 @@ não há user property para eles.
 |--------|-----------|-----------|
 | `rc_attribution` | `phase` (1\|2), `steps_ok`, `steps_fail` (`id:fail`\|`id:timeout`), `ms` (desde o início do JS), `synced` (1 enviado · 2 atributos enviados mas a busca de ofertas falhou — projeto do RC sem offering · 0 falhou · -1 SDK sem o método), `att` (só fase 2) | `phase`, `steps_fail`, `synced` |
 | `consent_flow` | `ump` (`obtained`·`not_required`·`required`·`denied`·`timeout`·`skipped`·`error`), `att`, `push` (`granted`·`denied`·`never_ask_again`·`provisional`·`ephemeral`·`undetermined`·`skipped`·`error`) | os três |
-| `install_attribution` | `source` (`play_referrer` · `link_in_bio`), `matched` (1 = veio de campanha/link · 0 = orgânico ou sem match), `media_source`, `campaign` | `source`, `matched`, `media_source` |
+| `install_attribution` | `source` (`play_referrer` · `link_in_bio`), `matched` (1 = veio de campanha/link · 0 = orgânico ou sem match), `media_source` (ausente em install orgânico), `campaign`, `meta` (só install de anúncio da Meta: `decrypted` · `encrypted` = sem chave · `decrypt_failed` = chave errada) | `source`, `matched`, `media_source`, `meta` |
 | `expo_utils_warn` | `message` (100 chars; dedup por sessão, teto de 50) | `message` |
 | `cfg_integrity` | `cfg_hash`, `ad_count`, `is_ads_enabled`, `min_version`, `app_version` | — |
 | `<slug_do_app>` | — (1x por instalação) | — |
@@ -120,7 +120,7 @@ no console + link AdMob ↔ Firebase).
 
 Reservados: `$firebaseAppInstanceId`, `$idfa`/`$idfv`/`$gpsAdId`/`$ip`, `$fbAnonId`,
 `$apnsTokens` (iOS) / `$fcmTokens` (Android), `$attConsentStatus` (o SDK grava sozinho),
-`$mediaSource`/`$campaign`/`$adGroup`/`$ad`/`$keyword`/`$creative` (Play Install Referrer no Android; match do link-in-bio). Custom: `install_referrer`, `install_medium`, `gclid`, `language`, `locale`, `device_region`,
+`$mediaSource`/`$campaign`/`$adGroup`/`$ad`/`$keyword`/`$creative` (Play Install Referrer no Android, inclusive anúncio da Meta decriptado; match do link-in-bio — **primeira gravação vence** no RevenueCat, por isso install orgânico não grava `$mediaSource`). Custom: `install_referrer`, `install_medium`, `gclid`, `meta_campaign_group_name`, `meta_campaign_name`, `meta_adgroup_name`, `meta_ad_id`, `meta_account_id`, `meta_objective`, `meta_placement` (anúncio da Meta com a chave) ou `meta_ref_nonce` + `meta_ref_data_1..4` (sem a chave), `language`, `locale`, `device_region`,
 `currency`, `timezone`, `store_country`, `geo_country`, `geo_state`, `geo_state_code`, `geo_city`,
 `geo_source`, `app_version`, `build_number`, `expo_utils_version`, `os_version`, `device_model`,
 `install_date`, `fcm_token` (iOS), `TikTokGetAnonymousID`.

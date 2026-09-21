@@ -441,7 +441,7 @@ const runPrepare = async (appConfig?: any, appStrings?: AppStrings): Promise<voi
         // Atribuição FASE 1 (nada aqui depende de ATT/UMP): dispara já, fora do caminho do
         // splash, pro 1º recibo sair com atributos — quem compra no 1º minuto postava o recibo
         // antes de a fila pós-ATT chegar na atribuição e o customer ficava vazio no RevenueCat.
-        runAttributionPhase1(rckey).catch((e) => expoUtilsWarn("runAttributionPhase1:", e));
+        runAttributionPhase1(rckey, {metaInstallReferrerKey: appStrings?.metaInstallReferrerKey}).catch((e) => expoUtilsWarn("runAttributionPhase1:", e));
         try { await Utils.setupGlobalConfigs(appConfig, remoteConfigs, adUnits); } catch (e) { expoUtilsWarn("setupGlobalConfigs:", e); }
         try { await reportConfigIntegrity(remoteConfigs, appConfig); }             catch (e) { expoUtilsWarn("reportConfigIntegrity:", e); }
 

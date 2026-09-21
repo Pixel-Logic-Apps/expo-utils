@@ -33,6 +33,12 @@ export interface AppStrings {
     rckey?: string;
     adUnits?: AdUnits;
     hotUpdaterUrl?: string;
+    /**
+     * "Install Referrer Decryption Key" do app na Meta (Meta for Developers → App settings → Basic →
+     * Android). Abre a campanha/conjunto/anúncio dos installs vindos de anúncio da Meta no Android.
+     * Também aceita pelo Remote Config (`meta_install_referrer_key`), que tem prioridade.
+     */
+    metaInstallReferrerKey?: string;
     [key: string]: any;
 }
 
@@ -130,6 +136,8 @@ export interface RemoteConfigUtilsType {
      * devolvendo `request.cf`).
      */
     geo_lookup_url?: string;
+    /** Chave de decriptação do install referrer da Meta (hex de 64 chars). Ver `AppStrings.metaInstallReferrerKey`. */
+    meta_install_referrer_key?: string;
 }
 
 /**

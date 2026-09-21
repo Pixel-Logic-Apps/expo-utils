@@ -13,6 +13,8 @@ export {logUtilsEvent, setUtilsUserId, setUtilsUserProperty} from "./utils/analy
 export type {AnalyticsParams} from "./utils/analytics";
 export {setRevenueCatAttributes, scheduleRcSync, getContextAttributes} from "./utils/attribution";
 export {lookupGeo, GEO_PROVIDERS} from "./utils/geo";
+export {mapInstallReferrer} from "./utils/install-referrer";
+export type {InstallAttribution, InstallReferrerOptions} from "./utils/install-referrer";
 export type {GeoResult} from "./utils/geo";
 export {PaywallController, PaywallUtils, usePaywall} from "./utils/PaywallUtils";
 export type {PaywallConfig, PaywallItem, PaywallLoadResult, PaywallOptions, PaywallProductConfig, PaywallPurchaseResult, UsePaywallOptions, UsePaywallResult} from "./utils/PaywallUtils";

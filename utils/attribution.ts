@@ -195,7 +195,7 @@ let phase2Promise: Promise<void> | null = null;
  * do Firebase é identificador first-party, e o resto é contexto do aparelho/app.
  * Memoizada: 1x por sessão.
  */
-export const runAttributionPhase1 = (rckey?: string): Promise<void> => {
+export const runAttributionPhase1 = (rckey?: string, options: {metaInstallReferrerKey?: string} = {}): Promise<void> => {
     if (!rckey) return Promise.resolve();
     if (phase1Promise) return phase1Promise;
     phase1Promise = (async () => {
@@ -216,7 +216,14 @@ export const runAttributionPhase1 = (rckey?: string): Promise<void> => {
         // referrer nunca muda — vai na fase 1 para o 1º recibo já sair atribuído. Ver install-referrer.ts.
         if (Platform.OS === "android") {
             await runStep("ref", async () => {
-                const attribution = mapInstallReferrer(await Application.getInstallReferrerAsync());
+                // Chave da Meta: Strings.ts (metaInstallReferrerKey) ou Remote Config
+                // (meta_install_referrer_key — troca sem release). O Remote Config já está em
+                // memória aqui (o prepare o aguarda antes do Purchases.configure).
+                let metaKey = options.metaInstallReferrerKey;
+                try {
+                    metaKey = (await Utils.getRemoteConfigUtils())?.meta_install_referrer_key || metaKey;
+                } catch {}
+                const attribution = mapInstallReferrer(await Application.getInstallReferrerAsync(), {metaKey});
                 if (!attribution) return "skip";
                 await Purchases.setAttributes({...attribution.reserved, ...attribution.custom});
                 logUtilsEvent("install_attribution", {
@@ -224,6 +231,7 @@ export const runAttributionPhase1 = (rckey?: string): Promise<void> => {
                     matched: !attribution.organic,
                     media_source: attribution.reserved.$mediaSource,
                     campaign: attribution.reserved.$campaign,
+                    meta: attribution.meta,
                 });
             });
         }

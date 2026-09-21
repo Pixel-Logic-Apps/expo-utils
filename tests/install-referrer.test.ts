@@ -4,7 +4,9 @@ import {mapInstallReferrer, parseReferrer} from "../utils/install-referrer";
 test("instalação sem link (busca na loja / sideload) = Organic", () => {
     const a = mapInstallReferrer("utm_source=google-play&utm_medium=organic")!;
     expect(a.organic).toBe(true);
-    expect(a.reserved).toEqual({$mediaSource: "Organic"});
+    // NÃO grava $mediaSource: no RevenueCat a 1ª gravação vence, e "Organic" no boot bloquearia
+    // o match do link-in-bio / Apple Search Ads que chega depois
+    expect(a.reserved).toEqual({});
     expect(a.custom).toEqual({install_referrer: "utm_source=google-play&utm_medium=organic", install_medium: "organic"});
 });
 

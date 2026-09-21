@@ -467,6 +467,7 @@ export default Platform.OS === "android" ? android : ios;
 - [ ] `rckey` iOS começa com `appl_`, Android com `goog_`
 - [ ] Ad units reais (não placeholder `…/0000` — no plant o interstitial Android estava quebrado e foi restaurado para o ID real)
 - [ ] Placeholder `YOUR_REVENUECAT` desativa RevenueCat no utils — nunca deixe em produção
+- [ ] (opcional, só Android com campanha na Meta) `metaInstallReferrerKey: "<hex de 64 chars>"` no bloco `android` — ou, melhor, `meta_install_referrer_key` no Remote Config (§5.4), que tem prioridade e troca sem release
 
 ### 4.2 `src/app/_layout.tsx`
 
@@ -539,7 +540,8 @@ requestTrackingWhenActive       UMP → ATT → [FB → ATRIBUIÇÃO FASE 2] (de
 
 - **Fase 1** (sem consentimento): AdServices (iOS), `$firebaseAppInstanceId`, atributos de contexto
   (`language`, `locale`, `device_region`, `currency`, `timezone`, `store_country`, `app_version`…),
-  origem do install no Android (Play Install Referrer → Media Source / Campaign / Keyword / Creative),
+  origem do install no Android (Play Install Referrer → Media Source / Campaign / Keyword / Creative;
+  anúncio da **Meta** vem cifrado e é aberto no aparelho com a `meta_install_referrer_key`),
   `setUserId` do GA4 = App User ID do RevenueCat.
 - **Fase 2** (pós-ATT, não espera push/TikTok): device identifiers **sempre**, `$fbAnonId`, push token,
   geo por IP. Cada etapa com timeout; cada fase termina com `syncAttributesAndOfferingsIfNeeded()`
@@ -675,7 +677,8 @@ Para preencher o `cross_promo` (e o `promotional` do parâmetro `utils`) sem dig
   "clarity_id": "",
   "trends_tracking_url": "",
   "geo_lookup_enabled": true,
-  "geo_lookup_url": ""
+  "geo_lookup_url": "",
+  "meta_install_referrer_key": ""
 }
 ```
 
@@ -684,6 +687,14 @@ Valores de `review_type`: `"store-review"` | `"popup"` | `"dialog"`.
 `geo_lookup_enabled` (v1.4.0, default `true`): `false` desliga a geo por IP sem build novo.
 `geo_lookup_url` (opcional, só `https`): endpoint próprio tentado antes dos provedores gratuitos
 embutidos (ipwho.is → BigDataCloud → GeoJS); contrato `{country, region, regionCode, city}`.
+
+`meta_install_referrer_key` (v1.4.0, opcional, só Android): a **“Install Referrer Decryption Key”** do app
+na Meta (Meta for Developers → Configurações do app → Básico → Android; hex de 64 chars). Com ela, o
+install vindo de anúncio do Facebook/Instagram grava no customer do RevenueCat Media Source
+(`Instagram Ads`/`Facebook Ads`/…), Campaign, Ad Group e Ad com os nomes reais — sem MMP. Sem ela a lib
+marca só a rede e guarda o dado cifrado (`meta_ref_*`). Tem prioridade sobre
+`AppStrings.metaInstallReferrerKey`. Conferir em produção pelo parâmetro `meta` do evento
+`install_attribution` (`decrypted` = chave certa; `decrypt_failed` = chave errada).
 
 ### 5.4.0 Layout do popup (`review_style`)
 
@@ -1067,6 +1078,8 @@ Use URL em `appStrings.hotUpdaterUrl` + `initHotUpdater` dentro do `ExpoUtilsLay
 | 27 | `Strings.ts` gerado pelo CLI da **1.3.1** | bundle quebra com `Unable to resolve module ${iconPath}` (o template tinha `appIcon: require("${iconPath}")` sem substituição) | apagar a linha `appIcon` do `Strings.ts` — nada na lib lê esse campo (o ícone vem do config plugin). Corrigido no template da 1.4.0 |
 | 28 | Popup de review com a imagem estourada (1.3.1) | recorte gigante da imagem (o "4.7" do banner padrão) e banner registrado com `AskForReviewEvents.setImage()` ignorado | 1.4.0: imagem com largura/altura explícitas e o slot global passa a ser lido |
 | 26 | Geo por IP ligada por padrão | rótulo de privacidade sem "Coarse Location" | declarar nas lojas ou `{"geoAttributes": false}` / `geo_lookup_enabled: false` |
+| 29 | Gravar `$mediaSource`/`$campaign` “provisório” no app (ex.: `Organic` no boot) | no RevenueCat os campos de atribuição são **primeira gravação vence** (medido em 21/09/2026 com atributo-controle na mesma chamada): o valor provisório fica para sempre e a fonte real que chegar depois é ignorada | não gravar atribuição no app host; a lib só grava quando conhece a origem (orgânico vai só em `install_medium`) |
+| 30 | Campanha na Meta sem a `meta_install_referrer_key` | customer Android só com Media Source = `Meta Ads`/`Instagram Ads`, sem campanha | pôr a chave no Remote Config (`utils.meta_install_referrer_key`); o dado cifrado dos installs antigos fica em `meta_ref_nonce` + `meta_ref_data_1..4` e pode ser aberto depois |
 
 ---
 

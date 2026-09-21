@@ -70,8 +70,19 @@ em SDK de terceiro, leia o fonte de verdade (os `Pods/` e AARs dos apps locais),
   `scheduleRcSync` resolve `2` para os codigos 23/2 (lado das ofertas) e so trata como falha (`0`) o resto.
 - **Origem do install no Android (`utils/install-referrer.ts`)**: `Application.getInstallReferrerAsync()` (expo-application, ja peer dep — NAO
   precisa de modulo nativo novo; em 20/09 deixei isso de fora alegando o contrario sem conferir) → `$mediaSource`/`$campaign`/`$adGroup`/
-  `$ad`/`$keyword`/`$creative` na fase 1. Google Ads so entrega `gclid` (campanha/keyword/criativo nao chegam ao aparelho); Meta/TikTok
-  nada; sideload = `Organic`. O SDK do RC nao coleta mais Android ID e a lib tambem nao (politica do Play: Ad ID × id persistente).
+  `$ad`/`$keyword`/`$creative` na fase 1. Google Ads so entrega `gclid` (campanha/keyword/criativo nao chegam ao aparelho); TikTok
+  nada. O SDK do RC nao coleta mais Android ID e a lib tambem nao (politica do Play: Ad ID × id persistente).
+- **Anuncio da META no Android**: o referrer vem CIFRADO (`utm_content` = JSON `{source:{data,nonce}}`, AES-256-GCM formato libsodium:
+  `ciphertext||tag16`, nonce 12, sem AAD). `utils/aes-gcm.ts` abre em TS puro (Hermes nao tem WebCrypto; ~6 ms; confere a TAG — chave
+  errada vira `null`, nunca lixo). Chave = "Install Referrer Decryption Key" do app na Meta, vinda de `meta_install_referrer_key`
+  (Remote Config, tem prioridade) ou `AppStrings.metaInstallReferrerKey`. Nomenclatura LEGADA da Meta: `campaign_group` = campanha,
+  `campaign` = conjunto, `adgroup` = anuncio (a lib traduz). Sem chave: marca a rede e guarda `meta_ref_nonce` + `meta_ref_data_1..4`.
+  Verificado no destino so com referrer SINTETICO (anuncio real exige app na Play com campanha). Mudou campo → atualizar README,
+  `docs/ANALYTICS-EVENTS.md` e o playbook na mesma tarefa.
+- **Campos de atribuicao do RevenueCat sao "primeira gravacao vence"** (medido em 21/09/2026 no dashboard, com atributo-controle na
+  MESMA chamada: o controle chegou, `$mediaSource`/`$campaign` regravados nao mudaram). Por isso install organico NAO grava
+  `$mediaSource` (so `install_medium = organic`) — um `Organic` no boot bloqueava link-in-bio/Apple Search Ads/MMP para sempre.
+  Nunca gravar valor provisorio nesses campos.
 - **Push**: `push_received` (foreground), `push_received_bg` (background) e `push_opened`
   (`onNotificationOpenedApp` + `getInitialNotification`, dedup pelo ultimo `message_id` persistido) em
   `utils/push-analytics.ts`. O `message_id` NAO casa sender × aparelho em envio por topico — o id de
