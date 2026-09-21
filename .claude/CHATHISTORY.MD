@@ -1527,3 +1527,50 @@ Os testes também pegaram `__DEV__` inexistente fora do runtime do RN (a etapa `
 - Não feito de propósito: Play Install Referrer (módulo nativo novo sem como validar build aqui).
 - Pendências do usuário: ligar RC→Firebase e Apple Search Ads no dashboard do RC; declarar "Coarse Location"
   nas lojas (ou desligar a geo); mandar `data.push_id` no `gpt-notification-system`; token npm vence 20/09 23:40.
+
+---
+
+# 2026-09-21 — Teste REAL da 1.4.0 (projeto dedicado) + 3 bugs achados e corrigidos
+
+**Pedido:** "teste isso em um caso real. tudo isso." Comecei clonando o `expo-resultado` e o usuário cortou:
+"pq vc n criou um projeto novo só pra testar tudo?" — certo. O clone foi apagado (a pasta real nunca foi escrita).
+
+### Ambiente de teste que ficou montado
+- **`~/Documents/projetos/expo-utils-lab`** — Expo 57 do zero, lib por `.tgz`, `expo-utils-install --new` inteiro,
+  pacote `com.pixellogic.expoutilslab`, build Android ok (2min38). Telas: `src/app/index.tsx` e `paywall.tsx`.
+- **Firebase real:** projeto `local-desenv` (app Android registrado por mim com autorização; DebugView + push de
+  teste pelo console). **RevenueCat real:** projeto novo "ExpoUtils Lab" (isolado do "Main" de produção),
+  loja de teste `test_…`, offering `default` com 3 produtos.
+
+### Verificado NO DESTINO (Android, emulador)
+- **RevenueCat:** customer com FCM, IP, GPS Ad ID, FB Anon ID, Firebase App Instance ID, `language`, `locale`,
+  `device_region`, `currency`, `timezone`, `store_country`, `geo_country/state/state_code/city/source`, versão etc.
+  **1 min após a 1ª abertura, sem compra e sem sair do app.** Depois: assinatura "Yearly USD 79.99" + entitlement
+  ativo + `lab_test` (API `setRevenueCatAttributes`). `rc_attribution`: fase 1 ~3,5s, fase 2 ~7,1s, `synced:1`.
+- **GA4 (DebugView):** `review_*` com params, `consent_flow`, `promo_impression`/`promo_click` do cross-promo,
+  funil `paywall_*` inteiro (view, cancel, error code 42, product_select, success, close), `rc_attribution`,
+  user properties `att_status` e `rc_status` (virou `active` na compra) e `user_id` = App User ID do RC.
+- **Push com FCM de verdade:** `push_received` (foreground), `push_received_bg` (background) e `push_opened`
+  (toque na notificação, mesmo `message_id`).
+- **Instalação do zero:** CLI `--new` → prebuild (config plugin) → Gradle, tudo ok.
+
+### Bugs achados pelo teste (corrigidos)
+1. **Popup de review com recorte gigante do "4.7"** (bug da **1.3.1**, já no npm): a `<Image>` ficou só com `flex: 1`
+   e `require()` dá o tamanho intrínseco (1024×572) como estilo padrão. Fix: `styles.mediaImage` 100%×100%.
+   Verificado nos 4 estilos + medidor numérico validado contra o print ruim do usuário (261px = DEFEITO; 91px = ok).
+2. **`AskForReviewEvents.setImage()` nunca era lido** para exibir (e o mount sobrescrevia com a imagem padrão) —
+   desde a 1.3.0. O `expo-resultado` registra o banner assim e nunca o viu.
+3. **`templates/Strings.ts` com `require("${iconPath}")` sem substituição** — quebrava o bundle de todo app novo
+   (1.3.1). Linha removida (nada lê `appStrings.appIcon`).
+4. **`synced:0` falso negativo:** `syncAttributesAndOfferingsIfNeeded` rejeita com código 23 quando o projeto do RC
+   não tem offering — com os atributos JÁ no customer. Agora códigos 23/2 resolvem `2`.
+
+### Lições de procedimento (também no AGENTS.md)
+- Matar o Metro com `lsof -ti tcp:8082 | xargs kill` derruba o emulador (o `netsimd` segura essa porta) — fiz 3x.
+- Emulador restaurado de snapshot: FCM só entrega depois de religar a rede (airplane on/off).
+- Achado no `expo-resultado` (do app): escolher ícone no onboarding desabilita a `MainActivity`, e os deep links
+  (`exporesultado://`) só existem nela → param de funcionar; o dev launcher também não abre mais o app.
+
+### NÃO verificado
+iOS inteiro (ATT, APNS no `setPushToken`, AdServices), `push_opened` com o app FECHADO (dev client abre o launcher),
+link-in-bio/TikTok (dependem de Remote Config), aparelho físico.

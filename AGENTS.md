@@ -64,6 +64,10 @@ em SDK de terceiro, leia o fonte de verdade (os `Pods/` e AARs dos apps locais),
   RN nao aplica CORS). So `https` (ATS do iOS). Descartados e por que estao no topo do arquivo. Desliga por
   `geo_lookup_enabled: false` (Remote Config) ou `{"geoAttributes": false}` (plugin); `geo_lookup_url`
   aponta para endpoint proprio. Cidade/estado no customer = "Coarse Location" no rotulo das lojas.
+- **O envio forcado rejeita em app SEM offering e isso NAO e falha**: `syncAttributesAndOfferingsIfNeeded` envia os
+  atributos e so depois busca as ofertas; projeto do RC sem offering/produto rejeita com o codigo 23
+  (CONFIGURATION_ERROR) **com os atributos ja no customer** (medido em 21/09/2026 no dashboard). Por isso
+  `scheduleRcSync` resolve `2` para os codigos 23/2 (lado das ofertas) e so trata como falha (`0`) o resto.
 - **Push**: `push_received` (foreground), `push_received_bg` (background) e `push_opened`
   (`onNotificationOpenedApp` + `getInitialNotification`, dedup pelo ultimo `message_id` persistido) em
   `utils/push-analytics.ts`. O `message_id` NAO casa sender × aparelho em envio por topico — o id de
@@ -454,6 +458,9 @@ Hard-won lessons from debugging consumer apps — they affect anyone integrating
 - **iOS drops overlapping `alert()`s silently** (RN doesn't queue `UIAlertController`) — two back-to-back alerts show only the first, which reads as "code stopped in the middle". Use o `queueAlert(title, message)` do Utils (serializa; o push em foreground já usa) ou encadeie via callback do botão.
 - **Expo dev lazy bundling**: grepping Metro's `entry.bundle` for app code is a false negative — app modules aren't in the initial bundle.
 - **Android pausa os timers do JS com dialogo do sistema na frente** (permissao, UMP, compra): `setTimeout` so dispara quando a Activity volta. Chamada nativa e `fetch` seguem funcionando. Nada que precise sair DURANTE um prompt pode depender de timer/debounce.
+- **`<Image>` com `require()` herda o tamanho INTRINSECO do arquivo como estilo padrao.** So `flex: 1` nao sobrescreve a largura: a imagem padrao do review (1024x572) renderizava com 1024dp num card de ~360dp e o `cover` virava um recorte gigante do "4.7" (bug da 1.3.1, publicado). Imagem que deve preencher um host leva `width: "100%", height: "100%"` explicitos.
+- **Nunca mate o Metro por porta** (`lsof -ti tcp:8082 | xargs kill`): o `netsimd` do emulador Android tambem segura conexao nessa porta (e por ele que o app fala com o Metro) e, morto, derruba o emulador ~20s depois. Mate pelo processo: `pkill -f "expo start --dev-client --port 8082"`.
+- **Emulador restaurado de snapshot fica com a conexao do FCM morta**: push de teste nao chega ate reconectar. Forcar: `adb shell cmd connectivity airplane-mode enable` / `disable`.
 - **`__DEV__` nao existe fora do runtime do RN** (headless, `bun test`): em modulo novo use `typeof __DEV__ !== "undefined" && __DEV__`.
 - **`expoUtilsWarn` emite telemetria**: além do `console.warn` (suprimível com `disableWarnings`), cada mensagem única vira 1 evento `expo_utils_warn` no Firebase Analytics (param `message`, 100 chars; dedup por sessão, cap 50; roda MESMO com `disableWarnings` — é a visibilidade de produção). Best-effort: nunca lança nem recursa.
 - **Promo × ATT**: `usePromotional.show()` espera `waitAttFlowDone()` (resolvido pelo `requestTrackingWhenActive` após o prompt do ATT, com fallback de 15s) antes de agendar o modal — a `Modal` do RN não disputa a janela do prompt do sistema. O gate só arma quando `prepare()` roda; `usePromotional` standalone não espera nada.
@@ -474,7 +481,18 @@ Hard-won lessons from debugging consumer apps — they affect anyone integrating
   `expo-utils` → symlink pro repo, e um `tsconfig.json` com `extends: "expo/tsconfig.base"`,
   `preserveSymlinks: true` e `include` apontando pra `expo-utils/index.ts` + `expo-utils/utils/**`.
 
-### App de teste
+### App de teste dedicado (caso real): `~/Documents/projetos/expo-utils-lab`
+
+Projeto Expo 57 criado SO para testar a lib num caso real — **nunca adapte um app de producao para isso**. Tem
+Firebase real (projeto `local-desenv`, pacote `com.pixellogic.expoutilslab`: DebugView e envio de push de teste pelo
+console) e RevenueCat real (projeto "ExpoUtils Lab", loja de teste `test_…`, offering `default` com 3 produtos — a
+Test Store simula compra valida/falha/cancelamento sem cobranca). `src/app/index.tsx` tem um bloco por feature (review
+nos 4 estilos com imagem padrao/custom, cross-promo, geo, token FCM, atributo custom) e `src/app/paywall.tsx` exercita
+o funil. Roteiro: `npm pack` → extrair o `.tgz` por cima de `node_modules/expo-utils` (conferir com grep) →
+`expo start --dev-client --port 8082` → abrir com `exp+expo-utils-lab://expo-development-client/?url=…` → conferir o
+customer no RevenueCat e os eventos no DebugView. Mudou modulo nativo: `expo prebuild` + `./gradlew :app:assembleDebug`.
+
+### App de teste do zero
 
 Since this is a library:
 

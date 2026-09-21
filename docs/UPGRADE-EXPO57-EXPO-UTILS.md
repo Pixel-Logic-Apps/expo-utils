@@ -1063,6 +1063,8 @@ Use URL em `appStrings.hotUpdaterUrl` + `initHotUpdater` dentro do `ExpoUtilsLay
 | 23 | Timer do JS no Android com diálogo do sistema na frente | `setTimeout` não dispara enquanto a Activity está pausada (permissão, UMP, compra) — medido: envio com debounce saiu 150s depois | caminho crítico sem timer (sync imediato); nunca depender de `setTimeout` para algo que precisa sair durante um prompt |
 | 24 | Product id `assinatura:basePlan` no RevenueCat | ler customer Android como se fosse iOS (APNS/ATT/idfa/idfv "vazios") | `:` no product id = Google Play; esses campos são vazios por plataforma |
 | 25 | `setPushToken(tokenFCM)` no iOS | campo APNS do RC com valor errado | 1.4.0 passa o token APNS; o FCM do iOS vai na chave custom `fcm_token` |
+| 27 | `Strings.ts` gerado pelo CLI da **1.3.1** | bundle quebra com `Unable to resolve module ${iconPath}` (o template tinha `appIcon: require("${iconPath}")` sem substituição) | apagar a linha `appIcon` do `Strings.ts` — nada na lib lê esse campo (o ícone vem do config plugin). Corrigido no template da 1.4.0 |
+| 28 | Popup de review com a imagem estourada (1.3.1) | recorte gigante da imagem (o "4.7" do banner padrão) e banner registrado com `AskForReviewEvents.setImage()` ignorado | 1.4.0: imagem com largura/altura explícitas e o slot global passa a ser lido |
 | 26 | Geo por IP ligada por padrão | rótulo de privacidade sem "Coarse Location" | declarar nas lojas ou `{"geoAttributes": false}` / `geo_lookup_enabled: false` |
 
 ---

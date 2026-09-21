@@ -606,18 +606,21 @@ const AskForReviewOverlay: React.FC<AskForReviewOverlayProps> = ({
         [winHeight, variant, visible],
     );
 
-    // Use provided image or default
-    const displayImage = image || DEFAULT_REVIEW_IMAGE;
+    // Imagem: prop > slot global (AskForReviewEvents.setImage / askForReview(texts, image)) > padrão.
+    // O slot global NUNCA era lido aqui — e o effect abaixo ainda o sobrescrevia com a imagem
+    // padrão no mount. App que usa o ExpoUtilsLayout (que monta este overlay sem a prop `image`)
+    // registrava o banner com setImage() e via sempre o "Ratings & Reviews" padrão.
+    const displayImage = image || AskForReviewEvents.getImage() || DEFAULT_REVIEW_IMAGE;
 
-    // Store texts and image globally when component mounts
+    // Guarda no slot global só o que veio por PROP (nunca o padrão, senão apaga o do app).
     useEffect(() => {
         if (texts) {
             AskForReviewEvents.setTexts(texts);
         }
-        if (displayImage) {
-            AskForReviewEvents.setImage(displayImage);
+        if (image) {
+            AskForReviewEvents.setImage(image);
         }
-    }, [texts, displayImage]);
+    }, [texts, image]);
 
     useEffect(() => {
         if (visible) {
@@ -825,7 +828,7 @@ const AskForReviewOverlay: React.FC<AskForReviewOverlayProps> = ({
                             ) : (
                                 <Image
                                     source={displayImage}
-                                    style={styles.fullFlex}
+                                    style={styles.mediaImage}
                                     resizeMode="cover"
                                 />
                             )}
@@ -901,6 +904,14 @@ const styles = StyleSheet.create({
     },
     fullFlex: {
         flex: 1,
+    },
+    /* Imagem estatica da midia. Largura/altura EXPLICITAS sao obrigatorias: <Image> com
+       source de require() herda o tamanho intrinseco do arquivo como estilo padrao, e so
+       `flex: 1` nao sobrescreve a largura — a imagem padrao (1024x572) renderizava com 1024dp
+       dentro de um card de ~360dp e o `cover` virava um recorte gigante do "4.7". */
+    mediaImage: {
+        width: "100%",
+        height: "100%",
     },
     /* dono da midia: o recorte dos cantos vem da sobreposicao, nao do borderRadius */
     mediaHost: {

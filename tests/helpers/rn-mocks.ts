@@ -11,6 +11,7 @@ export const state = {
     apnsReady: true,
     hang: new Set<string>(), // métodos que NUNCA resolvem (promise nativa pendurada)
     fail: new Set<string>(), // métodos que rejeitam
+    failCode: {} as Record<string, string>, // código do erro do RevenueCat por método (ex.: "23")
     calls: [] as Call[],
     events: [] as Array<{name: string; params: Record<string, any>}>,
     warns: [] as any[][],
@@ -28,7 +29,7 @@ const native =
     (...args: any[]) => {
         state.calls.push([name, ...args]);
         if (state.hang.has(name)) return never();
-        if (state.fail.has(name)) return Promise.reject(new Error(`${name} falhou`));
+        if (state.fail.has(name)) return Promise.reject(Object.assign(new Error(`${name} falhou`), {code: state.failCode[name]}));
         return Promise.resolve(typeof value === "function" ? value() : value);
     };
 

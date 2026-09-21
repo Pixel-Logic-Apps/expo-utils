@@ -38,6 +38,12 @@ const SYNC_TIMEOUT_MS = 10000;
 // Ficamos em 4 por janela de 60s; o que passar disso ESPERA a janela abrir (não é descartado).
 const MAX_SYNCS_PER_WINDOW = 4;
 const SYNC_WINDOW_MS = 60000;
+// syncAttributesAndOfferingsIfNeeded envia os atributos e SÓ DEPOIS busca as ofertas. Erro de
+// configuração (23) ou de loja (2) nasce nessa 2ª metade — os atributos JÁ foram enviados.
+// Medido em 2026-09-21: projeto do RC sem oferta configurada rejeita com o código 23 e, mesmo
+// assim, todos os atributos estavam no customer. Tratar isso como falha dava falso negativo
+// em todo app sem offering (caso do app que originou a correção).
+const OFFERINGS_SIDE_ERROR_CODES = ["23", "2"];
 
 const startedAt = Date.now();
 const steps: Record<string, StepState> = {};
@@ -88,9 +94,10 @@ const runSync = async () => {
             syncTimes.push(Date.now());
             result = (await raceTimeout(Purchases.syncAttributesAndOfferingsIfNeeded(), SYNC_TIMEOUT_MS)) === TIMEOUT ? 0 : 1;
         }
-    } catch (e) {
-        result = 0;
-        expoUtilsWarn("attribution/sync:", e);
+    } catch (e: any) {
+        const offeringsSide = OFFERINGS_SIDE_ERROR_CODES.includes(String(e?.code));
+        result = offeringsSide ? 2 : 0;
+        if (!offeringsSide) expoUtilsWarn("attribution/sync:", e);
     }
     waiters.forEach((waiter) => waiter(result));
 };
@@ -98,7 +105,9 @@ const runSync = async () => {
 /**
  * Força o envio dos atributos pendentes ao RevenueCat. Sem isto eles só saem na próxima compra
  * ou no próximo background do app.
- * Resolve 1 = enviado, 0 = falhou/timeout, -1 = SDK sem o método (react-native-purchases antigo).
+ * Resolve 1 = enviado; 2 = atributos enviados, mas a busca de ofertas que vem junto falhou
+ * (projeto sem offering/produto — não é problema de atribuição); 0 = falhou/timeout;
+ * -1 = SDK sem o método (react-native-purchases antigo).
  *
  * `immediate` (usado ao fim de cada fase): envia JÁ, sem o debounce de 2s que junta sets
  * avulsos. Motivo MEDIDO no emulador: o Android SUSPENDE os timers do JS enquanto a Activity

@@ -32,7 +32,7 @@ não há user property para eles.
 
 | Evento | Parâmetros | Registrar |
 |--------|-----------|-----------|
-| `rc_attribution` | `phase` (1\|2), `steps_ok`, `steps_fail` (`id:fail`\|`id:timeout`), `ms` (desde o início do JS), `synced` (1 enviado · 0 falhou · -1 SDK sem o método), `att` (só fase 2) | `phase`, `steps_fail`, `synced` |
+| `rc_attribution` | `phase` (1\|2), `steps_ok`, `steps_fail` (`id:fail`\|`id:timeout`), `ms` (desde o início do JS), `synced` (1 enviado · 2 atributos enviados mas a busca de ofertas falhou — projeto do RC sem offering · 0 falhou · -1 SDK sem o método), `att` (só fase 2) | `phase`, `steps_fail`, `synced` |
 | `consent_flow` | `ump` (`obtained`·`not_required`·`required`·`denied`·`timeout`·`skipped`·`error`), `att`, `push` (`granted`·`denied`·`never_ask_again`·`provisional`·`ephemeral`·`undetermined`·`skipped`·`error`) | os três |
 | `install_attribution` | `source` (`link_in_bio`), `matched` (1\|0), `campaign` | `source`, `matched` |
 | `expo_utils_warn` | `message` (100 chars; dedup por sessão, teto de 50) | `message` |
