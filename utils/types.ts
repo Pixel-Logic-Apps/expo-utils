@@ -116,6 +116,8 @@ export interface RemoteConfigUtilsType {
     review_tutorial_html?: string;
     repeat_ads_count?: number;
     ad_blocklist?: string[];
+    /** Eventos Taichi habilitados: ausente = todos os 60; [] = nenhum. Nomes em docs/ANALYTICS-EVENTS.md. */
+    taichi_events?: string[];
     promotional?: PromotionalConfig;
     tiktokads?: {token: string; appid: string; tkappid: string; isdebug: boolean};
     clarity_id?: string;

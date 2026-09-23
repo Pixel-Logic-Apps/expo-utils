@@ -113,8 +113,87 @@ Registrar: `promo_variant`, `promo_name`, `click_source`, `close_method`, `scree
 | `ad_revenue` | `format`, `placementId`, `value`, `currency`, `precision` |
 | `AdLOADED` · `OPENED` · `AdCLOSED` · `AdERROR` · `REWARDED` | payload do SDK + `placementId` |
 
-A rede que serviu o ad **não** vem daqui: vem do `ad_impression` automático do AdMob (ILRD ligado
-no console + link AdMob ↔ Firebase).
+O `ad_revenue` agora passa por `logUtilsEvent`. Valor ausente/não finito e moeda ausente são
+omitidos; não são mais substituídos por receita zero em USD. A moeda pode vir de `currency`
+ou `currencyCode`. A receita pode ser estimada conforme `precision`. O evento da lib não
+inclui a rede; use o `ad_impression` do AdMob (ILRD + vínculo AdMob ↔ Firebase) para essa análise.
+Não somar os dois como receitas adicionais nem presumir um vínculo individual entre eles.
+
+<a id="taichi"></a>
+
+### Taichi: 20 limites × 3 janelas
+
+Eventos automáticos de qualificação, **sem parâmetros customizados e sem `value` monetário**.
+O nome já identifica o corte em USD e o prazo. Usar para contagem/tCPA; o caminho nativo de
+tROAS de publicidade permanece `ad_impression`. Marcos sobrepostos não são receitas distintas.
+
+| USD acumulado | Primeiras 24h | Primeiras 72h | Primeiros 7 dias (168h) |
+|---|---|---|---|
+| 0,0001 | `taichi_rev_0_0001usd_24h` | `taichi_rev_0_0001usd_72h` | `taichi_rev_0_0001usd_7d` |
+| 0,0002 | `taichi_rev_0_0002usd_24h` | `taichi_rev_0_0002usd_72h` | `taichi_rev_0_0002usd_7d` |
+| 0,0003 | `taichi_rev_0_0003usd_24h` | `taichi_rev_0_0003usd_72h` | `taichi_rev_0_0003usd_7d` |
+| 0,0005 | `taichi_rev_0_0005usd_24h` | `taichi_rev_0_0005usd_72h` | `taichi_rev_0_0005usd_7d` |
+| 0,00075 | `taichi_rev_0_00075usd_24h` | `taichi_rev_0_00075usd_72h` | `taichi_rev_0_00075usd_7d` |
+| 0,001 | `taichi_rev_0_001usd_24h` | `taichi_rev_0_001usd_72h` | `taichi_rev_0_001usd_7d` |
+| 0,0015 | `taichi_rev_0_0015usd_24h` | `taichi_rev_0_0015usd_72h` | `taichi_rev_0_0015usd_7d` |
+| 0,002 | `taichi_rev_0_002usd_24h` | `taichi_rev_0_002usd_72h` | `taichi_rev_0_002usd_7d` |
+| 0,003 | `taichi_rev_0_003usd_24h` | `taichi_rev_0_003usd_72h` | `taichi_rev_0_003usd_7d` |
+| 0,004 | `taichi_rev_0_004usd_24h` | `taichi_rev_0_004usd_72h` | `taichi_rev_0_004usd_7d` |
+| 0,005 | `taichi_rev_0_005usd_24h` | `taichi_rev_0_005usd_72h` | `taichi_rev_0_005usd_7d` |
+| 0,0075 | `taichi_rev_0_0075usd_24h` | `taichi_rev_0_0075usd_72h` | `taichi_rev_0_0075usd_7d` |
+| 0,01 | `taichi_rev_0_01usd_24h` | `taichi_rev_0_01usd_72h` | `taichi_rev_0_01usd_7d` |
+| 0,015 | `taichi_rev_0_015usd_24h` | `taichi_rev_0_015usd_72h` | `taichi_rev_0_015usd_7d` |
+| 0,02 | `taichi_rev_0_02usd_24h` | `taichi_rev_0_02usd_72h` | `taichi_rev_0_02usd_7d` |
+| 0,03 | `taichi_rev_0_03usd_24h` | `taichi_rev_0_03usd_72h` | `taichi_rev_0_03usd_7d` |
+| 0,05 | `taichi_rev_0_05usd_24h` | `taichi_rev_0_05usd_72h` | `taichi_rev_0_05usd_7d` |
+| 0,075 | `taichi_rev_0_075usd_24h` | `taichi_rev_0_075usd_72h` | `taichi_rev_0_075usd_7d` |
+| 0,10 | `taichi_rev_0_10usd_24h` | `taichi_rev_0_10usd_72h` | `taichi_rev_0_10usd_7d` |
+| 0,25 | `taichi_rev_0_25usd_24h` | `taichi_rev_0_25usd_72h` | `taichi_rev_0_25usd_7d` |
+
+**Disparo:** soma de callbacks `PAID`/`onPaid` válidos e positivos em USD, de banner,
+interstitial, rewarded e app-open. O `value` do wrapper já está em unidades da moeda, não
+micros. Outras moedas continuam em `ad_revenue`, mas não entram nestes marcos; não há conversão
+cambial. Cada nome é emitido uma vez por instalação rastreada, ao atingir o corte dentro da
+janela `[primeiro uso, primeiro uso + prazo)`. Uma impressão pode atravessar vários cortes.
+Callbacks depois de 24h/72h/168h não qualificam a janela encerrada, mesmo se a fila de storage
+estiver atrasada: vale a hora do callback.
+
+**Estado:** `@expo_utils_taichi_v1` no AsyncStorage guarda início, soma e nomes emitidos.
+`Utils.prepare` inicia a leitura antes dos ads e da flag `@first_open_logged`, sem aguardar
+a fila na UI. Quando essa flag já existe e não há estado Taichi, a instalação fica excluída
+(`firstOpen: 0`): a atualização da lib não cria um primeiro uso novo. A ausência dos dois
+marcadores é tratada como primeiro uso; apps muito antigos que nunca gravaram essa flag
+precisam marcar os usuários existentes antes do `prepare` na migração. Limpeza/restauração de
+dados depende do storage; não há identidade entre aparelhos nem reconstrução de receita passada.
+
+**Configuração:** `utils.taichi_events` no Remote Config, array opcional com nomes exatos:
+ausente habilita os 60; `[]` desabilita as emissões, mantendo a soma; uma lista habilita só
+os nomes existentes nela. Valor de outro tipo não habilita eventos. Não há reset ao alterar
+a lista. Ao habilitar um marco ainda não emitido, o próximo callback USD positivo pode
+qualificá-lo usando a soma já coletada, desde que sua janela ainda esteja aberta.
+O Remote Config mantém a atualização por sessão da lib.
+
+**Duplicações e falhas:** fullscreen usa a identidade da instância de apresentação;
+também são reconhecidos os últimos 128 `responseId` da sessão, quando disponíveis.
+Banners sem ID só permitem reconhecer o mesmo objeto de callback repetido; sem identidade
+confiável não há como distinguir um reenvio de uma nova impressão. Nunca deduplicar por
+preço/placement: refreshes reais podem ter valores iguais. A soma é serializada; estado
+ilegível não é apagado/reiniciado. Falha de gravação adia os marcos até outro callback
+conseguir persistir; a receita pendente só sobrevive ao processo se tiver sido gravada.
+Persistir antes de emitir evita repetição no próximo boot, mas um encerramento entre essas
+etapas pode perder o evento. O logger não confirma entrega ao Firebase.
+
+**Validação em 23/09/2026:** build Android do `expo-utils-lab` no emulador Pixel_10a →
+DebugView da propriedade `local-desenv`: **60 nomes distintos, cada um com contagem 1**,
+inclusive após callback repetido, encerramento do processo e nova impressão na reabertura.
+Os valores positivos foram sintéticos, enviados ao acumulador real da lib. O interstitial
+com ID de teste do Google também disparou o callback nativo `PAID`, com USD/zero.
+[Evidências e roteiro](VALIDACAO-TAICHI.md). Receita positiva de produção, iOS e importação
+no Google Ads não foram medidos neste teste.
+
+Somente no laboratório: `taichi_qa_step` registra `run_id`, `value`, `replay` (1/0), `usd`
+e `sent_count` para correlacionar as etapas do teste. Não faz parte dos eventos da lib
+nem deve ser marcado como conversão.
 
 ## Atributos gravados no customer do RevenueCat (não são GA4)
 

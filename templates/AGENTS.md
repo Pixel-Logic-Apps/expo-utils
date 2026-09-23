@@ -279,11 +279,16 @@ em `templates/POLICY-CHECKS.md` no repo do `expo-utils`.
 | ID    | Regra                                                                     | Loja            |
 | ----- | ------------------------------------------------------------------------- | --------------- |
 | P-001 | Pre-prompt de permissão: sem botão "Permitir", sem saída que adie o pedido | Apple 5.1.1(iv) |
+| P-002 | Info de governo: disclaimer no topo + lista FECHADA de todas as fontes na descrição | Google Misleading Claims |
 
 Resumo do P-001, porque é o mais fácil de violar sem perceber: tela custom antes do diálogo do
 sistema pode **explicar**, nunca **decidir**. Botão de avanço neutro (`Continuar` / `Próximo` —
 nunca `Permitir acesso`) e **nenhuma** saída que pule o pedido (sem `Cancelar`, sem X, sem swipe,
 sem overlay clicável). Na dúvida, **não faça pre-prompt**: chame a permissão direto no gesto.
+
+Resumo do P-002, só para app que mostra dado de órgão público: ter disclaimer e link **não basta**.
+A full description precisa de **uma** lista fechada — cada tipo de dado → URL oficial que o app
+realmente consome — e nenhuma outra URL/"fonte" solta no resto do texto.
 
 ────────────────────────
 

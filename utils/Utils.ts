@@ -75,6 +75,7 @@ import {getApp} from "@react-native-firebase/app";
 import TiktokAdsEvents, {TikTokStandardEvents, TikTokWaitForConfig} from "expo-tiktok-ads-events";
 import {TrendingsTracker} from "./TrendingsTracker";
 import {logUtilsEvent, setUtilsUserId, setUtilsUserProperty} from "./analytics";
+import {initAdRevenue} from "./ad-revenue";
 import {runAttributionPhase1, runAttributionPhase2, setRcAttributesLate} from "./attribution";
 import {logPushOpened, logPushReceived} from "./push-analytics";
 
@@ -402,6 +403,7 @@ const runStoreGate = async (): Promise<boolean> => {
  * addCustomerInfoUpdateListener. Nunca rejeita: cada bloco é isolado em try/catch próprio.
  */
 const runPrepare = async (appConfig?: any, appStrings?: AppStrings): Promise<void> => {
+    initAdRevenue();
     try {
         LogBox.ignoreAllLogs(true);
         global.isAdsEnabled = !__DEV__;
@@ -1129,6 +1131,7 @@ const Utils = {
     // Nome do evento = slug do app, 1x por instalação (flag no AsyncStorage). O replace é
     // obrigatório: nome de evento GA4 só aceita [A-Za-z0-9_] (máx. 40) e todo slug tem hífen.
     logFirstOpenOnce: async (appConfig?: AppConfig) => {
+        await initAdRevenue();
         if (await AsyncStorage.getItem("@first_open_logged")) return;
         await AsyncStorage.setItem("@first_open_logged", "true");
         logUtilsEvent((appConfig?.expo?.slug || "unknown").replace(/\W/g, "_").slice(0, 40));

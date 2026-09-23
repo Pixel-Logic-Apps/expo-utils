@@ -56,7 +56,7 @@ export const setupAppOpenListener = (adUnitId?: string) => {
                 });
                 // ILRD: receita da impressão (valor/moeda/precisão) — ver utils/ad-revenue.ts.
                 appOpenAd.addAdEventListener(AdEventType.PAID, (e) => {
-                    logAdRevenue("appopen", placementId, e);
+                    logAdRevenue("appopen", placementId, e, appOpenAd);
                 });
                 appOpenAd.load();
             } catch (e) {

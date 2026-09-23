@@ -23,6 +23,7 @@ sessão**. Ele muda com o tempo — o que você "lembra" dele está desatualizad
 | ID    | Regra                                                                     | Loja             | Dispara quando                                        |
 | ----- | ------------------------------------------------------------------------- | ---------------- | ----------------------------------------------------- |
 | P-001 | Pre-prompt de permissão: sem botão "Permitir", sem saída que adie o pedido | Apple 5.1.1(iv)  | qualquer `request*PermissionsAsync` / `requestPermission` |
+| P-002 | Info de governo: disclaimer no topo + lista FECHADA de todas as fontes na descrição | Google Play — Misleading Claims | app exibe dado de órgão público; qualquer edição da full description |
 
 ---
 
@@ -130,10 +131,109 @@ Para cada hit de (2)/(3): confirmar que **não** está numa tela que antecede um
 
 ---
 
+## P-002 — Informação de governo: disclaimer + lista FECHADA de fontes na descrição
+
+**Google Play — Misleading Claims policy (informação governamental)**
+Rejeição real: **Resultado Eleições 2026** (`br.resultadoeleicoes.app`), app 1.1.0, área apontada:
+**Full description**, rejeição reportada em **21/09/2026**.
+
+> Issue found: Violation of Misleading Claims policy
+>
+> **Insufficient Sources Provided** — Your app's description statement makes it seem like there are
+> more than one source of information used without listing all of them.
+>
+> - Identify and provide in your description a clear, official, valid and functional source(s) for
+>   all of the government information(s) shared in your app.
+> - Include in the description of your app an easy-to-see disclaimer stating that the app doesn't
+>   represent a government entity.
+
+A ficha rejeitada **já tinha** disclaimer e **já tinha** link do TSE — não bastou. O motivo não é
+"falta fonte", é "parece haver mais fontes do que as listadas". A carta não aponta a frase. O que
+se sabe: o bloco de disclaimer enviado listava 2 URLs com "exclusivamente", e a versão publicada
+da mesma ficha citava uma 3ª URL (`www.tse.jus.br/eleicoes`) em outros dois trechos do texto.
+
+> **Status:** correção enviada, aprovação **ainda não confirmada**. Quando o Google responder,
+> atualize este item (aprovou → tire este aviso; rejeitou de novo → cole a carta nova aqui).
+
+### A regra
+
+1. **Disclaimer no topo** da full description ("easy-to-see"), com a frase que a carta pede, literal:
+   **"não representa nenhuma entidade governamental"**.
+2. **Lista fechada de fontes.** Cada tipo de dado de governo que o app mostra → órgão + URL oficial,
+   uma URL por linha, sem pontuação colada. Termine fechando a lista:
+   *"Nenhuma outra fonte de informação governamental é utilizada."*
+3. **Uma lista só.** Toda URL ou "fonte" citada em **qualquer** outro trecho da descrição tem que
+   estar nessa lista. Dois blocos de fonte com URLs diferentes = "parece haver mais fontes".
+4. **Sem linguagem aberta:** `fontes oficiais`, `dados públicos`, `como`, `entre outros`, `such as`
+   sem URL ao lado.
+5. **A URL é o serviço que o app realmente consome** (o host que está no `fetch`), não o portal
+   institucional genérico do órgão.
+6. **Toda localização** da ficha leva o mesmo bloco.
+7. **Fonte nova = descrição primeiro.** Feature ligada por Remote Config que traz outra fonte
+   (ex.: aba de notícias) só liga **depois** de a descrição listar essa fonte.
+
+### Exemplo certo
+
+```txt
+AVISO IMPORTANTE (DISCLAIMER)
+Este aplicativo é independente e NÃO representa nenhuma entidade governamental. Ele NÃO é um app
+oficial e não tem vínculo, afiliação ou endosso do Governo, da Justiça Eleitoral ou do TSE.
+
+FONTES OFICIAIS DAS INFORMAÇÕES
+Todas as informações eleitorais exibidas no app têm uma única origem: o Tribunal Superior
+Eleitoral (TSE). São exatamente duas fontes, ambas públicas e oficiais:
+
+1) Resultados e apuração (votos, percentuais, eleitos, 2º turno, abstenções, brancos e nulos):
+https://resultados.tse.jus.br
+
+2) Candidatos (lista de candidatos, partidos, fotos, bens declarados e contas de campanha):
+https://divulgacandcontas.tse.jus.br
+
+Nenhuma outra fonte de informação governamental é utilizada.
+```
+
+### Exemplo errado
+
+```txt
+DISCLAIMER
+... não possui vínculo com o governo federal, estadual, municipal ou o TSE.
+Fonte oficial dos dados eleitorais: https://www.tse.jus.br/eleicoes        ← portal genérico, 1 link
+
+(… 8 seções falando de apuração, candidatos, urna, estatísticas, "dados oficiais do TSE" …)
+
+FONTE DE DADOS
+Todos os dados são provenientes do TSE. Fonte oficial: https://www.tse.jus.br/eleicoes
+```
+
+Vários tipos de dado, vários órgãos citados, um link genérico repetido em dois blocos — e nada
+dizendo que a lista acabou. Pior ainda se o disclaimer novo citar URLs que o bloco antigo não cita.
+
+### Checagem antes de submeter
+
+```bash
+D="fastlane/android/fastlane/metadata/android/*/full_description.txt"
+# 1) toda URL da descrição, em todas as localizações — cada uma tem que estar no bloco de fontes
+grep -noE "https?://[^ )]+" $D | sort | uniq -c
+# 2) linguagem aberta
+grep -niE "entre outr|fontes oficiais|dados p[úu]blicos|such as|among other" $D
+# 3) hosts que o app REALMENTE chama — comparar com a lista da descrição
+grep -rhoE "https?://[A-Za-z0-9.-]+" src | sort -u
+```
+
+- **Abra cada URL num navegador de verdade.** Site de governo costuma ficar atrás de WAF que
+  devolve `403` a `curl` (o TSE faz isso, mesmo com User-Agent de Chrome) — `curl` não prova nada.
+- `fastlane/android` não aparece no git? Versões antigas do `expo-utils-install --gitignore`
+  gravavam `ios/` e `android/` **sem âncora** (removido em `45b3211`; o `/ios` e `/android` do Expo
+  são ancorados e não têm esse efeito). Sem âncora, a regra engole `fastlane/android/**` e
+  `fastlane/ios/**`: a metadata da loja nunca é versionada e some no próximo clone. Foi o que
+  aconteceu neste app. Conferir: `git check-ignore -v fastlane/android/fastlane/metadata`.
+
+---
+
 ## Como adicionar uma regra nova (no repo `expo-utils`)
 
 1. Edite `templates/POLICY-CHECKS.md` — nunca a cópia dentro do app.
-2. Próximo ID livre (`P-002`, …), e adicione a linha no **Índice**.
+2. Próximo ID livre (`P-003`, …), e adicione a linha no **Índice**.
 3. Seções do item: **carta da loja (citação literal)** → **a regra** → **exemplo certo** →
    **exemplo errado** → **como checar**.
 4. Sempre com app, versão e data da rejeição — é o que separa regra real de achismo.

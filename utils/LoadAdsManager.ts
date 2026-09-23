@@ -91,7 +91,7 @@ const LoadAdsManager: LoadAdsManagerType = {
                 });
                 // ILRD: receita da impressão (valor/moeda/precisão) — ver utils/ad-revenue.ts.
                 interstitial.addAdEventListener(AdEventType.PAID, (e) => {
-                    logAdRevenue("interstitial", request.placementId, e);
+                    logAdRevenue("interstitial", request.placementId, e, interstitial);
                 });
                 interstitial.load();
             });
@@ -132,7 +132,7 @@ const LoadAdsManager: LoadAdsManagerType = {
                 });
                 // ILRD: receita da impressão (valor/moeda/precisão) — ver utils/ad-revenue.ts.
                 ad.addAdEventListener(AdEventType.PAID, (e) => {
-                    logAdRevenue("rewarded", request.placementId, e);
+                    logAdRevenue("rewarded", request.placementId, e, ad);
                 });
                 ad.load();
             });

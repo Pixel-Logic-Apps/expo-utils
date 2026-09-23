@@ -236,6 +236,7 @@ Para uso sem hook, use `new PaywallController({t})` ou os métodos estáticos de
 | `review_style` | string | layout do popup: `"bottomsheet"` (padrão, card embaixo) \| `"formsheet"` (sheet 100% largura sem raio, metade da tela, X + 1 botão) \| `"centered"` (card no meio, botões empilhados) \| `"fullscreen"` (tela cheia, X + 1 botão no rodapé). Override local: prop `variant` |
 | `repeat_ads_count` | number | Quantidade de ações antes de mostrar anúncio |
 | `ad_blocklist` | string[] | Lista de placement IDs bloqueados |
+| `taichi_events` | string[] | Nomes Taichi habilitados: ausente = todos os 60; `[]` = sem emissões; lista = apenas os nomes indicados. A soma é mantida. |
 | `promotional` | object | Configuração de conteúdo promocional (veja seção dedicada) |
 | `tiktokads` | object | Configurações do TikTok Ads SDK (`token`, `appid`, `tkappid`, `isdebug`) |
 | `clarity_id` | string | Project ID do Microsoft Clarity |
@@ -660,11 +661,25 @@ Utils.resetAdsConsent(); // QA: zera o UMP e força o formulário no próximo bo
 coletado) não existe formulário — por isso use `isPrivacyOptionsRequired()` para esconder o botão,
 e o `reason` do retorno para logar o motivo quando ele mesmo assim não abrir.
 
-**Receita por impressão (ILRD)**: banner, interstitial, rewarded e app-open já disparam o evento
-`ad_revenue` no Analytics com formato, placement, valor, moeda e precisão. A **rede que serviu**
-não vem nesse payload — ligue o *Impression-level ad revenue* no console do AdMob + o link
-AdMob↔Firebase e o próprio AdMob passa a enviar o `ad_impression` com `ad_source`. Os dois juntos
-dão rede × placement, que é o dado que resolve discussão de eCPM.
+**Receita por impressão (ILRD)**: banner, interstitial, rewarded e app-open disparam
+`ad_revenue` via `logUtilsEvent`, com formato, placement e valor/moeda/precisão quando disponíveis.
+Valor ou moeda ausentes não viram zero/USD. Para análise por rede, ligue o *Impression-level
+ad revenue* no console do AdMob + o link AdMob↔Firebase e use `ad_impression` com `ad_source`.
+Não somar ambos como receitas adicionais.
+
+**Taichi automático:** 20 limites de receita acumulada em USD, de US$ 0,0001 a US$ 0,25,
+nas primeiras 24h, 72h e 7 dias: 60 eventos com nomes próprios, sem parâmetros monetários,
+por exemplo `taichi_rev_0_001usd_24h`. `Utils.prepare` inicia o acumulador; o estado e os
+marcos ficam no AsyncStorage. Instalações já marcadas por `@first_open_logged`, sem estado
+Taichi, ficam excluídas para não parecerem novas no upgrade. Hosts mais antigos sem esse
+marcador devem seguir a [migração](docs/UPGRADE-EXPO57-EXPO-UTILS.md#taichi).
+
+No JSON `utils` do Remote Config, `taichi_events` ausente habilita todos, `[]` desliga as
+emissões, e uma lista seleciona nomes exatos. A soma continua sendo coletada com `[]`;
+ativação posterior pode qualificar marcos ainda não emitidos na próxima impressão válida,
+se a janela continuar aberta. Não há conversão de BRL para USD. Consulte os
+[60 eventos e limites de persistência/deduplicação](docs/ANALYTICS-EVENTS.md#taichi).
+Para tCPA, selecione o marco pretendido; para tROAS de publicidade, use `ad_impression`.
 
 ## 🌍 Sistema de Internacionalização
 
@@ -1426,6 +1441,7 @@ interface RemoteConfigUtilsType {
     review_type_delay?: number;     // ms até habilitar "Agora não" no popup
     review_show_delay?: number;     // ms antes do review aparecer (askForReview; override: showDelay)
     repeat_ads_count?: number;      // Ações antes de mostrar anúncio
+    taichi_events?: string[];       // Ausente = 60 marcos; [] = sem emissões; lista = subconjunto
     ad_blocklist?: string[];        // Placement IDs bloqueados
     promotional?: PromotionalConfig; // Config de conteúdo promocional
     tiktokads?: { token: string; appid: string; tkappid: string; isdebug: boolean };

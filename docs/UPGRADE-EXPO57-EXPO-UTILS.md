@@ -971,6 +971,18 @@ Use URL em `appStrings.hotUpdaterUrl` + `initHotUpdater` dentro do `ExpoUtilsLay
 - Review local do app pode coexistir com overlay da lib — controle via `review_type` no RC para não double-prompt
 - `global.isAdsEnabled` / store gate: se `disableAdsIfBuildIsNewerThanStore: true`, ads desligam em build mais nova que a loja
 
+<a id="taichi"></a>
+
+### Taichi: marcos de receita de anúncios
+
+- Os callbacks existentes passam a acumular receita positiva em USD e emitir 60 nomes: 20 limites de US$ 0,0001 a US$ 0,25 × primeiras 24h, 72h e 168h. Lista completa em [ANALYTICS-EVENTS.md](ANALYTICS-EVENTS.md#taichi). São eventos de qualificação para contagem/tCPA, sem `value`; não somar marcos como receita. O tROAS nativo de publicidade usa `ad_impression`.
+- Manter `Utils.prepare` no boot e usar os componentes/managers de ads da lib. O acumulador inicializa sem bloquear a UI, antes de `logFirstOpenOnce`; nenhum timer, plugin ou pacote nativo novo. Não repetir a coleta no host.
+- `utils.taichi_events` (array opcional no JSON `utils`): ausente = todos; `[]` = desliga as emissões; lista de nomes = só aqueles. Exemplo: `{"taichi_events":["taichi_rev_0_001usd_24h","taichi_rev_0_003usd_72h"]}`. A soma continua com `[]`; habilitar depois permite qualificar um marco ainda não emitido no próximo callback válido, dentro do prazo. Não muda o significado dos nomes nem reinicia os prazos.
+- Preservar `@first_open_logged` e `@expo_utils_taichi_v1`. Instalação com a flag antiga e sem estado Taichi fica excluída para não parecer nova ao atualizar. **Apps legados que nunca gravaram essa flag:** usar o marcador de instalação/primeiro uso já existente no host para gravar `@first_open_logged = "true"` nos usuários antigos, antes de `Utils.prepare`. A ausência dos dois marcadores é interpretada como primeiro uso; não é possível reconstruir esse histórico somente com o SDK de ads.
+- Persistência é local por instalação. Sem dados válidos de moeda/valor não há marco; BRL não vira USD implicitamente. `ad_revenue` passa pelo logger central e omite `value`/`currency` ausentes, em vez de inventar zero/USD. Duplicações de fullscreen são filtradas por instância; banners dependem da identidade disponível no callback, nunca do preço.
+- QA: em build do lab, conferir os callbacks, a soma persistida e os nomes no DebugView, incluindo reabertura e vencimento da janela. Ads de teste podem informar zero; valores sintéticos só validam a lógica e o transporte, não a receita real do AdMob. Conferir depois a importação no Google Ads e escolher a conversão da campanha.
+- Validação em 23/09/2026: build Android do lab no Pixel_10a, com os **60 nomes vistos no DebugView de `local-desenv`, contagem 1 em cada um**, após repetição de callback e reabertura do processo. Receita positiva sintética para testar os limites; interstitial com ID de teste também entregou `PAID` nativo com USD/zero. [Evidências e roteiro](VALIDACAO-TAICHI.md). Não extrapolar para receita positiva de produção, iOS ou conversões importadas no Google Ads.
+
 ---
 
 ## 9. Ordem de execução (copy-paste mental)
