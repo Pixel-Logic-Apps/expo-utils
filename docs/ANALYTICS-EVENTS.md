@@ -22,7 +22,7 @@ registrado no GA4 para aparecer nos relatórios. Fonte da verdade do código: `u
 | Nome | Valor | Quando |
 |------|-------|--------|
 | `user_id` | App User ID do RevenueCat (`$RCAnonymousID:<32 hex>`, 47 chars) | fase 1 da atribuição e a cada `customerInfo` novo. Vai em `setUserId` (256 chars) porque **não cabe** numa user property (36) |
-| `rc_status` | `free` · `trial` · `intro` · `active` · `cancelled` · `billing_issue` · `expired` · `refunded` | boot e a cada mudança de `customerInfo` — **registrar (escopo usuário)** |
+| `rc_status` | `free` · `trial` · `trial_cancelled` · `intro` · `active` · `cancelled` · `billing_issue` · `trial_expired` · `expired` · `refunded` (regras em `utils/rc-status.ts` e no README, "Tópicos FCM") | boot e a cada mudança de `customerInfo` — **registrar (escopo usuário)** |
 | `att_status` | `granted` · `denied` · `undetermined` · `restricted` · `na` (Android) · `error` | depois do prompt do ATT — **registrar (escopo usuário)** |
 
 Geo (país/estado/cidade), idioma, versão do app, modelo e SO **já são dimensões nativas do GA4** —
@@ -52,12 +52,18 @@ pendura; `ms` da fase 1 = quanto tempo depois do launch o 1º recibo já sairia 
 
 | Evento | Parâmetros | Registrar |
 |--------|-----------|-----------|
-| `push_received` | `message_id`, `topic`, `title`, `push_id`, `latency_s`, `app_state=foreground` | `topic`, `push_id`, `title` |
+| `push_received` | `fcm_message_id`, `fcm_topic`, `title`, `push_id`, `latency_s`, `app_state=foreground` | `fcm_topic`, `push_id`, `title` |
 | `push_received_bg` | idem, `app_state=background` | idem |
-| `push_opened` | `message_id`, `topic`, `title`, `push_id`, `latency_s`, `open_state` (`background`\|`quit`) | `open_state` |
-| `fcm_topic_subscribe` / `fcm_topic_unsubscribe` | `topic`, `status` | — |
+| `push_opened` | `fcm_message_id`, `fcm_topic`, `title`, `push_id`, `latency_s`, `open_state` (`background`\|`quit`) | `open_state` |
+| `fcm_topic_subscribe` / `fcm_topic_unsubscribe` | `fcm_topic`; no subscribe do tópico de estado, `status` (mesmo valor do `rc_status`); no de marco, `milestone` (`trial_started` \| `converted`, só na 1ª vez do aparelho) | — |
 
 `push_id` = primeiro presente entre `data.push_id`, `data.notification_id`, `data.campaign_id`.
+
+**Nunca use `topic` nem `message_id` como nome de parâmetro.** O SDK envia, mas o GA4 some com eles (medido em
+24/09/2026: o log `FA-SVC` do aparelho tinha os dois no lote enviado e o DebugView mostrava todos os outros params do
+evento, menos esses) — provável colisão com os params que o próprio FCM grava no `notification_receive`
+(`topic(_nt)`, `message_id`). Até a 1.4.0 a lib usava esses nomes: a dimensão `topic` nunca recebeu dado. O mesmo
+`fcm_topic` vale em `push_*` e `fcm_topic_*` — 1 dimensão personalizada cobre os dois.
 Taxa de abertura = `push_opened` ÷ (`push_received` + `push_received_bg`) por `push_id` (ou por
 `title` enquanto o sender não mandar id). Limites de plataforma no README ("Push: recebidas e abertas").
 

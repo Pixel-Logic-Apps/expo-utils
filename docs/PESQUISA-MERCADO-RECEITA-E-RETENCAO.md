@@ -250,6 +250,8 @@ Cancelamento da folha de compra não é cancelamento do trial. Desligar renovaç
 
 No código atual, [Utils.getRevenueCatStatus](../utils/Utils.ts) retorna `trial` antes de examinar renovação/cancelamento. Portanto, esse rótulo sozinho não separa o trial ativo que renovará daquele que já teve renovação desligada. [PremiumUtils](../utils/PremiumUtils.ts) também condiciona o acesso a `willRenew`, salvo a exceção por flag. São regras existentes identificadas por leitura; a mudança exige decisão de contrato e migração, sem presumir resultados financeiros.
 
+> Atualização (24/09/2026): a mistura foi corrigida em [utils/rc-status.ts](../utils/rc-status.ts) — trial com renovação desligada vira `trial_cancelled`, cobrança recusada vira `billing_issue` (inclusive no fim do trial) e trial encerrado sem pagamento vira `trial_expired`, com os marcos `trial_started` / `converted` em tópicos FCM.
+
 O [RevenueCat documenta os eventos de ciclo da assinatura](https://www.revenuecat.com/docs/integrations/webhooks/event-flows). A proposta usa confirmação do serviço para acompanhar cancelamentos/renovações fora do app; cliques e callbacks locais registram intenção e experiência.
 
 **Controle operacional proposto: `LifecycleInspector`**

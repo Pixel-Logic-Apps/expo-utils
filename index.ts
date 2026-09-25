@@ -11,6 +11,7 @@ export {logAdRevenue} from "./utils/ad-revenue";
 export {logUtilsEvent, setUtilsUserId, setUtilsUserProperty} from "./utils/analytics";
 export type {AnalyticsParams} from "./utils/analytics";
 export {setRevenueCatAttributes, scheduleRcSync, getContextAttributes} from "./utils/attribution";
+export type {RcStatus, RcMilestone} from "./utils/rc-status";
 export {lookupGeo, GEO_PROVIDERS} from "./utils/geo";
 export {mapInstallReferrer} from "./utils/install-referrer";
 export type {InstallAttribution, InstallReferrerOptions} from "./utils/install-referrer";

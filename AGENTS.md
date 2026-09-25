@@ -84,9 +84,21 @@ em SDK de terceiro, leia o fonte de verdade (os `Pods/` e AARs dos apps locais),
   `$mediaSource` (so `install_medium = organic`) — um `Organic` no boot bloqueava link-in-bio/Apple Search Ads/MMP para sempre.
   Nunca gravar valor provisorio nesses campos.
 - **Push**: `push_received` (foreground), `push_received_bg` (background) e `push_opened`
-  (`onNotificationOpenedApp` + `getInitialNotification`, dedup pelo ultimo `message_id` persistido) em
-  `utils/push-analytics.ts`. O `message_id` NAO casa sender × aparelho em envio por topico — o id de
+  (`onNotificationOpenedApp` + `getInitialNotification`, dedup pelo ultimo message id persistido) em
+  `utils/push-analytics.ts`. O `fcm_message_id` NAO casa sender × aparelho em envio por topico — o id de
   correlacao e o `push_id` que o sender manda em `data`. Limites de plataforma documentados no README.
+  **Nunca nomear parametro `topic` ou `message_id`**: o SDK envia e o GA4 some com eles (medido em 24/09/2026 —
+  o log `FA-SVC` tinha os dois, o DebugView nao; colidem com os params do `notification_receive` do FCM). Por isso
+  `fcm_topic` / `fcm_message_id`, o mesmo nome em `push_*` e `fcm_topic_*`.
+- **Topicos de assinatura (`utils/rc-status.ts`)**: UM topico de estado por aparelho (`{slug}-purchase-{status}`,
+  mesmo valor do `rc_status`) + marcos que ACUMULAM e nunca saem (`-trial_started`, `-converted`). Ordem das
+  regras: falha de cobranca > renovacao desligada (`unsubscribeDetectedAt`) > tipo do periodo; `billing_issue`
+  segue ate 60 dias sem acesso (billing retry da loja). O FATO do marco vai pro AsyncStorage ANTES do portao do
+  APNS e sem depender do subscribe — a prova do trial some do `customerInfo` depois da conversao. Tudo passa por
+  uma fila serial (boot + listener rodam juntos na abertura) e e reafirmado 1x por sessao (backup restaurado =
+  token FCM novo, fora de todo topico). A chave `FCM_CURRENT_TOPIC` e LEGADA e fica sem `@`: renomear faz a lib
+  esquecer o topico atual e o aparelho fica nele para sempre. So muda com o app aberto (sem webhook). Mudou
+  estado, marco ou regra → README ("Topicos FCM"), `docs/ANALYTICS-EVENTS.md` e o playbook na mesma tarefa.
 - **Fatos do SDK do RevenueCat lidos no fonte** (iOS 5.84/5.88 em `expo-urna-v2/ios/Pods/RevenueCat`,
   Android 10.21.1 no cache do Gradle): `setFBAnonymousID` ja chama `collectDeviceIdentifiers` sozinho
   (condicionar ao ATT nao protege nada); o SDK so ENVIA atributos em compra, background/foreground e
@@ -264,7 +276,8 @@ Central initialization module with a `prepare()` function that:
 - Dispara a **fase 1 da atribuicao do RevenueCat** logo apos o `Purchases.configure` (destacada, nao atrasa o
   splash) e arma o **watchdog do `handleReady`** (30s sem `handleReady` → `expoUtilsWarn`). UMP/ATT/push/FB/
   TikTok/fase 2 NAO rodam no `prepare()`: rodam no `Utils.handleReady` → `requestTrackingWhenActive`
-- Mantem a user property `rc_status` e o `user_id` do GA4 (= App User ID do RC) a cada `customerInfo`
+- Mantem a user property `rc_status`, o `user_id` do GA4 (= App User ID do RC) e os topicos FCM de assinatura
+  (estado + marcos, `utils/rc-status.ts`) a cada `customerInfo`
 - Loga um evento cujo **nome é o slug do app**, 1x por instalação, via `Utils.logFirstOpenOnce()` — flag `@first_open_logged` no AsyncStorage; roda no bloco não-bloqueante do boot (não atrasa o splash). O slug passa por `.replace(/\W/g, "_").slice(0, 40)` porque nome de evento GA4 só aceita `[A-Za-z0-9_]` e no máximo 40 chars — `titulo-eleitor` vira `titulo_eleitor`.
 
 **Important**: dependencias (inclusive as opcionais) entram como `import` no topo do arquivo — ver "Imports (REGRA OBRIGATORIA)" em Common Patterns. A protecao contra pacote ausente/erro de SDK e o try/catch em volta da chamada, nunca import tardio.

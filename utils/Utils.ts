@@ -54,7 +54,7 @@ import * as Device from "expo-device";
 import * as SplashScreen from "expo-splash-screen";
 import * as Clarity from "@microsoft/react-native-clarity";
 import {Settings as FbsdkSettings} from "react-native-fbsdk-next";
-import Purchases, {LOG_LEVEL} from "react-native-purchases";
+import Purchases, {LOG_LEVEL, type CustomerInfo} from "react-native-purchases";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {Alert, AppState, Platform, Linking, LogBox, DevSettings, PermissionsAndroid} from "react-native";
 import {registerDevMenuItems} from "expo-dev-menu";
@@ -70,14 +70,15 @@ import {
     fetchAndActivate,
     getValue,
 } from "@react-native-firebase/remote-config";
-import {getMessaging, requestPermission, onMessage, subscribeToTopic, unsubscribeFromTopic, getToken, setBackgroundMessageHandler, experimentalSetDeliveryMetricsExportedToBigQueryEnabled, registerDeviceForRemoteMessages, isDeviceRegisteredForRemoteMessages, getAPNSToken, onNotificationOpenedApp, getInitialNotification} from "@react-native-firebase/messaging";
+import {getMessaging, requestPermission, onMessage, subscribeToTopic, getToken, setBackgroundMessageHandler, experimentalSetDeliveryMetricsExportedToBigQueryEnabled, registerDeviceForRemoteMessages, isDeviceRegisteredForRemoteMessages, getAPNSToken, onNotificationOpenedApp, getInitialNotification} from "@react-native-firebase/messaging";
 import {getApp} from "@react-native-firebase/app";
 import TiktokAdsEvents, {TikTokStandardEvents, TikTokWaitForConfig} from "expo-tiktok-ads-events";
 import {TrendingsTracker} from "./TrendingsTracker";
-import {logUtilsEvent, setUtilsUserId, setUtilsUserProperty} from "./analytics";
+import {logUtilsEvent, setUtilsUserProperty} from "./analytics";
 import {initAdRevenue} from "./ad-revenue";
 import {runAttributionPhase1, runAttributionPhase2, setRcAttributesLate} from "./attribution";
 import {logPushOpened, logPushReceived} from "./push-analytics";
+import {getRevenueCatStatus as classifyRevenueCatStatus, syncRcStatus, type RcStatus} from "./rc-status";
 
 // RNFB v22+ marca a API namespaced como deprecated. No v25 sumiram setConfigSettings/
 // setDefaults do modular; a forma web-compatible é atribuir `settings` / `defaultConfig`.
@@ -470,8 +471,8 @@ const runPrepare = async (appConfig?: any, appStrings?: AppStrings): Promise<voi
         //Listener se mudou informacao do Usuário.
         try {
             if (rckey) {
-                Purchases.addCustomerInfoUpdateListener(() => {
-                    Utils.updateRCStatusMessagingTopic(appConfig, rckey);
+                Purchases.addCustomerInfoUpdateListener((customerInfo) => {
+                    Utils.updateRCStatusMessagingTopic(appConfig, rckey, customerInfo);
                 });
             }
         } catch (e) { expoUtilsWarn("addCustomerInfoUpdateListener:", e); }
@@ -699,11 +700,9 @@ const Utils = {
 
     setupMessagingTopics: async (appConfig?: AppConfig, rckey?: string) => {
 
-        try { 
-            await Utils.updateRCStatusMessagingTopic(appConfig, rckey); 
-        }  catch (e) { 
-            expoUtilsWarn("updateRCStatusMessagingTopic:", e); 
-        }
+        // Sem await: o tópico de estado passa por uma fila serial (utils/rc-status.ts) e um subscribe
+        // pendurado (offline) atrasaria o registro do onMessage e da push aberta logo abaixo.
+        Utils.updateRCStatusMessagingTopic(appConfig, rckey).catch((e) => expoUtilsWarn("updateRCStatusMessagingTopic:", e));
 
         try {
             const app = getApp();
@@ -750,21 +749,21 @@ const Utils = {
 
                 const topicName = appConfig?.expo?.slug || "default-topic";
                 subscribeToTopic(messaging, topicName)
-                    .then(() => { expoUtilsLog("Subscribed to topic:", topicName); logUtilsEvent("fcm_topic_subscribe", {topic: topicName}); })
+                    .then(() => { expoUtilsLog("Subscribed to topic:", topicName); logUtilsEvent("fcm_topic_subscribe", {fcm_topic: topicName}); })
                     .catch(() => expoUtilsWarn("Failed to subscribe to topic:", topicName));
                 const localeInfo = safeGetLocales()[0];
                 const regionCode = localeInfo?.regionCode;
                 if (regionCode) {
                     const countryTopic = `${topicName}-${regionCode.toLowerCase()}`;
                     subscribeToTopic(messaging, countryTopic)
-                        .then(() => { expoUtilsLog("Subscribed to country topic:", countryTopic); logUtilsEvent("fcm_topic_subscribe", {topic: countryTopic}); })
+                        .then(() => { expoUtilsLog("Subscribed to country topic:", countryTopic); logUtilsEvent("fcm_topic_subscribe", {fcm_topic: countryTopic}); })
                         .catch(() => expoUtilsWarn("Failed to subscribe to country topic:", countryTopic));
                 }
                 const languageCode = localeInfo?.languageCode;
                 if (languageCode) {
                     const langTopic = `${topicName}-lang-${languageCode.toLowerCase()}`;
                     subscribeToTopic(messaging, langTopic)
-                        .then(() => { expoUtilsLog("Subscribed to language topic:", langTopic); logUtilsEvent("fcm_topic_subscribe", {topic: langTopic}); })
+                        .then(() => { expoUtilsLog("Subscribed to language topic:", langTopic); logUtilsEvent("fcm_topic_subscribe", {fcm_topic: langTopic}); })
                         .catch(() => expoUtilsWarn("Failed to subscribe to language topic:", langTopic));
                 }
             }
@@ -1196,114 +1195,16 @@ const Utils = {
         await initHotUpdater(baseURL);
     },
 
-    getRevenueCatStatus: (customerInfo: any): string => {
-        const entitlements = customerInfo.entitlements?.active || {};
-        const allEntitlements = customerInfo.entitlements?.all || {};
-        const subscriptions = customerInfo.subscriptionsByProductIdentifier || {};
+    // Estado do assinante (free/trial/trial_cancelled/intro/active/cancelled/billing_issue/
+    // trial_expired/expired/refunded) — regras em utils/rc-status.ts.
+    getRevenueCatStatus: (customerInfo: any): RcStatus => classifyRevenueCatStatus(customerInfo),
 
-        // Verifica se há algum entitlement ativo
-        const activeEntitlementKeys = Object.keys(entitlements);
-        if (activeEntitlementKeys.length > 0) {
-            const entitlement = entitlements[activeEntitlementKeys[0]];
-
-            // Verifica se está em trial
-            if (entitlement.periodType === "TRIAL") {
-                return "trial";
-            }
-
-            // Verifica se está em período introdutório
-            if (entitlement.periodType === "INTRO") {
-                return "intro";
-            }
-
-            // Verifica se há problema de cobrança
-            if (entitlement.billingIssueDetectedAt) {
-                return "billing_issue";
-            }
-
-            // Verifica se cancelou mas ainda está ativo (não vai renovar)
-            if (!entitlement.willRenew && entitlement.unsubscribeDetectedAt) {
-                return "cancelled";
-            }
-
-            // Assinatura ativa normal
-            return "active";
-        }
-
-        // Se não há entitlements ativos, verifica o histórico
-        const allEntitlementKeys = Object.keys(allEntitlements);
-        if (allEntitlementKeys.length > 0) {
-            const entitlement = allEntitlements[allEntitlementKeys[0]];
-
-            // Verifica se foi reembolsado
-            const subscriptionKeys = Object.keys(subscriptions);
-            for (const key of subscriptionKeys) {
-                if (subscriptions[key].refundedAt) {
-                    return "refunded";
-                }
-            }
-
-            // Verifica se expirou (tinha assinatura mas não está mais ativa)
-            if (entitlement.expirationDate) {
-                const expirationDate = new Date(entitlement.expirationDate);
-                if (expirationDate < new Date()) {
-                    return "expired";
-                }
-            }
-
-            // Cancelou e já expirou
-            if (entitlement.unsubscribeDetectedAt) {
-                return "expired";
-            }
-        }
-
-        // Verifica se já fez alguma compra (pode ser não-subscription)
-        if (customerInfo.allPurchasedProductIdentifiers?.length > 0) {
-            return "expired";
-        }
-
-        // Nunca comprou nada
-        return "free";
-    },
-
-    updateRCStatusMessagingTopic: async (appConfig?: AppConfig, rckey?: string) => {
+    // User property `rc_status` + tópico de estado `{slug}-purchase-{status}` + marcos
+    // (`-trial_started`, `-converted`). Sem `customerInfo`, busca no RevenueCat.
+    updateRCStatusMessagingTopic: async (appConfig?: AppConfig, rckey?: string, customerInfo?: CustomerInfo) => {
         if (!rckey) return;
         try {
-            const customerInfo = await Purchases.getCustomerInfo();
-
-            // Determina o status detalhado
-            const status = Utils.getRevenueCatStatus(customerInfo);
-
-            // User property `rc_status` (free/trial/intro/active/cancelled/billing_issue/expired/
-            // refunded): todo evento do GA4 passa a poder ser quebrado por assinante × free.
-            // Fica ANTES do portão de APNS — em simulador/sem APNS o tópico é pulado, a
-            // property não. O user_id é reafirmado porque um logIn/restore troca o App User ID.
-            setUtilsUserProperty("rc_status", status);
-            try { setUtilsUserId(await Purchases.getAppUserID()); } catch {}
-
-            // subscribe/unsubscribe exigem APNS token no iOS — pula se indisponível (ex.: simulador)
-            if (!(await Utils.ensureApnsReady())) return;
-
-            const messaging = getMessaging(getApp());
-
-            const slug = appConfig?.expo?.slug || "default-topic";
-
-            const newTopic = `${slug}-purchase-${status}`;
-            const previousTopic = await AsyncStorage.getItem("FCM_CURRENT_TOPIC");
-
-            // Se o topic mudou, desinscreve do anterior e inscreve no novo
-            if (previousTopic && previousTopic !== newTopic) {
-                await unsubscribeFromTopic(messaging, previousTopic);
-                logUtilsEvent("fcm_topic_unsubscribe", {topic: previousTopic});
-                expoUtilsLog("Unsubscribed from topic:", previousTopic);
-            }
-
-            if (previousTopic !== newTopic) {
-                await subscribeToTopic(messaging, newTopic);
-                await AsyncStorage.setItem("FCM_CURRENT_TOPIC", newTopic);
-                logUtilsEvent("fcm_topic_subscribe", {topic: newTopic, status});
-                expoUtilsLog("Subscribed to topic:", newTopic);
-            }
+            await syncRcStatus(appConfig?.expo?.slug || "default-topic", customerInfo ?? (await Purchases.getCustomerInfo()));
         } catch (error) {
             expoUtilsWarn("Failed to update messaging topic:", error);
         }

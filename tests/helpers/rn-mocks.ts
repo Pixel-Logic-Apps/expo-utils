@@ -107,6 +107,8 @@ export function installMocks() {
         getMessaging: () => ({}),
         getToken: native("getToken", "fcm-token:APA91b"),
         getAPNSToken: native("getAPNSToken", "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90"),
+        subscribeToTopic: native("subscribeToTopic"),
+        unsubscribeFromTopic: native("unsubscribeFromTopic"),
     }));
     mock.module("@react-native-async-storage/async-storage", () => ({
         default: {

@@ -7,7 +7,10 @@ import {logUtilsEvent, type AnalyticsParams} from "./analytics";
 //   push_received_bg  app em background/fechado (setBackgroundMessageHandler)
 //   push_opened       usuário tocou na notificação — open_state: background | quit
 //
-// Params comuns: message_id, topic, title, push_id, latency_s (envio → recebimento/abertura).
+// Params comuns: fcm_message_id, fcm_topic, title, push_id, latency_s (envio → recebimento/abertura).
+// NUNCA `topic` / `message_id`: o SDK envia, mas o GA4 some com eles (medido em 24/09/2026 no
+// DebugView — provável colisão com os params que o próprio FCM grava no notification_receive,
+// `topic(_nt)` / `message_id`). O mesmo `fcm_topic` vale nos eventos fcm_topic_*: 1 dimensão só.
 // A taxa de abertura por notificação sai de push_opened ÷ push_received(+_bg), agrupando por
 // `push_id` (ou por `title` enquanto o sender não mandar um id).
 //
@@ -29,8 +32,8 @@ export const getPushParams = (remoteMessage: any): AnalyticsParams => {
     const sentTime = Number(remoteMessage?.sentTime);
     const pushIdKey = PUSH_ID_KEYS.find((key) => data[key] !== undefined && data[key] !== null && data[key] !== "");
     return {
-        message_id: remoteMessage?.messageId ?? "",
-        topic: from.startsWith("/topics/") ? from.slice("/topics/".length) : "",
+        fcm_message_id: remoteMessage?.messageId ?? "",
+        fcm_topic: from.startsWith("/topics/") ? from.slice("/topics/".length) : "",
         title: remoteMessage?.notification?.title ?? data.title ?? "",
         push_id: pushIdKey ? String(data[pushIdKey]) : undefined,
         latency_s: Number.isFinite(sentTime) && sentTime > 0 ? Math.max(0, Math.round((Date.now() - sentTime) / 1000)) : undefined,

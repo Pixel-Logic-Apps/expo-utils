@@ -396,7 +396,7 @@ Utils.prepare(setAppIsReady, appConfig, AppStrings, false);
 ✅ Inicializa TikTok Ads SDK
 ✅ Configura Microsoft Clarity analytics
 ✅ Atribuição do RevenueCat em duas fases, com envio forçado (ver [Atribuição e analytics](#-atribuição-do-revenuecat-e-analytics-v140))
-✅ Gerencia tópicos FCM baseado no status do usuário
+✅ Gerencia tópicos FCM pelo estado da assinatura (trial, trial cancelado, falha na renovação…) e pelos marcos iniciou trial / converteu
 ✅ Configura push notifications e inscreve em tópicos
 ✅ Rastreia push **recebida e aberta** via custom analytics events (`push_received`, `push_received_bg`, `push_opened`)
 ✅ Habilita export de métricas de entrega para BigQuery (Android)
@@ -421,8 +421,8 @@ O expo-utils registra no Firebase Analytics cada push **recebida** e cada push *
 
 ### Parâmetros (os três eventos)
 
-- `message_id` — ID da mensagem FCM no aparelho
-- `topic` — tópico de origem (extraído de `from: /topics/<nome>`; vazio em envio direto por token)
+- `fcm_message_id` — ID da mensagem FCM no aparelho
+- `fcm_topic` — tópico de origem (extraído de `from: /topics/<nome>`; vazio em envio direto por token)
 - `title` — título da notificação (max 100 chars)
 - `push_id` — identificador **escolhido pelo sender**: o primeiro presente entre `data.push_id`, `data.notification_id`, `data.campaign_id`
 - `latency_s` — segundos entre o envio (`sentTime`) e o recebimento/abertura
@@ -436,11 +436,13 @@ O expo-utils registra no Firebase Analytics cada push **recebida** e cada push *
 {"message": {"topic": "meu-app", "notification": {"title": "...", "body": "..."}, "data": {"push_id": "2026-09-20-0930"}}}
 ```
 
-> O `message_id` **não** serve para casar sender × aparelho em envio por tópico: o id que a API HTTP v1 devolve ao sender não é o que chega no device.
+> O `fcm_message_id` **não** serve para casar sender × aparelho em envio por tópico: o id que a API HTTP v1 devolve ao sender não é o que chega no device.
+>
+> Até a 1.4.0 esses params se chamavam `message_id` e `topic` e **nunca chegavam ao GA4**: o SDK envia, o GA4 não mostra — provável colisão com os nomes que o próprio FCM usa nos eventos dele. Dimensão personalizada criada como `topic` deve ser recriada como `fcm_topic`.
 
 ### Onde visualizar
 
-**Firebase Console > Analytics > Events** (não na tela "Mensagens" do FCM). Para quebrar por `push_id`/`topic` nos relatórios, registre-os como dimensões personalizadas — ver `docs/ANALYTICS-EVENTS.md`.
+**Firebase Console > Analytics > Events** (não na tela "Mensagens" do FCM). Para quebrar por `push_id`/`fcm_topic` nos relatórios, registre-os como dimensões personalizadas — ver `docs/ANALYTICS-EVENTS.md`.
 
 ### BigQuery Export
 
@@ -566,7 +568,7 @@ export default {
 | `review_request` / `review_prompt_show` / `review_prompt_action` / `review_store_requested` | funil do review, com `style` — é o que permite comparar os layouts do `review_style` |
 | `promo_impression` / `promo_click` com `promo_variant: "cross_promo_card"` | o cross-promo (obrigatório) passa a ser medido |
 | `push_opened` | notificações abertas |
-| user property `rc_status` | todo evento pode ser quebrado por free / trial / active / cancelled / expired… |
+| user property `rc_status` | todo evento pode ser quebrado por free / trial / trial_cancelled / active / billing_issue / expired… (lista em [Tópicos FCM](#-gerenciamento-de-tópicos-fcm)) |
 | user property `att_status`, `user_id` = App User ID do RC | segmentação e join GA4 ↔ RevenueCat |
 
 Catálogo completo (params, limites do GA4 e o que registrar como dimensão personalizada): **`docs/ANALYTICS-EVENTS.md`**. Em dev, cada evento aparece no console do Metro como `[expo-utils] event <nome> {...}` (respeita `disableLogs`).
@@ -762,43 +764,78 @@ O `tag` é usado pelo sistema de Ad Placement Tracking para gerar IDs únicos de
 
 ## 📬 Gerenciamento de Tópicos FCM
 
-### Tópicos Baseados no Status do Usuário
-
-O expo-utils gerencia automaticamente a inscrição em tópicos FCM:
+### Tópicos inscritos automaticamente
 
 ```typescript
-// Tópicos inscritos automaticamente por usuário:
-// meu-app                        ← todos os usuários
-// meu-app-br                     ← por país (regionCode)
-// meu-app-lang-pt                ← por idioma (languageCode)
-// meu-app-purchase-free          ← por status de assinatura
+// meu-app                          ← todos os usuários
+// meu-app-br                       ← por país (regionCode)
+// meu-app-lang-pt                  ← por idioma (languageCode)
+// meu-app-purchase-free            ← estado da assinatura (1 por vez, troca sozinho)
+// meu-app-purchase-trial_started   ← marco: já iniciou um trial (acumula, nunca sai)
+// meu-app-purchase-converted       ← marco: passou do trial para pago (acumula, nunca sai)
 ```
 
-### Status Disponíveis
+### Estado da assinatura: `meu-app-purchase-{status}`
 
-| Status | Descrição |
-|--------|-----------|
-| `trial` | Usuário em período de trial |
-| `intro` | Usuário em período introdutório |
-| `billing_issue` | Problema de cobrança detectado |
-| `cancelled` | Cancelou mas ainda está ativo |
-| `active` | Assinatura ativa normal |
-| `refunded` | Usuário foi reembolsado |
-| `expired` | Assinatura expirada |
-| `free` | Nunca comprou nada |
+Um tópico por aparelho: a cada mudança a lib sai do anterior e entra no novo. O mesmo valor vai na
+user property `rc_status` do Analytics.
+
+| Status | Quando |
+|--------|--------|
+| `free` | Nunca comprou |
+| `trial` | Em trial com renovação ligada — é onde cai quem acabou de iniciar o trial |
+| `trial_cancelled` | Cancelou o trial (renovação desligada) e ainda tem acesso até o fim dele |
+| `billing_issue` | Falha na renovação: a cobrança foi recusada. Vale na carência (ainda com acesso) e até 60 dias depois de perder o acesso, enquanto a loja segue tentando cobrar. Inclui a cobrança do fim do trial |
+| `intro` | Preço introdutório com renovação ligada |
+| `active` | Pagante com renovação ligada (inclui quem converteu do trial) |
+| `cancelled` | Pagante que desligou a renovação e ainda tem acesso |
+| `trial_expired` | O trial acabou sem virar pago |
+| `expired` | O período pago acabou (ou a falha de cobrança passou de 60 dias) |
+| `refunded` | Reembolsado |
+
+Ordem das regras: falha de cobrança vence tudo → renovação desligada (`unsubscribeDetectedAt`) →
+tipo do período (`TRIAL` / `INTRO` / pago). Com mais de um entitlement ativo, decide a assinatura
+que vence por último; um vitalício só decide quando não há assinatura ativa.
+
+### Marcos: `meu-app-purchase-trial_started` e `meu-app-purchase-converted`
+
+Acumulam: o aparelho entra uma vez e **nunca sai**.
+
+- `trial_started`: o aparelho viu um trial, ativo ou já expirado.
+- `converted`: depois do trial, o aparelho viu um período pago **ativo** e sem falha de cobrança.
+  Carência e cobrança do fim do trial que falhou não contam.
+
+O histórico do trial fica no aparelho (`@expo_utils_rc_milestones`), porque o `customerInfo` deixa
+de mostrar o trial depois da conversão. Quem reinstala ou troca de aparelho depois de converter,
+sem restaurar backup, não entra nos marcos.
+
+### Quando o tópico muda
+
+No boot e a cada `customerInfo` novo do RevenueCat — ou seja, **só quando o app abre**. Quem
+cancela o trial nas configurações da loja e não abre mais o app continua em `trial`. Configure no
+RevenueCat as **App Store Server Notifications** e as **Google Real-time Developer Notifications**:
+sem elas, cancelamento e falha de cobrança demoram a chegar ao SDK mesmo com o app aberto.
+
+- Em simulador iOS (sem APNS) a lib pula os tópicos, mas grava `rc_status` e os marcos.
+- A cada sessão a lib reinscreve o aparelho no tópico atual e nos marcos (1x, sem evento):
+  backup restaurado traz o armazenamento do app com um token FCM novo, que não está em tópico nenhum.
+- Compras sandbox (TestFlight, testadores) também entram nos tópicos — são os aparelhos do time.
+- Os eventos de transição (`rc_trial_start`, `purchase`, `rc_cancellation`, `rc_billing_issue`…)
+  vêm da integração Firebase do RevenueCat, pelo servidor. A lib não loga de novo.
 
 ### Uso Manual
 
 ```typescript
 import Utils from "expo-utils/utils/Utils";
+import type {RcStatus} from "expo-utils";
 
-// Atualizar tópico manualmente (rckey = chave RevenueCat)
-await Utils.updateMessagingTopic(appConfig, rckey);
+// Atualizar agora (rckey = chave RevenueCat). Sem o 3º argumento, busca o customerInfo no RevenueCat.
+await Utils.updateRCStatusMessagingTopic(appConfig, rckey);
+await Utils.updateRCStatusMessagingTopic(appConfig, rckey, customerInfo);
 
-// Obter status do usuário
-const customerInfo = await Purchases.getCustomerInfo();
-const status = Utils.getRevenueCatStatus(customerInfo);
-console.log(status); // "active", "free", "trial", etc.
+// Só o status
+const status: RcStatus = Utils.getRevenueCatStatus(await Purchases.getCustomerInfo());
+console.log(status); // "active", "free", "trial_cancelled", etc.
 ```
 
 ### Segmentação de Push Notifications
@@ -820,16 +857,22 @@ admin.messaging().send({
     notification: { title: 'Special Offer!', body: 'Subscribe with 50% off!' }
 });
 
-// Free users que falam espanhol (ES, MX, AR...)
+// Cancelou o trial e ainda tem acesso: oferta antes de o trial acabar
 admin.messaging().send({
-    condition: "'meu-app-purchase-free' in topics && 'meu-app-lang-es' in topics",
-    notification: { title: '¡Oferta Especial!', body: '¡Suscríbete con 50% de descuento!' }
+    condition: "'meu-app-purchase-trial_cancelled' in topics && 'meu-app-lang-pt' in topics",
+    notification: { title: 'Fica com o premium', body: '50% de desconto no 1º mês.' }
 });
 
-// Billing issue — todos os idiomas
+// Falha na renovação — todos os idiomas
 admin.messaging().send({
     topic: 'meu-app-purchase-billing_issue',
     notification: { title: 'Payment issue', body: 'Update your payment info.' }
+});
+
+// Iniciou trial e nunca pagou (inclui quem ainda está no trial)
+admin.messaging().send({
+    condition: "'meu-app-purchase-trial_started' in topics && !('meu-app-purchase-converted' in topics)",
+    notification: { title: 'Volte para o premium', body: 'Seu desconto de boas-vindas ainda vale.' }
 });
 
 // Todos os brasileiros (qualquer status)
@@ -839,7 +882,9 @@ admin.messaging().send({
 });
 ```
 
-> O FCM permite até **5 condições** combinadas com `&&` e `||`. Com tópicos por idioma, 12 idiomas = 12 envios (em vez de dezenas por país).
+> O FCM aceita até **5 tópicos** por condição, com `&&`, `||` e `!`. Com tópicos por idioma, 12
+> idiomas = 12 envios (em vez de dezenas por país). **Nunca use `!` sozinho**: `!('x' in topics)`
+> atinge todos os aparelhos do projeto Firebase, inclusive os de outros apps e os sem tópico.
 
 ## ⭐ Sistema de Avaliações
 

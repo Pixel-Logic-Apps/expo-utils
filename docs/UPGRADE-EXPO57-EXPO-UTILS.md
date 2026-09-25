@@ -560,6 +560,18 @@ requestTrackingWhenActive       UMP → ATT → [FB → ATRIBUIÇÃO FASE 2] (de
   calar esse evento — não adicionar sem testar.
 - **Paywall**: passar `placement` no `usePaywall({placement: "onboarding"})` para o funil `paywall_*`
   sair segmentado (omitido = rota atual).
+- **Tópicos de assinatura (FCM)**: a lib mantém o aparelho em UM tópico de estado
+  `{slug}-purchase-{status}` (`free`, `trial`, `trial_cancelled`, `intro`, `active`, `cancelled`,
+  `billing_issue`, `trial_expired`, `expired`, `refunded`) e nos marcos acumulados
+  `{slug}-purchase-trial_started` / `{slug}-purchase-converted` (`utils/rc-status.ts`). **Mudou o
+  significado de `trial`**: trial cancelado agora é `trial_cancelled` e a cobrança do fim do trial que
+  falhou é `billing_issue` — sender que mirava `-purchase-trial` para "trial cancelado" precisa trocar
+  de tópico. **Não reimplementar no app** (nada de `subscribeToTopic` de status no app host) e não
+  apagar a chave `FCM_CURRENT_TOPIC` do AsyncStorage: é por ela que a lib sai do tópico antigo.
+- **Params de push renomeados**: `topic` → `fcm_topic` e `message_id` → `fcm_message_id` em `push_received`,
+  `push_received_bg`, `push_opened` e `fcm_topic_*`. Os nomes antigos NUNCA chegavam ao GA4 (o SDK envia, o GA4 não
+  mostra — provável colisão com os nomes que o FCM usa nos próprios eventos). Dimensão personalizada criada como `topic` → recriar como `fcm_topic`.
+  Evento próprio do app também não pode usar `topic` / `message_id` como nome de parâmetro.
 
 Exports novos do pacote (`index.ts` **e** `index.d.ts`): `logUtilsEvent`, `setUtilsUserId`,
 `setUtilsUserProperty`, `AnalyticsParams`, `setRevenueCatAttributes`, `scheduleRcSync`,
@@ -1050,6 +1062,9 @@ Use URL em `appStrings.hotUpdaterUrl` + `initHotUpdater` dentro do `ExpoUtilsLay
       **Só isto prova que chegou** — log local não prova
 - [ ] Sem o warn `handleReady nunca foi chamado` depois de 30s
 - [ ] Tocar numa notificação com o app em background → `push_opened` no console/DebugView
+- [ ] Device físico / emulador Android: console do Metro mostra `Subscribed to topic: <slug>-purchase-<status>`
+      (em simulador iOS não aparece — sem APNS a lib pula os tópicos). Entrega só se prova mandando uma
+      push para o tópico e vendo chegar
 
 ### 10.4 Expo doctor
 
