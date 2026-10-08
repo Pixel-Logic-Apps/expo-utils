@@ -21,6 +21,9 @@ export const state = {
     storefront: {countryCode: "GB"} as {countryCode: string} | null,
     geo: "ok" as "ok" | "fail", // resposta do 1º provedor de geo por IP
     installReferrer: "utm_source=google-play&utm_medium=organic",
+    installedAt: "2026-08-15T07:53:00Z", // firstInstallTime do pacote (muda em reinstalação/backup restaurado)
+    customerInfo: null as any, // o que o Purchases.getCustomerInfo() devolve
+    rcActive: true, // isRevenueCatActive() do Utils
     fetched: [] as string[],
 };
 
@@ -38,11 +41,15 @@ export const callNames = () => state.calls.map((call) => call[0]);
 export const callsOf = (name: string) => state.calls.filter((call) => call[0] === name);
 export const eventsOf = (name: string) => state.events.filter((event) => event.name === name);
 
-/** Avança o relógio falso em passos, esvaziando as microtasks entre eles. */
+/**
+ * Avança o relógio falso em passos, esvaziando as microtasks entre eles. 100 por passo: a fase 1 da
+ * atribuição encadeia muitos awaits (cada etapa passa pelo raceTimeout) e o relatório sai num `.then`
+ * destacado — com poucas, a asserção chegava antes do fim da cadeia, sem nenhum timer envolvido.
+ */
 export const advance = async (ms: number, step = 50) => {
     for (let elapsed = 0; elapsed < ms; elapsed += step) {
         jest.advanceTimersByTime(step);
-        for (let i = 0; i < 25; i++) await Promise.resolve();
+        for (let i = 0; i < 100; i++) await Promise.resolve();
     }
 };
 
@@ -61,6 +68,7 @@ export function installMocks() {
             },
             Version: 34,
         },
+        NativeModules: {},
     }));
     mock.module("react-native-purchases", () => ({
         default: {
@@ -73,14 +81,17 @@ export function installMocks() {
             collectDeviceIdentifiers: native("collectDeviceIdentifiers"),
             setFBAnonymousID: native("setFBAnonymousID"),
             setPushToken: native("setPushToken"),
+            setMediaSource: native("setMediaSource"),
+            setCampaign: native("setCampaign"),
+            getCustomerInfo: native("getCustomerInfo", () => state.customerInfo),
             syncAttributesAndOfferingsIfNeeded: native("syncAttributesAndOfferingsIfNeeded", {}),
         },
     }));
     mock.module("expo-application", () => ({
         nativeApplicationVersion: "2.1.0",
         nativeBuildVersion: "42",
-        getInstallationTimeAsync: () => Promise.resolve(new Date("2026-08-15T07:53:00Z")),
-        getInstallReferrerAsync: () => Promise.resolve(state.installReferrer),
+        getInstallationTimeAsync: () => Promise.resolve(new Date(state.installedAt)),
+        getInstallReferrerAsync: native("getInstallReferrerAsync", () => state.installReferrer),
     }));
     mock.module("expo-device", () => ({osVersion: "14", modelName: "Pixel 8"}));
     mock.module("expo-localization", () => ({
@@ -121,6 +132,7 @@ export function installMocks() {
     }));
     mock.module("../../utils/Utils", () => ({
         default: {ensureApnsReady: () => Promise.resolve(state.apnsReady)},
+        isRevenueCatActive: () => Promise.resolve(state.rcActive),
         expoUtilsLog: () => {},
         expoUtilsWarn: (...args: any[]) => {
             state.warns.push(args);

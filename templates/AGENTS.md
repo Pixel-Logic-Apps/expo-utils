@@ -228,7 +228,9 @@ Quem preenche é o **dono**, no Firebase:
 
 O expo-utils já entrega o AdMob com **mediation ligada** (AppLovin, Meta, Unity e Pangle por
 padrão) e cuida do consentimento. O app **não** implementa nada disso. Outras redes do catálogo
-(liftoff, mintegral, bidmachine, moloco, bigo) entram só se listadas explicitamente.
+(liftoff, mintegral, bidmachine, moloco, bigo) entram só se listadas explicitamente. O SDK de cada
+rede vem junto — inclusive o da Unity no Android, que o adapter não traz e o plugin acrescenta
+(`com.unity3d.ads:unity-ads`); não declare SDK de rede do catálogo à parte no `mediation`.
 
 **PROIBIDO no app:**
 

@@ -1614,3 +1614,162 @@ link-in-bio/TikTok (dependem de Remote Config), aparelho físico.
   (force-stop + deep link do dev client) antes de concluir qualquer coisa. E os logs do Metro dos dois aparelhos vêm misturados.
 - **Pendente (pedido no meio da tarefa):** propostas para o pxdash / previsibilidade de campanha, ARPU e receita rumo a US$ 100k/mês
   — é PERGUNTA: responder com proposta, não codar o pxdash sem ok.
+
+---
+
+# 2026-10-07 — SDK da Unity na mediação Android, Premium vitalício e 3 bugs de atribuição (sem versão nova)
+
+**Pedido:** corrigir bugs confirmados, cada um com teste automatizado, sem commit/push/publish/bump:
+(1) Unity Ads na mediação Android ia **sem o SDK** — o adapter `com.google.ads.mediation:unity:4.19.0.0` não
+declara `com.unity3d.ads:unity-ads` no POM (APK de produção com o adapter e sem `com.unity3d.ads` → 0% de
+match); conferir o POM de TODAS as redes do catálogo; (2) compra vitalícia / PREPAID / promocional não era
+Premium (`willRenew` exigido); (3a) link-in-bio perdia o install que falhava na 1ª abertura e mandava
+`matched: 0` na falha; (3b) Play Install Referrer lido e `install_attribution` emitido a CADA abertura;
+(3c) gbraid/wbraid gravados como `gclid` sem dizer o tipo; (4) só nota de doc: compra possivelmente contada
+2x na Meta (integração Meta do RC + `autoLogAppEventsEnabled`).
+
+### O que entrou
+- **Mediação** — `data/mediation_adapters.json`: `android.extraArtifacts` (Unity → `com.unity3d.ads:unity-ads:4.19.0`,
+  a versão do "Built and tested with" do CHANGELOG do adapter 4.19.0.0; está no Maven Central). `app.plugin.js`:
+  `resolveMediationNetworks` marca `fromApp` e resolve os extras (app que troca a versão do adapter leva o SDK junto:
+  4.20.1.0 → 4.20.1); `androidMediationDependencies` monta as linhas com dedupe por artefato — a versão do app.json
+  vence a do catálogo (a chave `"unity-sdk"` do expo-bobbie-goods continua dando 1 linha). Funções puras expostas em
+  `plugin.mediationInternals` só para teste. JSDoc que dizia "TODAS as redes do catálogo" corrigido.
+- `scripts/check-mediation-poms.js` (precisa de rede; fora do `run.sh`): POM do adapter no Google Maven + podspec no
+  CocoaPods CDN, confere que o extra existe (Maven Central/Google Maven/mavenRepo); exit 1 se alguma rede ficar sem SDK.
+- **Premium** — `isPremiumEntitlement` (`utils/PremiumUtils.ts`): ativo e sem `unsubscribeDetectedAt`; `willRenew` →
+  Premium; senão, sem falha de cobrança e (sem `expirationDate` | PREPAID | `store: PROMOTIONAL`). Lido no FONTE:
+  iOS 5.88.0 `EntitlementInfo.willRenewWithExpirationDate` (Pods do expo-urna-v2) e Android 10.24.0
+  `EntitlementInfoHelper.getWillRenew` (AAR do cache do Gradle, javap) zeram `willRenew` em promo, vitalício,
+  cancelado, falha de cobrança e PREPAID. Ramo `is_opted_out_trial_enabled` intocado.
+- **Link-in-bio** — `utils/link-in-bio.ts` novo (o `Utils.initLinkInBioTracking` delega): a flag
+  `tr_is_first_launch_tracking` só é gravada com resposta do servidor (`success: true` ou `matched: true`); sem resposta
+  → `install_attribution_error {source, error}` e nova tentativa na próxima abertura; 1x por sessão.
+- **Play Install Referrer** — `utils/attribution.ts`: API lida 1x por install; resultado no AsyncStorage
+  `@expo_utils_install_referrer` com o `firstInstallTime` (reinstalação/backup restaurado em outro aparelho lê de novo);
+  `install_attribution` só nessa leitura; atributos regravados a cada sessão a partir do valor guardado; grava DEPOIS do
+  evento (falha no meio = lê e emite de novo na próxima).
+- **`click_id_type`** — `utils/install-referrer.ts`: o valor continua em `gclid` (chave que os customers já têm) e o tipo
+  vai em `click_id_type` (gclid | gbraid | wbraid).
+- Docs: README (SDK da Unity na mediação, Premium em produção, referrer 1x, link-in-bio, `click_id_type`, nota Meta×RC),
+  `docs/ANALYTICS-EVENTS.md` (`install_attribution` 1x por install, `install_attribution_error`, `click_id_type`),
+  playbook (§3.3 mediação, §4.2.1 com a nota da Meta, §6.4 Premium, armadilhas 31–34), AGENTS.md, `templates/AGENTS.md`
+  (REGRA 5).
+- Testes novos: `mediation-catalog.test.ts` (tabela do POM por rede NA versão conferida — quebra se a versão do catálogo
+  mudar sem rodar o script ou se rede sem SDK no POM ficar sem `extraArtifacts`), `premium.test.ts`, `link-in-bio.test.ts`,
+  `install-referrer-once.test.ts` e casos de `click_id_type` em `install-referrer.test.ts`. Fixtures do RC movidas para
+  `tests/helpers/rc-fixtures.ts` (o `rc-status.test.ts` importa de lá). `rn-mocks.ts`: `getCustomerInfo`, `setMediaSource`,
+  `setCampaign`, `isRevenueCatActive`, `NativeModules`, `installedAt`, e `getInstallReferrerAsync` passou a ser contado.
+  `advance()` esvazia 100 microtasks por passo (eram 25): com os awaits novos da fase 1 o `rc_attribution` (num `.then`
+  destacado) chegava depois da asserção — orçamento de microtask, nenhum timer envolvido.
+
+### POM / podspec de cada rede (`node scripts/check-mediation-poms.js`, 2026-10-07)
+| rede | adapter Android | SDK no POM do adapter | pod iOS → SDK no podspec |
+|---|---|---|---|
+| applovin | applovin 13.6.3.0 | com.applovin:applovin-sdk:13.6.3 | AppLovin 13.6.3.0 → AppLovinSDK 13.6.3 |
+| meta | facebook 6.22.0.0 | com.facebook.android:audience-network-sdk:6.22.0 | Facebook 6.22.0.0 → FBAudienceNetwork 6.22.0 |
+| **unity** | unity 4.19.0.0 | **NÃO declara** → catálogo acrescenta com.unity3d.ads:unity-ads:4.19.0 | Unity 4.19.0.0 → UnityAds 4.19.0 |
+| liftoff | vungle 7.7.7.0 | com.vungle:vungle-ads:7.7.7 | Vungle 7.7.6.0 → VungleAds 7.7.6 |
+| mintegral | mintegral 17.1.71.0 | com.mbridge.msdk.oversea:mbridge_android_sdk:17.1.71 | Mintegral 8.1.6.0 → MintegralAdSDK/All 8.1.6 |
+| bidmachine | bidmachine 3.7.1.1 | io.bidmachine:ads:3.7.1 | BidMachine 3.7.1.0.1 → BidMachine 3.7.1 |
+| moloco | moloco 4.11.0.0 | com.moloco.sdk:moloco-sdk:4.11.0 | Moloco 4.9.0.0 → MolocoSDKiOS 4.9.0 |
+| bigo | bigo 5.10.1.0 | com.bigossp:bigo-ads:5.10.1 | Bigo 5.3.0.0 → BigoADS 5.3.0 |
+| pangle | pangle 8.2.0.4.0 | com.pangle.global:pag-sdk:8.2.0.4 | Pangle 8.2.0.3.0 → Ads-Global-Beta 8.2.0.3 |
+
+### Verificado × NÃO verificado
+- `./tests/run.sh`: **123 pass / 0 fail** em 16 arquivos (antes: 84/0 em 12). Cada teste novo foi rodado contra o código
+  ANTIGO numa cópia temporária e falha: premium 7, link-in-bio 3, referrer 5, catálogo sem `extraArtifacts` 4; o script
+  sem `extraArtifacts` sai com exit 1.
+- `tsc` (receita do AGENTS: pasta temporária com symlinks, nada escrito nos hosts) contra expo-utils-lab (RNFB 26.4.0,
+  RC 10.10.1) e expo-urna-v2 (RNFB 24.1.1, RC 10.9.1): **0 erros**. `utils/review-tutorial/preview.ts` (script Node) fica
+  fora do include: erra igual antes e depois (host sem @types/node).
+- `expo prebuild -p android --no-install` numa cópia temporária do expo-utils-lab (node_modules por symlink; expo-utils =
+  cópia do repo): bloco com `implementation("com.unity3d.ads:unity-ads:4.19.0") // Unity Ads SDK` logo após o adapter;
+  com o `mediation` exato do expo-bobbie-goods, 1 linha só (mesmo hash de sync). Gradle
+  `:app:dependencies --configuration releaseRuntimeClasspath --no-daemon` numa cópia APFS (`cp -c`) do node_modules:
+  adapter da Unity sem filho `com.unity3d.ads`, `com.unity3d.ads:unity-ads:4.19.0` resolvido em 4.19.0, 0 FAILED.
+  `find -newer` no lab e no bobbie-goods: nada escrito.
+- **NÃO verificado:** APK montado com `com.unity3d.ads` dentro e match da Unity no AdMob (precisa de build publicado);
+  link-in-bio contra o servidor real; referrer 1x num aparelho; compra vitalícia real no RevenueCat; a contagem em
+  dobro na Meta (hipótese de configuração — só nota na doc, flag intocada).
+- Achado NÃO corrigido (pedido era manter o ramo): com `is_opted_out_trial_enabled: true` o Premium vem de
+  `activeSubscriptions`, que no SDK sai só de `subscriber.subscriptions` (`CustomerInfo+ActiveDates.swift`) — compra
+  vitalícia continua sem Premium nesse ramo.
+- Corrigido em seguida (mesmo dia): nesse ramo o Premium agora é `activeSubscriptions.length > 0` **ou** algum
+  entitlement ativo. Teste novo em `tests/premium.test.ts` (vitalício e promocional com a flag ligada) — falha com o
+  ramo antigo, passa com o novo; suíte 124 pass / 0 fail em 16 arquivos. AGENTS.md (Premium User Detection) e a
+  armadilha 32 do playbook atualizados.
+- Notas: o `device_id` do TrendingsTracker é aleatório por sessão, então app morto entre o servidor processar e a
+  resposta chegar reenvia (raro; antes o install se perdia). O POM do unity-ads 4.19.0 traz
+  `com.unity3d.ads-mediation:adquality-sdk:(,10.0.0)` (faixa dinâmica — resolveu 9.10.0).
+
+---
+
+# 2026-10-08 — Retenção: UI de todos os segmentos e ofertas + casos no expo-utils-lab (sem versão nova)
+
+**Pedido:** estender o modal de retenção para PRÉ-VISUALIZAR no expo-utils-lab todos os casos do plano novo
+(`docs/PLANO-RETENCAO-OFERTAS.md`, seções 3, 4, 7 e 8). Só UI + pré-visualização: sem motor de detecção, sem compra de
+verdade, sem commit/push/publish/bump, sem Metro/emulador/simulador (a sessão principal roda). Remote Config em inglês;
+a lib não tem regra própria de "quem vê o quê".
+
+### O que entrou
+- **Tipos** (`utils/types.ts`, exportados em `index.ts`/`index.d.ts`): `RetentionSegment`, `RetentionOfferType`,
+  `RetentionSegmentConfig`, `RetentionOfferConfig`, `RetentionPeriodUnit`; `RetentionConfig` ganhou `segments` e `offers`
+  (o formato da fase 1 — `style`, `max_shows`, `reminder_hours`, `image_url`, `texts` — continua tipando);
+  `RetentionTexts` aceita qualquer chave (`billing_issue.title`, `offers.<nome>.cta`…). Oferta sem `product_id` = a
+  mesma assinatura que a pessoa tinha; com `product_id` = aquele produto; `subscription` = assinatura específica pelo
+  preço normal. `resubscribe`/`winback` embutidas.
+- **Textos** (`utils/i18n.ts`, 12 línguas): `segments` (cancelled com as 2 variantes + data "Sua assinatura termina em
+  {date}.", billing_issue "Seu pagamento não passou" + estado "Já atualizei", expired "Sentimos sua falta",
+  trial_expired "Seu teste grátis acabou", free "Que tal o Premium?" / "…para sempre?" quando a 1ª oferta é o vitalício),
+  `ctas`, `cards`, `notice` ("Cancele a assinatura antiga para não ser cobrado de novo" + "Gerenciar assinaturas") e
+  `units` (sufixo "/mês" e "nos 3 primeiros meses" por categoria de plural do CLDR). Coreano sem `{app}` (partícula
+  을/를 depende do nome).
+- **`utils/retention-offers.ts`** (novo, puro): tipo × segmento → botão (`retentionCtaKey`), cartão
+  (`retentionCardKind`), ação (`retentionOfferAction`) e próximo estado da pré-visualização (`retentionPreviewNext`);
+  `retentionDiscountPercent`, `formatRetentionPrice`/`formatRetentionPercent` (`Intl.NumberFormat`; o `formatted` da
+  loja vence), `retentionPluralCategory` à mão (o Hermes do lab não tem `Intl.PluralRules`: `strings` no hermesvm acha
+  NumberFormat/DateTimeFormat/Collator e 0 PluralRules), catálogo de exemplo (`discount_50`, `lifetime_deal`,
+  `promo_code`) e preços falsos (BRL 19,90 / 9,90 por 3 meses / vitalício 59,90 × 99,90; USD 4,99 / 2,49 / 14,99 × 24,99).
+- **`utils/retention-view.ts`** (novo, puro): `buildRetentionView` monta a tela inteira (título/texto/bullets/data do
+  segmento, botão principal, no máximo 1 cartão secundário, estado "conferindo", aviso pós-compra) com a mesma ordem de
+  textos da fase 1. Para `trial_cancelled` + `resubscribe` o resultado é igual ao `resolveRetentionTexts` (teste compara
+  16 línguas × 2 variantes × bullets × 5 Remote Configs).
+- **`utils/retention-events.ts`**: `RetentionEvents.show` aceita `segment`, `offers` (já com preço) e `state`
+  (`lifetime_notice`); sem eles = fase 1. `showRetentionPreview` ganhou `segment`, `offers` (nomes e/ou objetos no formato
+  do Remote Config) e `state`; as opções antigas continuam. Data padrão: 5 dias (trial), 12 (cancelled), nenhuma nos outros.
+- **`utils/retention-modal.tsx`**: cabeçalho por segmento (cartão de pagamento com alerta âmbar desenhado com Views na
+  falha de pagamento; "✓" verde no aviso), cartão da oferta principal (desconto: preço novo, riscado, selo verde
+  #34C759/#30D158, período e regra; vitalício; preço por período; código em pílula monoespaçada + "válido na loja"),
+  2ª oferta como cartão tocável com botão próprio abaixo do principal, "Agora não" sempre embaixo. Fora da
+  pré-visualização só "Reativar"/"Atualizar pagamento" fazem algo (gestão da assinatura); compra/código dão
+  `expoUtilsWarn` e nada. Na pré-visualização cada toque sai no Metro (`[expo-utils] retention preview: …`).
+- **Lab**: `src/constants/retention-cases.ts` (novo), bloco "Retenção — casos" em `src/app/index.tsx` (um botão por caso,
+  variante do bloco de cima, botão `casos-lingua` alterna aparelho → 12 línguas) e `?case=` em `src/app/retencao.tsx`
+  (parâmetros antigos mantidos). Instalado como manda o AGENTS: `npm pack` (no scratchpad) → `tar -xzmf` por cima de
+  `node_modules/expo-utils` (o `-m` grava mtime atual: com o 1985 do pack, um Metro com cache por mtime podia servir o
+  arquivo antigo) → `cmp` dos 10 arquivos + grep. `package.json` do lab intocado.
+- **Docs**: README (seção do modal), playbook §5.4.2, AGENTS.md (seção do modal + lab). `docs/ANALYTICS-EVENTS.md` não
+  mudou: nenhum evento novo nesta fase.
+
+### Casos (deep link `expoutilslab://retencao?case=<id>&locale=pt`)
+`trial_cancelled_resubscribe`, `trial_cancelled_discount`, `cancelled_resubscribe`, `billing_issue_resubscribe_lifetime`,
+`billing_issue_lifetime_bought`, `expired_resubscribe`, `expired_winback`, `expired_discount_lifetime`,
+`trial_expired_lifetime`, `free_lifetime`, `offer_code`.
+
+### Verificado × NÃO verificado
+- `./tests/run.sh`: **245 pass / 0 fail em 19 arquivos** (antes 185/0 em 18). Novo `tests/retention-offers.test.ts` (48):
+  limites da Apple em 6 segmentos × 2 variantes × 6 × 6 ofertas nas 12 línguas com `{app}` de 20 e preços reais (botão
+  ≤ 30), tabela de botão/cartão/ação/próximo estado, cartões, Remote Config, plurais, compatibilidade com a fase 1.
+  `retention-events.test.ts` 6 → 18 (preview novo + compatibilidade das opções antigas). 6 mutações numa cópia
+  (título de 70 caracteres, botão do billing, cartão no resubscribe, `cta` legado em todo segmento, plural russo,
+  regra sem `{per}`) — todas quebram os testes.
+- `tsc` pela receita do AGENTS (symlinks no scratchpad, strict) contra expo-utils-lab (RNFB 26.4.0, RC 10.10.1) e
+  expo-urna-v2 (RNFB 24.1.1, RC 10.9.1): **0 erros**. `bunx tsc --noEmit` no lab: só o erro antigo de
+  `src/components/app-tabs.web.tsx` (rota `/explore` apagada), igual antes da mudança. Babel do lab (babel-preset-expo)
+  transforma os 12 arquivos tocados para android e ios.
+- **NÃO verificado:** nada foi desenhado num aparelho (layout, cores, modo escuro, RTL do árabe, folha do iOS, bottom
+  sheet do Android, cartão secundário em tela estreita); `Intl` do Hermes no aparelho (os testes usam o ICU do bun: no
+  Hermes o árabe pode sair com algarismos ١٢); as traduções não passaram por revisão humana; nenhuma compra, oferta da
+  loja, win-back ou código foi exercitado (o motor é a próxima fase); `docs/index.html` (gerador do JSON) não ganhou o
+  `retention`.

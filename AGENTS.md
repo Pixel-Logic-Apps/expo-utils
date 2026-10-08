@@ -70,8 +70,15 @@ em SDK de terceiro, leia o fonte de verdade (os `Pods/` e AARs dos apps locais),
   `scheduleRcSync` resolve `2` para os codigos 23/2 (lado das ofertas) e so trata como falha (`0`) o resto.
 - **Origem do install no Android (`utils/install-referrer.ts`)**: `Application.getInstallReferrerAsync()` (expo-application, ja peer dep — NAO
   precisa de modulo nativo novo; em 20/09 deixei isso de fora alegando o contrario sem conferir) → `$mediaSource`/`$campaign`/`$adGroup`/
-  `$ad`/`$keyword`/`$creative` na fase 1. Google Ads so entrega `gclid` (campanha/keyword/criativo nao chegam ao aparelho); TikTok
-  nada. O SDK do RC nao coleta mais Android ID e a lib tambem nao (politica do Play: Ad ID × id persistente).
+  `$ad`/`$keyword`/`$creative` na fase 1. Google Ads so entrega o id do clique (campanha/keyword/criativo nao chegam ao aparelho):
+  vai em `gclid` (nome legado, vale para gbraid/wbraid) + `click_id_type`; TikTok nada. O SDK do RC nao coleta mais Android ID e a
+  lib tambem nao (politica do Play: Ad ID × id persistente). **A API do referrer e lida 1x por install** (pedido do Google): resultado
+  no AsyncStorage `@expo_utils_install_referrer` com o `firstInstallTime` (reinstalacao/backup restaurado le de novo), evento
+  `install_attribution` so nessa leitura, atributos regravados a cada sessao a partir do valor guardado.
+- **Link-in-bio (`utils/link-in-bio.ts`)**: a flag `tr_is_first_launch_tracking` (legada, sem `@`) so e gravada com RESPOSTA do
+  servidor — o `trackInstall()` nunca lanca (offline/timeout devolve `{success: false}`). Sem resposta: `install_attribution_error` e
+  nova tentativa na proxima abertura; `install_attribution` sai 1x por install. Ate 06/10/2026 a flag ia antes da chamada e a falha
+  saia como `matched: 0`, igual a sem-match.
 - **Anuncio da META no Android**: o referrer vem CIFRADO (`utm_content` = JSON `{source:{data,nonce}}`, AES-256-GCM formato libsodium:
   `ciphertext||tag16`, nonce 12, sem AAD). `utils/aes-gcm.ts` abre em TS puro (Hermes nao tem WebCrypto; ~6 ms; confere a TAG — chave
   errada vira `null`, nunca lixo). Chave = "Install Referrer Decryption Key" do app na Meta, vinda de `meta_install_referrer_key`
@@ -121,6 +128,57 @@ em SDK de terceiro, leia o fonte de verdade (os `Pods/` e AARs dos apps locais),
 - `docs/.nojekyll` é proposital: sem ele o Pages roda Jekyll nos `.md` da pasta, e a sintaxe `{{ }}`/`{% %}` dos playbooks quebra o build do site. Não remova.
 - Só a App Store tem API pública com CORS (iTunes lookup). O Google Play não tem, então link só-Play é resolvido em duas etapas: (1) mesmo `bundleId` na App Store; (2) se não existe app iOS com esse bundleId, a página do Play é lida por um **serviço de metadados** que responde com CORS e aceita uso sem chave — lista `PLAY_READERS` do `docs/index.html`: Jina Reader (`r.jina.ai`, 20 req/min, traz nome/descrição curta/ícone/screenshots) e, se ele falhar, Microlink (`api.microlink.io`, 25 req/dia, sem screenshots). 404 do Play = "app não encontrado"; os dois leitores fora do ar = degrada para "só preenchi a URL" (nunca trava). Link só-Play **tem que** preencher tudo — não remova essa etapa.
 - Proxy CORS público genérico foi testado e descartado (todos instáveis); não reintroduza. Se um leitor morrer, troque a entrada dele em `PLAY_READERS` por outro serviço de metadados (ou um Worker próprio) e teste **num navegador de verdade** — `curl` não aplica CORS, então não prova nada.
+
+
+## Modal de retenção (UI de todos os segmentos e ofertas pronta; motor ainda não)
+
+Planos: `docs/PLANO-RETENCAO-TRIAL-CANCELADO.md` (07/10/2026: UI do trial cancelado) e `docs/PLANO-RETENCAO-OFERTAS.md`
+(08/10/2026: UI por segmento + cartões de oferta + pré-visualização, seções 3, 4, 7 e 8). O motor (detecção na volta ao
+primeiro plano, limites, conferência da oferta na loja, compra) e os eventos `retention_*` NÃO existem: em produção nada
+abre o modal sozinho e nada é cobrado.
+
+- **Arquivos**: `utils/retention-texts.ts` (textos da fase 1, data, RTL, URL do Play), `utils/retention-offers.ts`
+  (tipo de oferta → botão/cartão/ação, preço e percentual com `Intl.NumberFormat`, plurais, catálogo e preços falsos da
+  pré-visualização), `utils/retention-view.ts` (`buildRetentionView`: a tela inteira, pura — o modal só desenha),
+  `utils/retention-events.ts` (`RetentionEvents` no `DeviceEventEmitter` + `showRetentionPreview`; módulo-folha, o
+  `Utils.ts` importa dele o item "Simular trial cancelado" do menu de dev) e `utils/retention-modal.tsx` (UI). Tudo
+  menos o `.tsx` é testado no bun (`tests/retention-*.test.ts`).
+- **Abrir**: `RetentionEvents.show({segment, offers, state, variant, productIdentifier, expirationDate, managementURL})`.
+  Sem `segment`/`offers` = fase 1 (trial cancelado + "Reativar"). `offers` são `RetentionOffer` JÁ com o preço da loja
+  (o motor vai montar); só a pré-visualização resolve nomes (`resolveRetentionOfferInput`) com preços falsos (BRL em pt,
+  USD nas outras). A 1ª oferta é o botão principal, a 2ª um cartão tocável abaixo dele, o resto o modal ignora. O motor
+  deve conferir `retention.enabled` e a lista do segmento antes (a lib não tem regra própria de "quem vê o quê"); o
+  modal em si não confere. Sem `variant`, sai do `is_opted_out_trial_enabled` (true → `premium_kept`).
+  `RetentionEvents.hide()` fecha por fora; `onClosed` traz o motivo (`dismiss`/`swipe`/`back`/`overlay`/`recovered`/
+  `confirmed`/`hidden`) para a fase de analytics.
+- **Toque**: fora da pré-visualização só `reactivate`/`update_payment` fazem algo (abrem a gestão da assinatura e vão
+  para "conferindo"); `purchase`/`redeem` só dão `expoUtilsWarn` — compra entra com o motor, não antes. Na
+  pré-visualização, `retentionPreviewNext` decide (conferindo / aviso pós-compra do vitalício em `billing_issue` / fecha
+  com `confirmed`) e cada toque sai no Metro por `expoUtilsLog` (`[expo-utils] retention preview: …`).
+- **Dono único (`RetentionModalSlot`)**: o `ExpoUtilsLayout` (prioridade 0), o `AskForReviewOverlay` (1) e o
+  `PromotionalContent` (2) montam um slot cada; só o de menor prioridade desenha. Isso existe porque o template padrão
+  (e o lab) NÃO usam o `ExpoUtilsLayout` — montar só nele deixava o modal invisível nesses apps. Os dois overlays devolvem
+  `[overlay | null, slot]` sempre na mesma posição para o slot não remontar quando o review abre/fecha.
+- **Plataforma**: iOS = `Modal` `pageSheet` + `allowSwipeDismissal` (no RN 0.86 a folha só fecha arrastando com essa
+  prop; o arraste chega como `onRequestClose`). Android = bottom sheet do padrão do promo. "Reativar": iOS
+  `Purchases.showManageSubscriptions()` (resolve quando a folha ABRE) e Android `managementURL` via `Linking`
+  (`showManageSubscriptions` lança no Android), com `playSubscriptionsUrl(pacote, produto)` de reserva (`sku` sem o
+  `:basePlan`). Depois do toque, nas duas plataformas, estado "conferindo" com "Já reativei" (invalida o cache do RC e
+  relê; `trial`/`intro`/`active` = reativou).
+- **Textos**: `Translations.retention` no `utils/i18n.ts` (12 línguas; os grupos `segments`, `ctas`, `cards`, `notice` e
+  `units` são das ofertas). Ordem por campo: `retention.texts[língua]` do Remote Config → lib na língua → `texts.en` do
+  Remote Config → lib en. Chaves do Remote Config: `<segmento>.title|body|bullets|date`, `offers.<nome>.cta|title|
+  period|terms|badge|hint`, `notice.*`, `dismiss` e as da fase 1 (`header`/`body`/`bullets`/`cta`, só no
+  `trial_cancelled`). Bullets nunca misturam línguas. Linha da data por `Intl.DateTimeFormat` (sem plural de dias).
+  Texto novo tem que caber nos limites da Apple (título/bullet ≤ 66, corpo ≤ 144 com `{app}` de 20 caracteres e preços
+  reais; botão ≤ 30): `tests/retention-texts.test.ts` e `tests/retention-offers.test.ts` quebram se passar.
+- **Plural e preço**: `units.per` ("/mês") e `units.first` ("nos 3 primeiros meses") por categoria do CLDR, escolhida à
+  mão em `retentionPluralCategory` — o Hermes não tem `Intl.PluralRules` (`strings` no hermesvm do lab: NumberFormat,
+  DateTimeFormat e Collator sim; PluralRules não). Preço: o `formatted` da loja vence; sem ele, `Intl.NumberFormat`.
+- **Árabe**: só o modal vira RTL. `textAlign` left/right e `row` seguem a direção do LAYOUT do app (o RN troca os lados
+  quando o app está em RTL — `RCTAttributedTextUtils.mm` e `TextLayoutManager.kt`), então o lado é calculado de
+  (texto RTL × `I18nManager.isRTL`). O Android escolhe a direção do parágrafo pelo 1º caractere forte: o texto RTL
+  ganha um RLM (`‏`) na frente.
 
 
 # Checksum MD5 do Remote Config
@@ -363,7 +421,7 @@ Redimensiona com **`jimp-compact`**, não com `sharp`. `sharp` **não é depend�
 
 **AdMob Mediation (default on):** `mediation` liga as **4 redes padrao** do catalogo `data/mediation_adapters.json` — AppLovin, Meta, Unity e Pangle. O catalogo tem mais 5 marcadas com `"default": false` (liftoff/vungle, mintegral, bidmachine/appodeal, moloco, bigo) que **so entram quando o app pede pelo nome**, para o build nao crescer sozinho a cada rede nova no catalogo. No **prebuild** o plugin faz tres coisas, todas idempotentes via tag `@generated`:
 
-1. `withAndroidMediationAdapters` — `implementation("com.google.ads.mediation:<art>:<ver>")` dentro do `dependencies {` do `android/app/build.gradle` (tag `expo-utils-admob-mediation`). `expo-build-properties` **nao** serve aqui: ele so tem `extraMavenRepos`/`extraPods`, nao tem chave de dependencia Gradle (o exemplo `android.dependencies` da doc do RNGMA nao existe no plugin).
+1. `withAndroidMediationAdapters` — `implementation("com.google.ads.mediation:<art>:<ver>")` dentro do `dependencies {` do `android/app/build.gradle` (tag `expo-utils-admob-mediation`). `expo-build-properties` **nao** serve aqui: ele so tem `extraMavenRepos`/`extraPods`, nao tem chave de dependencia Gradle (o exemplo `android.dependencies` da doc do RNGMA nao existe no plugin). **Adapter nao e rede**: o adapter Android da Unity NAO declara o SDK no POM ("This build does not contain the UnityAds SDK") e o app ia sem `com.unity3d.ads` (0% de match, visto num APK de producao em 06/10/2026). Por isso `android.extraArtifacts` no catalogo (hoje so `com.unity3d.ads:unity-ads`, versao = adapter sem o ultimo numero, que acompanha se o app trocar a versao do adapter). `androidMediationDependencies` deduplica por artefato — a versao vinda do app.json vence a do catalogo (app com chave propria `"unity-sdk"` continua com 1 linha). Ao subir versao de adapter ou adicionar rede: `node scripts/check-mediation-poms.js` (POM no Google Maven + podspec no CocoaPods; fora do `tests/run.sh`) e atualizar a tabela de `tests/mediation-catalog.test.ts`, que quebra se a versao do catalogo nao foi conferida ou se rede sem SDK no POM ficar sem `extraArtifacts`.
 2. `withAndroidMediationRepos` — bloco `allprojects { repositories { … } }` no fim do `android/build.gradle` (tag `expo-utils-admob-mediation-repos`) para Mintegral (`dl-maven-android.mintegral.com/...`) e Pangle (`artifact.bytedance.com/repository/pangle`): esses dois SDKs (`mbridge_android_sdk`, `pag-sdk`) **nao estao** no Maven Central nem no Google Maven. Blocos `allprojects` extras somam — o template do Expo 57 nao usa `dependencyResolutionManagement`.
 3. `withIosMediationPods` — `pod '<Adapter>', '<ver>'` logo apos `use_expo_modules!` no Podfile (mesma tag do item 1).
 
@@ -447,7 +505,7 @@ iOS push only works once the **APNS token** arrives (a native async callback). A
 **Unificado (2026-07-11)** — fonte única: `PremiumUtils.getIsPremiumStatus()` (exportado no index). Regra:
 
 - **`__DEV__`**: lê o toggle local `@isPremium` (AsyncStorage, flipável no dev menu).
-- **Produção**: consulta **SEMPRE o RevenueCat** (o storage NÃO é lido em produção; cache offline é o do próprio SDK do RC). Premium = entitlement ativo **e** `willRenew` **e** sem `unsubscribeDetectedAt` (com o override `is_opted_out_trial_enabled` do Remote Config → basta assinatura ativa). RC indisponível → não-premium.
+- **Produção**: consulta **SEMPRE o RevenueCat** (o storage NÃO é lido em produção; cache offline é o do próprio SDK do RC). Premium = entitlement ativo **sem** `unsubscribeDetectedAt` e **sem** `billingIssueDetectedAt` — assinatura/trial com `willRenew`, ou `willRenew: false` por ser vitalício (sem `expirationDate`), PREPAID ou `store: PROMOTIONAL` (`isPremiumEntitlement`; mesmo veredito do `rc_status = active`). Os SDKs do RC zeram `willRenew` nesses 5 casos (iOS `EntitlementInfo.willRenewWithExpirationDate`, Android `EntitlementInfoHelper.getWillRenew`, lidos no fonte em 07/10/2026) — exigir `willRenew` tirava o Premium de quem comprou o vitalício. Override `is_opted_out_trial_enabled` do Remote Config → basta assinatura ativa (mesmo cancelada) **ou** qualquer entitlement ativo: `activeSubscriptions` só lista assinaturas, então sem o entitlement o vitalício/promocional ficava sem Premium com a flag ligada (corrigido em 07/10/2026). RC indisponível → não-premium.
 
 Todos os pontos de ad delegam pra essa função: app-open (`appopen-ads.tsx`), interstitial/rewarded (`LoadAdsManager`), banners (`banner-ad`/`safe-banner-ad`) e `PaywallUtils.getIsPremium` (sem `entitlementIds`; com `entitlementIds` mantém o check específico, também sem fallback de storage em produção). `@isPremium` continua sendo **escrito** nas compras (`setPremiumStatus`) — só a leitura em produção mudou. O gate de "RC funciona de verdade" é `isRevenueCatActive()` (Utils): exige `isConfigured()` **e** um `getCustomerInfo()` real bem-sucedido — `isConfigured()` sozinho retorna true até com key inválida (401 silencioso). Memoiza sucesso; falha permite retry na próxima chamada.
 
@@ -502,7 +560,11 @@ Hard-won lessons from debugging consumer apps — they affect anyone integrating
   fases, timeout de etapa pendurada, janela de envios), geo (parsers com o formato REAL de cada provedor,
   cadeia de fallback, cache, chaves de desligar) e push. Cada arquivo roda em **processo proprio**: o
   `mock.module` do bun e global e vaza entre arquivos, e os modulos guardam estado de sessao. Os mocks dos
-  modulos nativos ficam em `tests/helpers/rn-mocks.ts`. `tests/` nao entra no pacote npm.
+  modulos nativos ficam em `tests/helpers/rn-mocks.ts`. `tests/` nao entra no pacote npm. Tambem: premium
+  (`premium.test.ts`, fixtures do RC em `tests/helpers/rc-fixtures.ts`, compartilhadas com `rc-status.test.ts`),
+  link-in-bio, referrer 1x por install e o catalogo de mediacao (`mediation-catalog.test.ts`, com o
+  `@expo/config-plugins` mockado — o repo nao tem node_modules). `scripts/check-mediation-poms.js` precisa de rede
+  e NAO roda no `run.sh`.
 - Typecheck: o Metro NAO checa tipos e o pacote distribui `.ts`/`.tsx` — rode `tsc` contra os `node_modules`
   de apps host reais, de preferencia com versoes diferentes do RNFB (24, 25 e 26 tipam `logEvent` diferente).
   Receita sem tocar no app host: pasta temporaria com `node_modules` → symlink pro `node_modules` do host,
@@ -515,7 +577,9 @@ Projeto Expo 57 criado SO para testar a lib num caso real — **nunca adapte um 
 Firebase real (projeto `local-desenv`, pacote `com.pixellogic.expoutilslab`: DebugView e envio de push de teste pelo
 console) e RevenueCat real (projeto "ExpoUtils Lab", loja de teste `test_…`, offering `default` com 3 produtos — a
 Test Store simula compra valida/falha/cancelamento sem cobranca). `src/app/index.tsx` tem um bloco por feature (review
-nos 4 estilos com imagem padrao/custom, cross-promo, geo, token FCM, atributo custom) e `src/app/paywall.tsx` exercita
+nos 4 estilos com imagem padrao/custom, retencao do trial cancelado nas 2 variantes e 12 linguas, "Retenção — casos"
+(um botao por caso do plano de ofertas; deep link `expoutilslab://retencao?case=<id>&locale=pt`), cross-promo, geo, token
+FCM, atributo custom) e `src/app/paywall.tsx` exercita
 o funil. Roteiro: `npm pack` → extrair o `.tgz` por cima de `node_modules/expo-utils` (conferir com grep) →
 `expo start --dev-client --port 8082` → abrir com `exp+expo-utils-lab://expo-development-client/?url=…` → conferir o
 customer no RevenueCat e os eventos no DebugView. Mudou modulo nativo: `expo prebuild` + `./gradlew :app:assembleDebug`.

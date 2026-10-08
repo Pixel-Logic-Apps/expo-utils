@@ -3,8 +3,8 @@ export {default} from "./utils/Utils";
 export {PremiumUtils} from "./utils/PremiumUtils";
 export {ExpoUtilsLayout} from "./utils/ExpoUtilsLayout";
 export {ExpoUtilsStyles} from "./utils/styles";
-export type {AppConfig, AppStrings, AdUnits, RemoteConfigUtilsType, ReviewStyle, FacebookConfig, RevenueCatKeys, PromotionalType, PromotionalConfig, PromotionalShadow} from "./utils/types";
-export type {Translations} from "./utils/i18n";
+export type {AppConfig, AppStrings, AdUnits, RemoteConfigUtilsType, ReviewStyle, FacebookConfig, RevenueCatKeys, PromotionalType, PromotionalConfig, PromotionalShadow, RetentionConfig, RetentionTexts, RetentionSegment, RetentionOfferType, RetentionSegmentConfig, RetentionOfferConfig, RetentionPeriodUnit} from "./utils/types";
+export type {Translations, RetentionTranslations, RetentionPluralForms} from "./utils/i18n";
 export {getLocalizedMessages, translations, getSystemLanguage} from "./utils/i18n";
 export {default as RouteTracker} from "./utils/RouteTracker";
 export {generatePlacementId, isPlacementBlocked, setCurrentRoute, getCurrentRoute, setBlocklist} from "./utils/AdPlacementTracker";
@@ -21,3 +21,7 @@ export {PaywallController, PaywallUtils, usePaywall} from "./utils/PaywallUtils"
 export type {PaywallConfig, PaywallItem, PaywallLoadResult, PaywallOptions, PaywallProductConfig, PaywallPurchaseResult, UsePaywallOptions, UsePaywallResult} from "./utils/PaywallUtils";
 export {CrossPromoCard} from "./utils/cross-promo-card";
 export type {CrossPromoConfig, CrossPromoColors} from "./utils/cross-promo-card";
+export {RetentionEvents, showRetentionPreview} from "./utils/retention-events";
+export type {RetentionVariant, RetentionShowPayload, RetentionRequest, RetentionPreviewOptions, RetentionCloseMethod, RetentionClosedEvent} from "./utils/retention-events";
+export type {RetentionOffer, RetentionOfferInput, RetentionPrice, RetentionPeriod, RetentionModalState} from "./utils/retention-offers";
+export {RetentionModalSlot} from "./utils/retention-modal";

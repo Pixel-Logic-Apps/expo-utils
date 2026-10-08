@@ -73,12 +73,13 @@ import {
 import {getMessaging, requestPermission, onMessage, subscribeToTopic, getToken, setBackgroundMessageHandler, experimentalSetDeliveryMetricsExportedToBigQueryEnabled, registerDeviceForRemoteMessages, isDeviceRegisteredForRemoteMessages, getAPNSToken, onNotificationOpenedApp, getInitialNotification} from "@react-native-firebase/messaging";
 import {getApp} from "@react-native-firebase/app";
 import TiktokAdsEvents, {TikTokStandardEvents, TikTokWaitForConfig} from "expo-tiktok-ads-events";
-import {TrendingsTracker} from "./TrendingsTracker";
+import {trackLinkInBioInstall} from "./link-in-bio";
 import {logUtilsEvent, setUtilsUserProperty} from "./analytics";
 import {initAdRevenue} from "./ad-revenue";
 import {runAttributionPhase1, runAttributionPhase2, setRcAttributesLate} from "./attribution";
 import {logPushOpened, logPushReceived} from "./push-analytics";
 import {getRevenueCatStatus as classifyRevenueCatStatus, syncRcStatus, type RcStatus} from "./rc-status";
+import {showRetentionPreview} from "./retention-events";
 
 // RNFB v22+ marca a API namespaced como deprecated. No v25 sumiram setConfigSettings/
 // setDefaults do modular; a forma web-compatible é atribuir `settings` / `defaultConfig`.
@@ -414,7 +415,7 @@ const runPrepare = async (appConfig?: any, appStrings?: AppStrings): Promise<voi
 
     try {
         if (__DEV__) {
-            // Dev menu: limpar storage + toggles de Premium e Ads + reload manual.
+            // Dev menu: limpar storage + toggles de Premium e Ads + simular trial cancelado + reload manual.
             // Premium persiste (@isPremium). Ads flipa global.isAdsEnabled em RUNTIME (não persiste —
             // volta ao Remote Config no próximo reload). Os toggles só setam; use "Reload" pra reaplicar a UI.
             registerDevMenuItems([
@@ -426,6 +427,9 @@ const runPrepare = async (appConfig?: any, appStrings?: AppStrings): Promise<voi
                 {name: `Ads → toggle`, callback: async () => {
                     global.isAdsEnabled = global.isAdsEnabled === false;
                 }},
+                // Modal de retenção com dados falsos (sem RevenueCat). Fica nesta MESMA lista: cada
+                // registerDevMenuItems troca o mapa inteiro de callbacks (expo-dev-menu/build/DevMenu.js).
+                {name: "Simular trial cancelado", callback: () => { showRetentionPreview(); }},
                 {name: "Reload", callback: async () => { DevSettings.reload(); }},
             ]);
         }
@@ -1141,26 +1145,10 @@ const Utils = {
         if (!apiUrl) return;
         const {ios, android} = appConfig?.expo ?? {};
         const appId = Platform.OS === "ios" ? ios?.bundleIdentifier : android?.package;
-        try {
-            TrendingsTracker.init({apiUrl, appId});
-            if ((await AsyncStorage.getItem("tr_is_first_launch_tracking")) != "true") {
-                await AsyncStorage.setItem("tr_is_first_launch_tracking", "true");
-                // O backend casa o install com a impressão web (match por IP) e devolve a
-                // campanha. Antes a resposta era descartada e Media Source / Campaign ficavam
-                // vazios no RevenueCat mesmo com a origem conhecida. Não é aguardado: o
-                // trackInstall tem timeout próprio (5s) e nada abaixo na fila depende dele.
-                TrendingsTracker.trackInstall()
-                    .then((result) => {
-                        logUtilsEvent("install_attribution", {source: "link_in_bio", matched: result?.matched === true, campaign: result?.campaign_id});
-                        if (result?.matched !== true) return;
-                        return setRcAttributesLate("lib", async () => {
-                            await Purchases.setMediaSource("link_in_bio");
-                            if (result.campaign_id) await Purchases.setCampaign(String(result.campaign_id));
-                        });
-                    })
-                    .catch((e) => expoUtilsWarn("initLinkInBioTracking/trackInstall:", e));
-            }
-        } catch {}
+        // O backend casa o install com a impressão web (match por IP) e devolve a campanha →
+        // Media Source / Campaign no RevenueCat. Regras de flag/reenvio em utils/link-in-bio.ts.
+        // Não é aguardado: o trackInstall tem timeout próprio (5s) e nada abaixo na fila depende dele.
+        trackLinkInBioInstall(apiUrl, appId);
     },
 
     initTikTokSDK: async (remoteConfigs: RemoteConfigUtilsType, rckey?: string) => {

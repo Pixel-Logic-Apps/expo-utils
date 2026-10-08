@@ -474,21 +474,22 @@ Até a 1.3.x a atribuição era o **último** passo de uma fila serial (splash �
 - Cada fase termina com **envio forçado** (`Purchases.syncAttributesAndOfferingsIfNeeded()`, debounce de 2s, no máximo 4 por janela de 60s — o SDK limita a 5/min; o que exceder espera a janela, não é descartado).
 - `collectDeviceIdentifiers()` roda **sempre**: o próprio SDK já o chama dentro do `setFBAnonymousID`, então condicionar ao ATT não protegia nada. Sem ATT o iOS zera o IDFA; IDFV e IP não são escopo do ATT.
 - **iOS**: `setPushToken` recebe o token **APNS** (é o que o campo `$apnsTokens` espera); o token FCM vai na chave custom `fcm_token`. Android: `setPushToken(fcm)` → `$fcmTokens`.
-- TikTok e link-in-bio gravam o próprio atributo quando o SDK deles sobe. Se o `trackInstall()` do link-in-bio casar o install, grava `$mediaSource = "link_in_bio"` + `$campaign` (e emite `install_attribution`).
+- TikTok e link-in-bio gravam o próprio atributo quando o SDK deles sobe. Se o `trackInstall()` do link-in-bio casar o install, grava `$mediaSource = "link_in_bio"` + `$campaign` (e emite `install_attribution`). A flag de "feito" (`tr_is_first_launch_tracking`) só é gravada quando o **servidor respondeu**: offline/timeout/erro do servidor emite `install_attribution_error` e tenta de novo na próxima abertura do app — até a 1.4.0 a flag era gravada antes da chamada e o install que falhava se perdia, com `matched: 0` igual a um sem-match de verdade.
 
 ### Origem do install: Media Source, Campaign, Ad Group, Ad, Keyword, Creative
 
 | Plataforma | De onde vem | O que preenche |
 |------------|-------------|----------------|
-| **Android** | Play Install Referrer (`Application.getInstallReferrerAsync()` — já é peer dep, sem módulo nativo novo), lido na fase 1 | `utm_source` → Media Source · `utm_campaign` → Campaign · `utm_adgroup` → Ad Group · `utm_ad` → Ad · `utm_term` → Keyword · `utm_content` → Creative. Custom: `install_referrer` (cru), `install_medium`, `gclid` |
+| **Android** | Play Install Referrer (`Application.getInstallReferrerAsync()` — já é peer dep, sem módulo nativo novo), lido na fase 1 **uma vez por install** (como o Google pede): o resultado fica no AsyncStorage (`@expo_utils_install_referrer`, com o horário do install — reinstalação/backup restaurado lê de novo) e o `install_attribution` sai só nessa 1ª leitura; os atributos seguem regravados a cada sessão a partir do valor guardado | `utm_source` → Media Source · `utm_campaign` → Campaign · `utm_adgroup` → Ad Group · `utm_ad` → Ad · `utm_term` → Keyword · `utm_content` → Creative. Custom: `install_referrer` (cru), `install_medium`, `gclid` + `click_id_type` |
 | **Android**, anúncio da **Meta** | o mesmo referrer, que a Meta manda **cifrado** — a lib abre no aparelho com a chave do app (seção abaixo) | Media Source = `Instagram Ads` / `Facebook Ads` / `Meta Audience Network` / `Messenger Ads` · Campaign · Ad Group (conjunto) · Ad, com os **nomes reais**. Custom: `meta_*` |
 | **iOS** | Apple Search Ads: o token do AdServices sai na fase 1 e o **próprio RevenueCat** resolve Media Source / Campaign / Ad Group / Keyword | exige ligar a integração de Apple Search Ads no dashboard do RC |
 | as duas | match do link-in-bio (`trends_tracking_url`) | Media Source = `link_in_bio` + Campaign |
 
 Limites que **não são da lib**:
 
-- **Google Ads (campanha de app)**: o referrer traz só o id do clique (`gclid`/`gbraid`/`wbraid`). Nome de campanha, grupo, palavra-chave e criativo **não chegam ao aparelho** — só via vínculo Google Ads ↔ Firebase/GA4 ou via MMP (AppsFlyer, Adjust…). A lib marca Media Source = `Google Ads` e guarda o `gclid` para cruzar depois.
+- **Google Ads (campanha de app)**: o referrer traz só o id do clique (`gclid`/`gbraid`/`wbraid`). Nome de campanha, grupo, palavra-chave e criativo **não chegam ao aparelho** — só via vínculo Google Ads ↔ Firebase/GA4 ou via MMP (AppsFlyer, Adjust…). A lib marca Media Source = `Google Ads` e guarda o id do clique em `gclid` (nome mantido por compatibilidade, vale também para gbraid/wbraid) e qual dos três veio em `click_id_type` (`gclid` · `gbraid` · `wbraid`) — eles não são intercambiáveis ao cruzar com o Google Ads.
 - **Meta (Facebook/Instagram)**: no **Android** vem no referrer, cifrado — ver a seção abaixo. No **iOS** não existe equivalente: sem MMP/SKAdNetwork não há atribuição determinística por install.
+- **Compra contada 2x na Meta (configuração, não código)**: com a integração **Meta** ligada no dashboard do RevenueCat, a compra chega à Meta pelo servidor do RC; com `autoLogAppEventsEnabled: true` no plugin do `react-native-fbsdk-next` (padrão do `--config`), o próprio FB SDK também pode registrar a compra do aparelho. Confira no Events Manager se as compras aparecem em dobro e, se sim, mantenha **uma** fonte — desligar a integração no RC ou o log automático do SDK (que também leva os eventos automáticos de install/abertura). A lib não mexe nessa flag.
 - **TikTok**: não passa referrer utilizável em nenhuma plataforma; sem MMP não há atribuição determinística.
 - **Instalação sem link** (busca na loja, sideload): a lib **não grava** Media Source — marca só `install_medium = organic`. Motivo medido no dashboard (21/09/2026, com atributo-controle na mesma gravação): no RevenueCat os campos de atribuição são **“primeira gravação vence”** — regravar `$mediaSource`/`$campaign` pelo SDK não substitui o valor. Um `Organic` escrito no boot bloqueava qualquer fonte melhor que chegasse depois (match do link-in-bio, Apple Search Ads, MMP).
 - **Android ID**: o SDK do RevenueCat **não coleta mais** (não existe `$androidId` no SDK Android 10.x) e a lib não grava de propósito — a política do Google Play proíbe associar o Advertising ID a identificador persistente do aparelho sem consentimento explícito, e o GPS Ad ID já vai.
@@ -610,10 +611,10 @@ if (userEarnedReward) {
 
 ### Verificações Automáticas
 
-**Usuários Premium** (via AsyncStorage):
+**Usuários Premium** (`PremiumUtils.getIsPremiumStatus()`, fonte única de todos os formatos de ad). Em **produção** o veredito vem sempre do RevenueCat: Premium = algum entitlement ativo que **não** foi cancelado nem está com falha de cobrança — assinatura/trial renovando, **compra vitalícia** (ex.: "remover anúncios", sem data de expiração), plano **pré-pago** do Play e concessão **promocional** (os três têm `willRenew: false` sem terem cancelado; até 07/10/2026 a lib os tratava como não-Premium e quem comprou o vitalício continuava vendo anúncio). Assinatura ou trial cancelado perde o Premium na hora, salvo `is_opted_out_trial_enabled: true` no Remote Config (aí basta assinatura ativa). Em `__DEV__` vale só o toggle local:
 
 ```typescript
-// Marcar como premium (anúncios não aparecem)
+// Marcar como premium (anúncios não aparecem) — toggle de DEV
 await AsyncStorage.setItem("@isPremium", "true");
 
 // Remover premium
@@ -633,7 +634,7 @@ await AsyncStorage.removeItem("@isPremium");
 
 ### Mediation, consentimento (UMP) e receita por impressão
 
-**Mediation vem ligada** — o plugin injeta os adapters das 4 redes padrão (AppLovin, Meta, Unity e Pangle) no build (veja a opção
+**Mediation vem ligada** — o plugin injeta os adapters das 4 redes padrão (AppLovin, Meta, Unity e Pangle) e o SDK da Unity no Android (o adapter dela não traz) no build (veja a opção
 `mediation` em [Configuração do Plugin](#-configuração-do-plugin-opcional)). O que o app faz em
 runtime, sozinho, dentro do `Utils.handleReady` → `requestTrackingWhenActive()` (depois do primeiro frame — **não** é o `prepare()` que dispara):
 
@@ -1271,6 +1272,95 @@ function MyScreen() {
 
 ---
 
+## 🔁 Modal de Retenção (trial cancelado, falha de pagamento, vencido…)
+
+Oferta para quem cancelou, teve falha de pagamento ou deixou a assinatura vencer, no mesmo formato da Retention
+Messaging da App Store: imagem (ou o ícone do app), título, texto, bullets opcionais, a linha da data e os cartões de
+oferta. Planos: `docs/PLANO-RETENCAO-TRIAL-CANCELADO.md` e `docs/PLANO-RETENCAO-OFERTAS.md`.
+
+**Status:** a interface de todos os segmentos e ofertas está pronta e aparece pela pré-visualização. O motor que decide
+sozinho quando abrir, confere a oferta na loja e faz a compra **ainda não existe**: em produção nada abre o modal
+sozinho, e fora da pré-visualização só "Reativar"/"Atualizar pagamento" fazem algo (abrem a assinatura na loja).
+
+- **iOS:** folha nativa (`pageSheet`). **Android:** bottom sheet. Árabe da direita para a esquerda, só no modal.
+- **Segmentos:** `trial_cancelled`, `cancelled`, `billing_issue` (ilustração de cartão com alerta), `expired`,
+  `trial_expired` e `free`. Linha da data: fim do teste (`trial_cancelled`) ou do período pago (`cancelled`).
+- **Ofertas:** a 1ª da lista é o botão principal (com o cartão dela acima, quando tem); a 2ª vira um cartão tocável
+  abaixo do botão, com botão próprio; as outras são ignoradas. "Agora não" sempre embaixo.
+- Depois de "Reativar"/"Atualizar pagamento", o modal mostra "Já reativei"/"Já atualizei", que confere de novo no RevenueCat.
+- Vitalício comprado com falha de pagamento: aviso "Cancele a assinatura antiga para não ser cobrado de novo", com o
+  botão que abre as assinaturas da loja.
+- Não precisa de linha nova no app: o `ExpoUtilsLayout`, o `AskForReviewOverlay` e o `PromotionalContent` já montam o
+  modal. App sem nenhum desses três: `<RetentionModalSlot />` no `_layout`.
+
+| Tipo (`type`) | Botão | Cartão |
+| --- | --- | --- |
+| `resubscribe` | Reativar (trial/assinatura cancelados) · Atualizar pagamento (`billing_issue`) · Assinar de novo (vencidos) | só nos vencidos: preço por período |
+| `discount` / `winback` | Quero o desconto / Voltar com desconto | preço novo, riscado, selo −50%, "nos 3 primeiros meses", "depois R$ 19,90/mês" |
+| `subscription` | Assinar | preço por período |
+| `lifetime` | Comprar vitalício | "Pague uma vez, use para sempre", preço (riscado e selo com `compare_product_id`) |
+| `offer_code` | Usar código | o código em fonte monoespaçada + "válido na loja" |
+
+### Testar
+
+```typescript
+import {showRetentionPreview} from "expo-utils";
+
+showRetentionPreview();                                         // trial cancelado, variante do Remote Config
+showRetentionPreview({variant: "premium_kept", locale: "ar"});  // Premium até o fim, em árabe
+showRetentionPreview({segment: "billing_issue", offers: ["resubscribe", "lifetime_deal"]});
+showRetentionPreview({segment: "expired", offers: ["discount_50", {type: "lifetime", compare_product_id: "lifetime"}], locale: "en"});
+showRetentionPreview({segment: "billing_issue", offers: ["resubscribe", "lifetime_deal"], state: "lifetime_notice"}); // aviso pós-compra
+```
+
+Dados falsos (R$ 19,90/mês; 50% por 3 meses = R$ 9,90; vitalício R$ 59,90 contra R$ 99,90; USD fora do português) e
+nenhuma chamada ao RevenueCat: os botões só registram no log (`[expo-utils] retention preview: …`) e seguem o fluxo.
+Ofertas por nome (`resubscribe`/`winback` embutidas, as de `retention.offers` do Remote Config, as de exemplo
+`discount_50`/`lifetime_deal`/`promo_code` ou o próprio tipo) ou como objeto no formato do Remote Config. No menu de
+dev: **Simular trial cancelado**. No `expo-utils-lab`: bloco "Retenção — casos" e `expoutilslab://retencao?case=<id>`.
+
+### Remote Config (key `utils`, opcional)
+
+Sem a chave `retention`, fica desligado. A lib não tem regra própria de "quem vê o quê": cada segmento mostra só a lista
+dele, na ordem; segmento sem lista não vê nada. Nomes de campo em inglês.
+
+```json
+{
+    "retention": {
+        "enabled": true,
+        "segments": {
+            "trial_cancelled": {"offers": ["discount_50", "resubscribe"], "max_shows": 2, "min_interval_hours": 12, "reminder_hours_before_end": 24},
+            "billing_issue": {"offers": ["resubscribe", "lifetime_deal"], "max_shows": 3, "min_interval_hours": 24},
+            "expired": {"offers": ["winback", "discount_50", "lifetime_deal"], "max_days_after_expiration": 60},
+            "free": {"offers": ["lifetime_deal"], "after_paywall_dismissals": 3}
+        },
+        "offers": {
+            "discount_50": {"type": "discount", "ios_offer_id": "retention_50", "android_offer_tag": "retention-50"},
+            "lifetime_deal": {"type": "lifetime", "product_id": "lifetime_retention", "compare_product_id": "lifetime"},
+            "promo_code": {"type": "offer_code", "ios_code": "COMEBACK50"}
+        },
+        "image_url": "https://…/retencao.png",
+        "texts": {"pt": {"billing_issue.title": "…", "offers.lifetime_deal.cta": "…"}}
+    }
+}
+```
+
+- **Oferta sem `product_id`:** vale para a MESMA assinatura que a pessoa tinha. **Com `product_id`:** aquele produto.
+  `subscription` = uma assinatura específica pelo preço normal. `resubscribe` e `winback` não precisam estar em `offers`.
+- **Textos** (`texts.<língua>`): `<segmento>.title|body|bullets|date`, `offers.<nome>.cta|title|period|terms|badge|hint`,
+  `notice.title|body|cta` e `dismiss`. As chaves da fase 1 (`header`, `body`, `bullets`, `cta`) continuam valendo no
+  `trial_cancelled`. Ordem: Remote Config na língua → lib na língua (12 línguas) → Remote Config `en` → lib `en`.
+- **Variáveis:** `{app}`, `{price}`, `{original_price}`, `{discount}`, `{period}`, `{date}`, `{code}` e `{per}` ("/mês").
+  Preço com `Intl.NumberFormat` na língua da pessoa.
+- **Variante** (`trial_cancelled` e `cancelled`): `is_opted_out_trial_enabled: true` → "Você ainda tem o Premium até o
+  fim…"; falso ou ausente → "Os anúncios voltaram".
+- **Limites da Apple** (testados nas 12 línguas, com `{app}` de 20 caracteres e preços reais): título e cada bullet até
+  66 caracteres, texto até 144.
+- O formato da fase 1 (`style`, `max_shows`, `reminder_hours`) continua aceito. As regras de exibição
+  (`max_shows`, `min_interval_hours`…) só vão valer com o motor.
+
+---
+
 ## 🔌 Integrações Opcionais
 
 ### TikTok Ads SDK
@@ -1605,6 +1695,8 @@ Para suprimir warnings e/ou logs do expo-utils, adicione a configuração no seu
 - `analyticsAdSupport` - **Ligado por padrão** (apps ads-first). No **prebuild** injeta `$RNFirebaseAnalyticsEnableAdSupport = true` no `Podfile` iOS → linka `AdSupport.framework`, dando ao Firebase Analytics acesso ao IDFA (demografia/interesses no iOS, como no Android). ⚠️ Coleta IDFA em **produção**: precisa de ATT (expo-utils já pede) + IDFA declarado no privacy manifest/App Store. Inócuo em apps com AdMob (IDFA já coletado). **Desligue num app sem ads** com `"analyticsAdSupport": false`. Precisa `prebuild --clean` + rebuild.
 - `analyticsOnDeviceConversion` - **Ligado por padrão.** No **prebuild** injeta `$RNFirebaseAnalyticsGoogleAppMeasurementOnDeviceConversion = true` no `Podfile` iOS → adiciona o pod `GoogleAdsOnDeviceConversion` (resolve o log `[FirebaseAnalytics] Failed to initiate on-device conversion measurement... dependency does not support this feature`). Desligue com `"analyticsOnDeviceConversion": false`. _Obs.:_ feito via Podfile (não via config plugin do `@react-native-firebase/analytics`, que **não existe na v24** e quebraria o prebuild). Precisa `prebuild --clean` + rebuild.
 - `mediation` - **Ligado por padrão com 4 redes**: **AppLovin, Meta Audience Network, Unity Ads e Pangle**. O catálogo tem outras 5 disponíveis que **só entram se você pedir pelo nome** — `liftoff` (alias `vungle`), `mintegral`, `bidmachine` (alias `appodeal`), `moloco` e `bigo` —, para o build não engordar sozinho quando o catálogo crescer. No **prebuild** injeta os adapters no `android/app/build.gradle`, os repositórios Maven de Mintegral/Pangle no `android/build.gradle` e os pods no `ios/Podfile` — nada de mexer em Podfile/Gradle na mão nem plugin local no app. As versões vêm de `data/mediation_adapters.json` e são **pinadas** (o pod do Pangle 8.2.0.7+ exige `Google-Mobile-Ads-SDK ~> 13.6` e quebraria o `pod install` com o 13.5.0 do RNGMA 16.4.0). Desligue com `"mediation": false`, escolha as redes com `"mediation": ["applovin", "meta"]` ou troque versão com `"mediation": {"applovin": "13.6.3.0"}` (string vale pras duas plataformas; use `{"ios": "…", "android": "…"}` pra separar).
+
+**SDK da rede vem junto:** no Android quase todo adapter declara o SDK da rede no POM — **menos o da Unity** ("This build does not contain the UnityAds SDK"): sem o SDK o app vai só com o adapter e a Unity fica com **0% de match** no bidding (visto num APK de produção em 06/10/2026). Desde 07/10/2026 o catálogo acrescenta `implementation("com.unity3d.ads:unity-ads:4.19.0")` logo após o adapter (`android.extraArtifacts` em `data/mediation_adapters.json`; versão = a do "built and tested with" do adapter 4.19.0.0). Trocar a versão do adapter da Unity troca a do SDK junto (`4.20.1.0` → `4.20.1`). App que já declarava o SDK numa chave própria (ex.: `"unity-sdk": {"android": {"artifact": "com.unity3d.ads:unity-ads", "version": "4.19.0"}}`) pode tirar a chave — se ficar, sai **uma** linha só e a versão do app.json vence a do catálogo. No iOS todo pod já puxa o SDK pelo CocoaPods. Conferir de novo ao subir versão: `node scripts/check-mediation-poms.js` (lê os POMs no Google Maven e os podspecs no CocoaPods; não roda nos testes).
 
 **Rede fora do catálogo:** defina inteira no `app.json` — não precisa mexer na lib. Vale para qualquer ad source do AdMob, e definição só de uma plataforma é aceita (injeta só nela):
 

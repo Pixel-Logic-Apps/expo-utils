@@ -1,6 +1,25 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import Purchases from "react-native-purchases";
+import Purchases, {type PurchasesEntitlementInfo} from "react-native-purchases";
 import {expoUtilsWarn, isRevenueCatActive} from "./Utils";
+
+type EntitlementLike = Pick<PurchasesEntitlementInfo, "isActive" | "willRenew" | "periodType" | "store" | "expirationDate" | "unsubscribeDetectedAt" | "billingIssueDetectedAt">;
+
+/**
+ * Entitlement ativo que dá Premium. Intenção de sempre: quem DESLIGOU a renovação (assinatura ou trial
+ * cancelado) perde o Premium na hora, e falha de cobrança também tira.
+ *
+ * `willRenew` sozinho não separa isso: os SDKs do RevenueCat o zeram em CINCO casos (iOS
+ * `EntitlementInfo.willRenewWithExpirationDate`, Android `EntitlementInfoHelper.getWillRenew`, lidos no
+ * fonte): promocional, vitalício (sem `expirationDate`), cancelado, falha de cobrança e PREPAID do Play.
+ * Só cancelado e falha de cobrança são perda de acesso — a compra vitalícia "remover anúncios", o plano
+ * pré-pago e a concessão promocional seguem Premium, como no `rc_status` (`active`, utils/rc-status.ts).
+ */
+export const isPremiumEntitlement = (entitlement: EntitlementLike | null | undefined): boolean => {
+    if (!entitlement?.isActive || entitlement.unsubscribeDetectedAt) return false;
+    if (entitlement.willRenew) return true;
+    if (entitlement.billingIssueDetectedAt) return false;
+    return !entitlement.expirationDate || entitlement.periodType === "PREPAID" || entitlement.store === "PROMOTIONAL";
+};
 
 /**
  * Classe utilitária para gerenciar funcionalidades relacionadas ao status premium.
@@ -21,10 +40,11 @@ export class PremiumUtils {
 
     /**
      * Verifica se o usuário possui status premium
-     * Retorna true apenas se o usuário tem assinatura/trial ativo E não cancelado (willRenew = true)
+     * Retorna true se algum entitlement ativo dá Premium (`isPremiumEntitlement`): assinatura/trial
+     * renovando, compra vitalícia, plano pré-pago (Play) ou concessão promocional.
      *
      * IMPORTANTE: Usuários que cancelaram (opted-out) não terão acesso premium,
-     * mesmo que ainda estejam dentro do período pago/trial
+     * mesmo que ainda estejam dentro do período pago/trial (idem falha de cobrança)
      *
      * @returns Promise<boolean> - true se o usuário é premium, false caso contrário
      */
@@ -44,24 +64,18 @@ export class PremiumUtils {
 
             // Se o trial opted out estiver habilitado, retorna true se o usuário
             // tem uma assinatura ativa mesmo que cancelado logo em seguida.
+            // `activeSubscriptions` só lista assinaturas: compra vitalícia (e concessão
+            // promocional) entra pelo entitlement ativo.
             if (global?.remoteConfigUtils?.is_opted_out_trial_enabled === true) {
-                return customerInfo.activeSubscriptions.length > 0;
+                return customerInfo.activeSubscriptions.length > 0 || Object.keys(customerInfo.entitlements.active).length > 0;
             }
 
             // Verifica entitlements ativos
             const activeEntitlements = customerInfo.entitlements.active;
 
-            // Verifica se há algum entitlement ativo que NÃO foi cancelado
+            // Algum entitlement ativo que NÃO foi cancelado nem está com falha de cobrança.
             for (const entitlementId in activeEntitlements) {
-                const entitlement = activeEntitlements[entitlementId];
-
-                // Retorna true apenas se:
-                // 1. Entitlement está ativo (isActive = true)
-                // 2. NÃO foi cancelado/opted-out (willRenew = true)
-                // 3. NÃO foi detectado unsubscribe (unsubscribeDetectedAt = null)
-                if (entitlement.isActive && entitlement.willRenew && !entitlement.unsubscribeDetectedAt) {
-                    return true;
-                }
+                if (isPremiumEntitlement(activeEntitlements[entitlementId])) return true;
             }
 
             return false;

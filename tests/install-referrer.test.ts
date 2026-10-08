@@ -31,6 +31,18 @@ test("Google Ads: só vem o id do clique — marca a fonte, guarda o gclid e NÃ
     expect(mapInstallReferrer("gbraid=0AAAAA&utm_source=google&utm_medium=cpc&utm_campaign=app_br")!.reserved).toEqual({$mediaSource: "Google Ads", $campaign: "app_br"});
 });
 
+test("gbraid / wbraid: o valor continua em `gclid` e `click_id_type` diz qual dos três veio", () => {
+    expect(mapInstallReferrer("gclid=Cj0KCQjw-abc123")!.custom).toMatchObject({gclid: "Cj0KCQjw-abc123", click_id_type: "gclid"});
+    expect(mapInstallReferrer("gbraid=0AAAAA&utm_source=google&utm_medium=cpc")!.custom).toMatchObject({gclid: "0AAAAA", click_id_type: "gbraid"});
+    expect(mapInstallReferrer("wbraid=CjkKCQ&utm_source=google")!.custom).toMatchObject({gclid: "CjkKCQ", click_id_type: "wbraid"});
+    // mais de um: vale o gclid (mesma ordem de antes); id "(not set)" não conta
+    expect(mapInstallReferrer("wbraid=W1&gclid=G1")!.custom).toMatchObject({gclid: "G1", click_id_type: "gclid"});
+    expect(mapInstallReferrer("gclid=(not%20set)&gbraid=B1")!.custom).toMatchObject({gclid: "B1", click_id_type: "gbraid"});
+    const organic = mapInstallReferrer("utm_source=google-play&utm_medium=organic")!.custom;
+    expect(organic.gclid).toBeUndefined();
+    expect(organic.click_id_type).toBeUndefined();
+});
+
 test("referrer duplamente codificado, vazio ou lixo não quebra", () => {
     expect(parseReferrer("utm_source%3Dtiktok%26utm_campaign%3Dx")).toEqual({});
     expect(mapInstallReferrer("")).toBeNull();

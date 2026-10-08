@@ -6,6 +6,7 @@ import Utils, {initHotUpdater, expoUtilsWarn} from "./Utils";
 import {setupAppOpenListener} from "./appopen-ads";
 import AskForReviewOverlay, {AskForReviewEvents} from "./ask-for-review";
 import PromotionalContent, {usePromotional} from "./modal-promotional-content";
+import {RetentionModalSlot} from "./retention-modal";
 import type {AppStrings} from "./types";
 
 // Mantém o splash visível até o app estar pronto (roda no import, antes do mount).
@@ -77,6 +78,9 @@ export function ExpoUtilsLayout({appConfig, appStrings, children, onReady, fcmTr
                 onClose={() => setShowReviewOverlay(false)}
                 delay={global.remoteConfigUtils?.review_type_delay || 0}
             />
+            {/* Modal de retenção (trial cancelado): abre por RetentionEvents.show(). Prioridade 0 =
+                este é o dono; os slots do review e do promo só desenham sem o ExpoUtilsLayout. */}
+            <RetentionModalSlot priority={0} />
             <View onLayout={Utils.handleReady} />
         </>
     );

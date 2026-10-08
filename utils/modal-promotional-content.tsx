@@ -10,6 +10,7 @@ import {useSafeAreaInsets} from "react-native-safe-area-context";
 import {useVideoPlayer, VideoView} from "expo-video";
 import {expoUtilsWarn, waitAttFlowDone} from "./Utils";
 import {logUtilsEvent} from "./analytics";
+import {RetentionModalSlot} from "./retention-modal";
 import type {PromotionalConfig, PromotionalShadow} from "./types";
 export type {PromotionalShadow};
 
@@ -1139,7 +1140,18 @@ export function PromotionalBanner({colors: colorsProp, t, style, size = "small",
 
 // ─── Main Component (default export) ────────────────────────────────────────
 
-export default function PromotionalContent({visible, onClose, colors, t}: Props) {
+// Também monta o slot do modal de retenção (trial cancelado), com ou sem promo configurado: o template
+// padrão renderiza este componente sem o ExpoUtilsLayout. Só um slot desenha (o de menor prioridade).
+export default function PromotionalContent(props: Props) {
+    return (
+        <>
+            <PromotionalContentByType {...props} />
+            <RetentionModalSlot priority={2} />
+        </>
+    );
+}
+
+function PromotionalContentByType({visible, onClose, colors, t}: Props) {
     const config = getConfig();
     if (!config) return null;
 

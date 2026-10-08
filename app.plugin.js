@@ -291,7 +291,7 @@ function withAndroidGradleHeap(config) {
  * (data/mediation_adapters.json). Nunca lança: nome desconhecido vira warn e é ignorado.
  *
  * Aceita:
- *   true                                   → TODAS as redes do catálogo (default)
+ *   true                                   → as redes PADRÃO do catálogo (as sem `"default": false`)
  *   ["applovin", "meta"]                   → só as listadas (aliases valem: "facebook" = meta,
  *                                            "vungle" = liftoff)
  *   {applovin: "13.6.3.0", pangle: false}  → override de versão / desliga rede a rede.
@@ -305,7 +305,20 @@ function withAndroidGradleHeap(config) {
  *
  * Definição parcial é válida: rede só com `android` (ou só com `ios`) é injetada só naquela
  * plataforma — útil para adapter que não existe nas duas.
+ *
+ * Android: `android.fromApp` marca a coordenada escolhida no app.json (rede fora do catálogo ou
+ * artifact/versão trocados) e `android.extraArtifacts` traz os artefatos que o POM do adapter não
+ * traz (hoje o SDK da Unity), cada um com o seu `fromApp` — ver androidMediationDependencies.
  */
+// Adapter do Google = `<versão do SDK da rede>.<patch do adapter>` (unity 4.19.0.0 = "built and
+// tested with Unity Ads SDK 4.19.0"). App que troca a versão do adapter leva o SDK do catálogo junto
+// — senão o adapter novo rodaria contra o SDK antigo. Só vale quando o par do catálogo segue a regra.
+const withoutAdapterPatch = (version) => String(version).split(".").slice(0, -1).join(".");
+const followAdapterVersion = (sdkVersion, catalogAdapterVersion, adapterVersion) =>
+    adapterVersion !== catalogAdapterVersion && sdkVersion === withoutAdapterPatch(catalogAdapterVersion)
+        ? withoutAdapterPatch(adapterVersion)
+        : sdkVersion;
+
 function resolveMediationNetworks(option) {
     const catalog = MEDIATION_ADAPTERS.networks;
     const keys = Object.keys(catalog);
@@ -351,8 +364,10 @@ function resolveMediationNetworks(option) {
             if (value && typeof value === "object" && value.version) return value.version;
             return base[platform]?.version;
         };
+        const customOf = (platform) =>
+            definition && override[platform] && typeof override[platform] === "object" ? override[platform] : null;
         const merged = (platform) => {
-            const custom = definition && override[platform] && typeof override[platform] === "object" ? override[platform] : null;
+            const custom = customOf(platform);
             const merge = {...(base[platform] || {}), ...(custom || {}), version: versionOf(platform)};
             const valid = platform === "android" ? merge.artifact : merge.pod;
             if (!valid) return null;
@@ -364,6 +379,21 @@ function resolveMediationNetworks(option) {
         };
 
         const android = merged("android");
+        if (android) {
+            const catalogAndroid = key ? catalog[key].android : undefined;
+            android.fromApp =
+                !catalogAndroid || android.artifact !== catalogAndroid.artifact || android.version !== catalogAndroid.version;
+            const extrasFromApp = !catalogAndroid || Array.isArray(customOf("android")?.extraArtifacts);
+            android.extraArtifacts = (Array.isArray(android.extraArtifacts) ? android.extraArtifacts : [])
+                .filter((extra) => extra && extra.artifact && extra.version)
+                .map((extra) => ({
+                    ...extra,
+                    version: extrasFromApp
+                        ? extra.version
+                        : followAdapterVersion(extra.version, catalogAndroid.version, android.version),
+                    fromApp: extrasFromApp,
+                }));
+        }
         const ios = merged("ios");
         if (!android && !ios) {
             console.warn(`[expo-utils] mediation: "${name}" sem definição válida de Android nem iOS — ignorada.`);
@@ -392,6 +422,56 @@ function resolveAndroidExcludes(network, projectRoot) {
 }
 
 /**
+ * Dependências Gradle da mediação: o adapter de cada rede + os artefatos que o POM dele NÃO traz
+ * (`extraArtifacts` — hoje o SDK da Unity, sem o qual o adapter vai sozinho e a Unity fica com 0%
+ * de match). O mesmo artefato vindo de duas entradas (ex.: o SDK da Unity do catálogo e a chave
+ * própria `"unity-sdk"` que o app já declarava no app.json) vira UMA linha, e a versão escolhida no
+ * app.json vence a do catálogo — com duas linhas o Gradle ficaria com a maior, em silêncio.
+ */
+function androidMediationDependencies(networks, projectRoot) {
+    const deps = [];
+    const add = (dep) => {
+        const same = deps.find((d) => d.artifact === dep.artifact);
+        if (!same) {
+            deps.push(dep);
+            return;
+        }
+        if (same.version !== dep.version) {
+            const winner = dep.fromApp && !same.fromApp ? dep : same;
+            console.warn(
+                `[expo-utils] mediation: ${dep.artifact} declarado com ${same.version} e ${dep.version} — ` +
+                    `usando ${winner.version}${winner.fromApp ? " (do app.json)" : ""}.`,
+            );
+            same.version = winner.version;
+        }
+        same.fromApp = same.fromApp || dep.fromApp;
+        for (const e of dep.excludes) {
+            if (!same.excludes.some((x) => x.group === e.group && x.module === e.module)) same.excludes.push(e);
+        }
+    };
+    for (const n of networks) {
+        if (!n.android) continue;
+        add({
+            artifact: n.android.artifact,
+            version: n.android.version,
+            label: n.label,
+            fromApp: !!n.android.fromApp,
+            excludes: resolveAndroidExcludes(n, projectRoot),
+        });
+        for (const extra of n.android.extraArtifacts || []) {
+            add({
+                artifact: extra.artifact,
+                version: extra.version,
+                label: extra.label || `${n.label} SDK`,
+                fromApp: !!extra.fromApp,
+                excludes: [],
+            });
+        }
+    }
+    return deps;
+}
+
+/**
  * Android: injeta os adapters de mediation em `android/app/build.gradle`.
  *
  * Não dá pra usar `expo-build-properties` aqui — ele só expõe `extraMavenRepos`/`extraPods`,
@@ -404,17 +484,15 @@ function withAndroidMediationAdapters(config, networks) {
             console.warn(`[expo-utils] mediation: app/build.gradle em ${cfg.modResults.language}, pulando adapters Android.`);
             return cfg;
         }
-        const projectRoot = cfg.modRequest.projectRoot;
-        const androidNetworks = networks.filter((n) => n.android);
-        if (!androidNetworks.length) return cfg;
-        const newSrc = androidNetworks
-            .map((n) => {
-                const dep = `implementation("${n.android.artifact}:${n.android.version}")`;
-                const excludes = resolveAndroidExcludes(n, projectRoot);
-                if (!excludes.length) return `    ${dep} // ${n.label}`;
+        const deps = androidMediationDependencies(networks, cfg.modRequest.projectRoot);
+        if (!deps.length) return cfg;
+        const newSrc = deps
+            .map((d) => {
+                const dep = `implementation("${d.artifact}:${d.version}")`;
+                if (!d.excludes.length) return `    ${dep} // ${d.label}`;
                 return [
-                    `    ${dep} { // ${n.label}`,
-                    ...excludes.map(
+                    `    ${dep} { // ${d.label}`,
+                    ...d.excludes.map(
                         (e) => `        exclude group: "${e.group}", module: "${e.module}" // ${e.why}`,
                     ),
                     "    }",
@@ -542,9 +620,10 @@ function withIosMediationPods(config, networks) {
  * do Expo) e sobe o heap do Gradle daemon pra 4G. Evita plugin local nos apps.
  * Desligue com `{ androidKotlinAdsFix: false }`.
  *
- * `options.mediation` LIGADO por padrão com TODAS as redes do catálogo (AppLovin, Meta,
- * Unity, Liftoff, Mintegral, Pangle): no PREBUILD injeta os adapters no `app/build.gradle`,
- * os repositórios Maven de Mintegral/Pangle no build.gradle do projeto e os pods no Podfile.
+ * `options.mediation` LIGADO por padrão com as redes padrão do catálogo (AppLovin, Meta, Unity,
+ * Pangle): no PREBUILD injeta os adapters (+ o SDK da Unity, que o POM do adapter não traz) no
+ * `app/build.gradle`, os repositórios Maven das redes fora do Maven Central/Google Maven no
+ * build.gradle do projeto e os pods no Podfile.
  * Desligue com `{ mediation: false }`, ou escolha as redes: `{ mediation: ["applovin", "meta"] }`.
  * ⚠️ Adapter só serve ad depois de configurar a fonte na UI do AdMob (grupo de mediação +
  * ad unit mapeado); sem isso só pesa o build.
@@ -661,4 +740,7 @@ function withExpoUtils(config, options = {}) {
     return result;
 }
 
-module.exports = createRunOncePlugin(withExpoUtils, pkg.name, pkg.version);
+const plugin = createRunOncePlugin(withExpoUtils, pkg.name, pkg.version);
+// Funções puras da mediação, expostas só para tests/mediation-catalog.test.ts — não é API pública.
+plugin.mediationInternals = {resolveMediationNetworks, androidMediationDependencies};
+module.exports = plugin;

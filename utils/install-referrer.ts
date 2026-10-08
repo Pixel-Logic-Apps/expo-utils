@@ -12,7 +12,9 @@
 //   - Google Ads (campanha de app): o referrer traz só o identificador do clique
 //     (`gclid` / `gbraid` / `wbraid`) — nome de campanha, grupo, palavra-chave e criativo NÃO
 //     vêm no aparelho; isso só existe via Google Ads ↔ Firebase/GA4 ou via MMP (AppsFlyer,
-//     Adjust…). Marcamos `Google Ads` como media source e guardamos o `gclid` para cruzar depois.
+//     Adjust…). Marcamos `Google Ads` como media source e guardamos o id em `gclid` (nome mantido:
+//     é a chave que os customers já têm) + `click_id_type` = gclid | gbraid | wbraid — os três não
+//     são intercambiáveis na hora de cruzar com o Google Ads.
 //   - Anúncio da META (Facebook/Instagram): vem no referrer, CIFRADO. O `utm_content` é um JSON
 //     `{"source": {"data": "<hex>", "nonce": "<hex>"}, "a": <app id>, "t": <timestamp>}`; `data` abre
 //     com AES-256-GCM e a "Install Referrer Decryption Key" do app (Meta for Developers → App
@@ -29,7 +31,7 @@ import {aes256GcmDecrypt} from "./aes-gcm";
 export type InstallAttribution = {
     /** atributos RESERVADOS do RevenueCat ($mediaSource, $campaign, $adGroup, $ad, $keyword, $creative) */
     reserved: Record<string, string>;
-    /** atributos custom: install_referrer (cru), install_medium, gclid */
+    /** atributos custom: install_referrer (cru), install_medium, gclid (+ click_id_type: gclid | gbraid | wbraid) */
     custom: Record<string, string>;
     organic: boolean;
     /** só em install de anúncio da Meta: a metadata foi aberta, ficou cifrada (sem chave) ou a chave não serviu */
@@ -68,6 +70,8 @@ export const parseReferrer = (referrer: string): Record<string, string> => {
 };
 
 const RC_VALUE_MAX = 500;
+// Ids de clique do Google Ads, na ordem de preferência quando vem mais de um.
+const CLICK_ID_KEYS = ["gclid", "gbraid", "wbraid"] as const;
 
 // Anúncio da Meta: devolve a atribuição pronta, ou null se o referrer não for da Meta.
 function mapMetaReferrer(raw: string, p: Record<string, string>, options: InstallReferrerOptions): InstallAttribution | null {
@@ -142,7 +146,8 @@ export const mapInstallReferrer = (referrer: string | null | undefined, options:
     const pick = (...keys: string[]) => keys.map((key) => clean(p[key])).find(Boolean);
 
     const medium = pick("utm_medium");
-    const clickId = pick("gclid", "gbraid", "wbraid");
+    const clickIdType = CLICK_ID_KEYS.find((key) => clean(p[key]));
+    const clickId = clickIdType && clean(p[clickIdType]);
     let source = pick("utm_source");
     const organic = !clickId && (medium === "organic" || (!source && !pick("utm_campaign")));
     if (clickId && (!source || /^google(-play)?$/i.test(source))) source = "Google Ads";
@@ -166,7 +171,10 @@ export const mapInstallReferrer = (referrer: string | null | undefined, options:
 
     const custom: Record<string, string> = {install_referrer: raw.slice(0, 500)};
     if (medium) custom.install_medium = medium;
-    if (clickId) custom.gclid = clickId;
+    if (clickId && clickIdType) {
+        custom.gclid = clickId;
+        custom.click_id_type = clickIdType;
+    }
 
     return {reserved, custom, organic};
 };

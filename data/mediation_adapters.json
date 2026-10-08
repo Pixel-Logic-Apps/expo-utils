@@ -6,7 +6,9 @@
         "mavenRepo só existe para as redes cujo SDK NÃO está no Maven Central nem no Google Maven (Mintegral, Pangle e BidMachine). Moloco e BIGO estão no Maven Central, então não precisam.",
         "\"default\": false = rede NO catálogo mas FORA do conjunto padrão: `mediation: true` não a inclui (senão todo app do portfólio engordaria sozinho). Ligue por nome: `mediation: [\"applovin\", \"moloco\"]`.",
         "Os SKAdNetworkIDs de todas estas redes já estão em data/skadnetwork_ids.json (injetado pelo plugin no Info.plist).",
-        "Versões conferidas em 2026-08-14 contra maven.google.com e o CocoaPods trunk."
+        "Versões conferidas em 2026-08-14 contra maven.google.com e o CocoaPods trunk.",
+        "android.extraArtifacts = artefatos que o POM do adapter NÃO traz e que o plugin acrescenta como `implementation(...)` próprio. Hoje só a Unity: o POM do adapter diz 'This build does not contain the UnityAds SDK' — sem a linha do SDK o app vai com o adapter e sem o SDK, e o bidding da Unity fica com 0% de match (visto num APK de produção em 06/10/2026). A versão do SDK é a do 'Built and tested with' do CHANGELOG do adapter (= versão do adapter sem o último número). Se o app troca a versão do adapter, o plugin troca a do SDK junto.",
+        "POMs dos 9 adapters Android e podspecs dos 9 pods iOS conferidos em 2026-10-07: só o adapter Android da Unity vem sem o SDK; todo pod iOS declara o SDK da rede. Ao subir versão ou adicionar rede: `node scripts/check-mediation-poms.js` e atualizar a tabela de tests/mediation-catalog.test.ts."
     ],
     "networks": {
         "applovin": {
@@ -42,7 +44,14 @@
             ],
             "android": {
                 "artifact": "com.google.ads.mediation:unity",
-                "version": "4.19.0.0"
+                "version": "4.19.0.0",
+                "extraArtifacts": [
+                    {
+                        "artifact": "com.unity3d.ads:unity-ads",
+                        "version": "4.19.0",
+                        "reason": "O POM do adapter com.google.ads.mediation:unity não declara o SDK da Unity ('This build does not contain the UnityAds SDK'). O adapter 4.19.0.0 foi 'built and tested with Unity Ads SDK version 4.19.0' (CHANGELOG do googleads-mobile-android-mediation). Está no Maven Central."
+                    }
+                ]
             },
             "ios": {
                 "pod": "GoogleMobileAdsMediationUnity",

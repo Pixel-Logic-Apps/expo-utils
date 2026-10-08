@@ -355,6 +355,12 @@ Detectar package manager: lockfile (`package-lock.json` → npm, `bun.lock` → 
 ]
 ```
 
+**Mediação (`mediation`, ligada por padrão):** não declarar SDK de rede do catálogo à parte. Desde
+07/10/2026 o plugin já acrescenta `com.unity3d.ads:unity-ads` no Android (o adapter da Unity não traz o
+SDK — sem ele a Unity fica com 0% de match). App migrado que tinha a chave própria `"unity-sdk"` no
+`mediation` (caso do expo-bobbie-goods) pode removê-la; se ficar, o prebuild gera **uma** linha só e a
+versão do app.json vence. Conferir com `grep -n "unity" android/app/build.gradle` depois do prebuild.
+
 **edge-to-edge:**
 
 ```json
@@ -542,7 +548,15 @@ requestTrackingWhenActive       UMP → ATT → [FB → ATRIBUIÇÃO FASE 2] (de
   (`language`, `locale`, `device_region`, `currency`, `timezone`, `store_country`, `app_version`…),
   origem do install no Android (Play Install Referrer → Media Source / Campaign / Keyword / Creative;
   anúncio da **Meta** vem cifrado e é aberto no aparelho com a `meta_install_referrer_key`),
-  `setUserId` do GA4 = App User ID do RevenueCat.
+  `setUserId` do GA4 = App User ID do RevenueCat. Desde 07/10/2026 o referrer é lido **1x por install**
+  (AsyncStorage `@expo_utils_install_referrer`) e o `install_attribution` (`play_referrer`) sai só nessa
+  leitura; o id do clique do Google Ads segue em `gclid` + `click_id_type` (`gclid`/`gbraid`/`wbraid`).
+- **Link-in-bio** (`trends_tracking_url`): a flag `tr_is_first_launch_tracking` só é gravada com resposta
+  do servidor; falha de rede vira `install_attribution_error` e tenta de novo na próxima abertura. Não
+  apagar essa chave no app (reenviaria o install).
+- **Meta × RevenueCat (configuração)**: com a integração Meta do RC ligada **e** `autoLogAppEventsEnabled:
+  true` no plugin do `react-native-fbsdk-next`, a compra pode chegar 2x na Meta (servidor do RC + log
+  automático do SDK). Conferir no Events Manager e manter uma fonte só; a lib não muda essa flag.
 - **Fase 2** (pós-ATT, não espera push/TikTok): device identifiers **sempre**, `$fbAnonId`, push token,
   geo por IP. Cada etapa com timeout; cada fase termina com `syncAttributesAndOfferingsIfNeeded()`
   **imediato** (o Android suspende timers do JS enquanto um diálogo do sistema está na frente) e o
@@ -859,6 +873,40 @@ Pontos de atenção:
   O HTML exportado já contém as durações escolhidas e pode substituir o override do RC.
   Para ver em inglês, use `--locale en` no script ou `locale: "en"` nas props do tutorial.
 
+### 5.4.2 Modal de retenção (`retention`, opcional)
+
+- Chave nova e **opcional** no parâmetro `utils`: `retention` (`RetentionConfig` em `utils/types.ts`). Sem ela, fica
+  desligado. Não migre nada: app que não usa continua compilando igual. O formato da fase 1 (`enabled`, `style`,
+  `max_shows`, `reminder_hours`, `image_url`, `texts` com `header`/`body`/`bullets`/`cta`/`dismiss`) continua tipando.
+- Formato novo (08/10/2026, plano `docs/PLANO-RETENCAO-OFERTAS.md`): `segments.<segmento>.offers` (lista na ordem; a lib
+  não tem regra própria de "quem vê o quê") e `offers.<nome>` com `type` (`resubscribe` e `winback` são embutidas).
+  Oferta sem `product_id` = a mesma assinatura que a pessoa tinha; com `product_id` = aquele produto.
+- **Nenhuma linha nova no app.** O modal é montado pelo `ExpoUtilsLayout`, pelo `AskForReviewOverlay` e pelo
+  `PromotionalContent` (só um desenha). App que não renderiza nenhum dos três: `<RetentionModalSlot />` no `_layout`.
+- Ainda **não abre sozinho** e **não compra nada**: o motor é a próxima fase. Para ver:
+  `showRetentionPreview({segment, offers, state, locale, variant, imageUrl})` (as opções antigas continuam) ou o item
+  **Simular trial cancelado** do menu de dev. Fora da pré-visualização só "Reativar"/"Atualizar pagamento" fazem algo.
+- Exports novos (`index.ts` / `index.d.ts`): `showRetentionPreview`, `RetentionEvents`, `RetentionModalSlot` e os tipos
+  `RetentionConfig`, `RetentionTexts`, `RetentionTranslations`, `RetentionVariant`, `RetentionShowPayload`,
+  `RetentionRequest`, `RetentionPreviewOptions`, `RetentionCloseMethod`, `RetentionClosedEvent` e (08/10)
+  `RetentionSegment`, `RetentionOfferType`, `RetentionSegmentConfig`, `RetentionOfferConfig`, `RetentionPeriodUnit`,
+  `RetentionPluralForms`, `RetentionOffer`, `RetentionOfferInput`, `RetentionPrice`, `RetentionPeriod`, `RetentionModalState`.
+- `Translations` (i18n) ganhou o campo obrigatório `retention`, e `RetentionTranslations` ganhou (08/10) `segments`,
+  `ctas`, `cards`, `notice` e `units`. Só quebra app que monta um `Translations` à mão.
+- `RetentionTexts` aceita qualquer chave (`billing_issue.title`, `offers.<nome>.cta`…); `RetentionRequest` agora sempre
+  tem `segment`, `offers` e `state` (o `RetentionEvents.show` preenche; sem eles = trial cancelado + "Reativar").
+- O texto muda com o `is_opted_out_trial_enabled` (seção 6) no `trial_cancelled` e no `cancelled`: `true` = "Premium até o fim".
+
+```json
+"retention": {
+  "enabled": true,
+  "segments": {"billing_issue": {"offers": ["resubscribe", "lifetime_deal"]}, "expired": {"offers": ["resubscribe"]}},
+  "offers": {"lifetime_deal": {"type": "lifetime", "product_id": "lifetime_retention", "compare_product_id": "lifetime"}},
+  "image_url": "https://…/retencao.png",
+  "texts": {"pt": {"billing_issue.title": "…", "offers.lifetime_deal.cta": "…"}}
+}
+```
+
 ### 5.5 Optional chaining
 
 Sempre use `?.` em `paywall`, `free_limits`, `extras` — se `screens` vier `{}` no boot, **não pode crashar**.
@@ -896,7 +944,12 @@ await PremiumUtils.setIsPremiumStatus(true);
 
 - **DEV:** lê `@isPremium === "true"` (toggle)
 - **PROD:** sempre RevenueCat via `isRevenueCatActive()`; storage **não** é fonte de verdade
-- `willRenew` + `unsubscribeDetectedAt` controlam opt-out (exceto flag RC `is_opted_out_trial_enabled`)
+- Premium = entitlement ativo **sem** cancelamento (`unsubscribeDetectedAt`) e **sem** falha de cobrança:
+  assinatura/trial renovando, compra **vitalícia**, plano **PREPAID** do Play e concessão **promocional**
+  (`isPremiumEntitlement` em `utils/PremiumUtils.ts`, mesmo veredito do `rc_status = active`). Quem
+  cancelou perde na hora, exceto com a flag RC `is_opted_out_trial_enabled` (aí basta assinatura ativa).
+  Até 07/10/2026 a regra exigia `willRenew` e o vitalício "remover anúncios" seguia vendo anúncio — app
+  com workaround local para isso pode voltar a usar só `PremiumUtils.getIsPremiumStatus()`.
 
 Key AsyncStorage: `@isPremium` (mesmo valor que muitos apps já usam em `STORAGE_KEYS.PREMIUM_STATUS`).
 
@@ -1107,6 +1160,10 @@ Use URL em `appStrings.hotUpdaterUrl` + `initHotUpdater` dentro do `ExpoUtilsLay
 | 26 | Geo por IP ligada por padrão | rótulo de privacidade sem "Coarse Location" | declarar nas lojas ou `{"geoAttributes": false}` / `geo_lookup_enabled: false` |
 | 29 | Gravar `$mediaSource`/`$campaign` “provisório” no app (ex.: `Organic` no boot) | no RevenueCat os campos de atribuição são **primeira gravação vence** (medido em 21/09/2026 com atributo-controle na mesma chamada): o valor provisório fica para sempre e a fonte real que chegar depois é ignorada | não gravar atribuição no app host; a lib só grava quando conhece a origem (orgânico vai só em `install_medium`) |
 | 30 | Campanha na Meta sem a `meta_install_referrer_key` | customer Android só com Media Source = `Meta Ads`/`Instagram Ads`, sem campanha | pôr a chave no Remote Config (`utils.meta_install_referrer_key`); o dado cifrado dos installs antigos fica em `meta_ref_nonce` + `meta_ref_data_1..4` e pode ser aberto depois |
+| 31 | Unity Ads na mediação Android (até 06/10/2026) | APK com as classes do adapter e sem `com.unity3d.ads`; bidding da Unity com 0% de match | o adapter não declara o SDK no POM; o catálogo agora acrescenta `com.unity3d.ads:unity-ads` (`extraArtifacts`). Rebuild nativo; a chave própria `"unity-sdk"` no app.json vira redundante (dedupe) |
+| 32 | Compra vitalícia / PREPAID / promocional (até 06/10/2026) | quem comprou "remover anúncios" continuava vendo anúncio | `PremiumUtils` exigia `willRenew`, que o RC zera nesses casos; corrigido na lib (`isPremiumEntitlement`; com `is_opted_out_trial_enabled: true` o vitalício entra pelo entitlement ativo, porque `activeSubscriptions` não lista compra) — sem workaround no app. App que tem o contorno local (ex.: `src/lib/premium.ts` no Bobbie Goods) pode apagá-lo ao subir a lib |
+| 33 | Link-in-bio com a 1ª abertura offline (até 06/10/2026) | install perdido para sempre e `install_attribution` com `matched: 0` igual a sem-match | flag só com resposta do servidor + `install_attribution_error` + nova tentativa na próxima abertura |
+| 34 | Integração Meta do RevenueCat + `autoLogAppEventsEnabled: true` | compra possivelmente contada 2x na Meta | configuração: conferir no Events Manager e manter uma fonte só (integração do RC **ou** log automático do SDK) |
 
 ---
 

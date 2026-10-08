@@ -1,4 +1,5 @@
 import {Platform} from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import Purchases from "react-native-purchases";
 import * as Application from "expo-application";
 import * as Device from "expo-device";
@@ -186,6 +187,33 @@ export const getContextAttributes = async (): Promise<Record<string, string>> =>
     return attributes;
 };
 
+// Play Install Referrer: o Google pede para chamar a API UMA vez depois do install (o valor não muda
+// até reinstalar). Até a 1.4.0 a lib lia a cada abertura e emitia `install_attribution` a cada
+// abertura. O resultado fica gravado com o horário do install: reinstalação ou backup restaurado em
+// outro aparelho têm outro `firstInstallTime` e leem de novo.
+const INSTALL_REFERRER_KEY = "@expo_utils_install_referrer";
+
+const installedAtIso = async (): Promise<string> => {
+    try {
+        const installedAt = await raceTimeout(Application.getInstallationTimeAsync(), 1500);
+        return installedAt === TIMEOUT ? "" : installedAt.toISOString();
+    } catch {
+        return "";
+    }
+};
+
+/** `save` só existe na 1ª leitura do install: é ela que emite o evento e grava o resultado. */
+const readInstallReferrer = async (): Promise<{referrer: string; save?: () => Promise<void>}> => {
+    const installedAt = await installedAtIso();
+    try {
+        const saved = JSON.parse((await AsyncStorage.getItem(INSTALL_REFERRER_KEY)) ?? "null");
+        const sameInstall = !installedAt || !saved?.installedAt || saved.installedAt === installedAt;
+        if (typeof saved?.referrer === "string" && sameInstall) return {referrer: saved.referrer};
+    } catch {}
+    const referrer = String((await Application.getInstallReferrerAsync()) ?? "");
+    return {referrer, save: () => AsyncStorage.setItem(INSTALL_REFERRER_KEY, JSON.stringify({referrer, installedAt}))};
+};
+
 let phase1Promise: Promise<void> | null = null;
 let phase2Promise: Promise<void> | null = null;
 
@@ -214,6 +242,8 @@ export const runAttributionPhase1 = (rckey?: string, options: {metaInstallReferr
         // Origem do install (só Android): Play Install Referrer → Media Source / Campaign / Ad Group /
         // Ad / Keyword / Creative do RevenueCat. É metadado de campanha, não dado pessoal, e o
         // referrer nunca muda — vai na fase 1 para o 1º recibo já sair atribuído. Ver install-referrer.ts.
+        // A API é lida 1x por install (readInstallReferrer); os atributos seguem regravados a cada
+        // sessão a partir do valor guardado (o SDK só reenvia o que mudou; vale para um App User ID novo).
         if (Platform.OS === "android") {
             await runStep("ref", async () => {
                 // Chave da Meta: Strings.ts (metaInstallReferrerKey) ou Remote Config
@@ -223,16 +253,24 @@ export const runAttributionPhase1 = (rckey?: string, options: {metaInstallReferr
                 try {
                     metaKey = (await Utils.getRemoteConfigUtils())?.meta_install_referrer_key || metaKey;
                 } catch {}
-                const attribution = mapInstallReferrer(await Application.getInstallReferrerAsync(), {metaKey});
-                if (!attribution) return "skip";
-                await Purchases.setAttributes({...attribution.reserved, ...attribution.custom});
-                logUtilsEvent("install_attribution", {
-                    source: "play_referrer",
-                    matched: !attribution.organic,
-                    media_source: attribution.reserved.$mediaSource,
-                    campaign: attribution.reserved.$campaign,
-                    meta: attribution.meta,
-                });
+                const {referrer, save} = await readInstallReferrer();
+                const attribution = mapInstallReferrer(referrer, {metaKey});
+                if (attribution) {
+                    await Purchases.setAttributes({...attribution.reserved, ...attribution.custom});
+                    // 1x por install: só na leitura que veio da API.
+                    if (save) {
+                        logUtilsEvent("install_attribution", {
+                            source: "play_referrer",
+                            matched: !attribution.organic,
+                            media_source: attribution.reserved.$mediaSource,
+                            campaign: attribution.reserved.$campaign,
+                            meta: attribution.meta,
+                        });
+                    }
+                }
+                // Grava DEPOIS do evento: se algo acima falhar, a próxima abertura lê e emite de novo.
+                await save?.();
+                return attribution ? undefined : "skip";
             });
         }
         // Liga GA4 → RC: user_id do Analytics = App User ID do RevenueCat. É também o que a
