@@ -4,7 +4,9 @@
 //
 // A lib não tem regra própria de "quem vê o quê": o Remote Config lista as ofertas de cada segmento, na
 // ordem. A 1ª vira o botão principal; a 2ª, um cartão abaixo dele; as outras o modal ignora. O preço vem
-// sempre da loja — nesta fase só a pré-visualização preenche `RetentionOffer` (com dados falsos).
+// sempre da loja: `utils/retention-store.ts` confere cada oferta e preenche `RetentionOffer` (preço, ação e
+// a referência de compra); a pré-visualização preenche com dados falsos.
+import type {PurchasesStoreProduct, PurchasesStoreProductDiscount, PurchasesWinBackOffer, SubscriptionOption} from "react-native-purchases";
 import type {RetentionPluralForms} from "./i18n";
 import {baseLanguage} from "./retention-texts";
 import type {RetentionOfferConfig, RetentionOfferType, RetentionPeriodUnit, RetentionSegment} from "./types";
@@ -49,7 +51,31 @@ export interface RetentionOffer {
     discountPeriod?: RetentionPeriod;
     /** Código de `offer_code` (já escolhido para a plataforma). */
     code?: string;
+    /**
+     * O que o toque faz, decidido na conferência da loja (ex.: `resubscribe` com a renovação desligada é
+     * `purchase` no Android e `reactivate` no iOS). Sem ele: `retentionOfferAction(type, segmento)`.
+     */
+    action?: RetentionOfferAction;
+    /** Referência da loja para comprar/resgatar (`utils/retention-store.ts`). A view não lê. */
+    store?: RetentionStoreRef;
 }
+
+/**
+ * Como a oferta é comprada (preenchido por `resolveRetentionOffers`, usado por `purchaseRetentionOffer`):
+ *  - `product`: `purchaseStoreProduct` (vitalício, assinatura no iOS, Android com uma opção só);
+ *  - `option`: `purchaseSubscriptionOption` (Android: base plan explícito ou a oferta com a tag);
+ *  - `promotional`: promotional offer do iOS (`getPromotionalOffer` de novo na hora + `purchaseDiscountedProduct`);
+ *  - `winback`: win-back do iOS 18+ (`purchaseProductWithWinBackOffer`);
+ *  - `redeem`: código (`url` = link da loja; null no iOS = `presentCodeRedemptionSheet`);
+ *  - `manage`: reativar/atualizar o pagamento na loja (o produto, quando veio, só dá o preço do cartão).
+ */
+export type RetentionStoreRef =
+    | {kind: "product"; product: PurchasesStoreProduct}
+    | {kind: "option"; product: PurchasesStoreProduct; option: SubscriptionOption}
+    | {kind: "promotional"; product: PurchasesStoreProduct; discount: PurchasesStoreProductDiscount}
+    | {kind: "winback"; product: PurchasesStoreProduct; offer: PurchasesWinBackOffer}
+    | {kind: "redeem"; url: string | null}
+    | {kind: "manage"; product?: PurchasesStoreProduct};
 
 /** Na pré-visualização: nome (embutida, do Remote Config ou do catálogo de exemplo) ou objeto no formato do Remote Config. */
 export type RetentionOfferInput = string | (RetentionOfferConfig & {name?: string});
@@ -66,8 +92,8 @@ export type RetentionCtaKey = "reactivate" | "updatePayment" | "subscribeAgain" 
 export type RetentionCardKind = "discount" | "lifetime" | "price" | "code";
 
 /**
- * O que o toque faz fora da pré-visualização. Nesta versão só `reactivate` e `update_payment` fazem
- * algo (abrem a gestão da assinatura na loja); `purchase` e `redeem` são do motor (próxima fase).
+ * O que o toque faz fora da pré-visualização: `reactivate`/`update_payment` abrem a gestão da assinatura
+ * na loja; `purchase` compra (`purchaseRetentionOffer`); `redeem` abre o resgate do código.
  */
 export type RetentionOfferAction = "reactivate" | "update_payment" | "purchase" | "redeem";
 

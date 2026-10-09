@@ -90,6 +90,28 @@ Registrar: `placement`, `product_id`, `campaign`, `result`, `code`.
 receita e duplicaria o `in_app_purchase` automático. Quem usa `PaywallController`/API estática
 chama `PaywallUtils.trackView(result, options)` e `PaywallUtils.trackClose(options, {...})`.
 
+## Retenção (`showRetention` / modal de retenção)
+
+Desde 08/10/2026 (`utils/retention-analytics.ts`; plano: `docs/PLANO-RETENCAO-OFERTAS.md`, seções 9 e 14). **Só fora
+da pré-visualização** (`showRetentionPreview` não manda nada). Params de oferta: `offer_type` (`resubscribe` ·
+`winback` · `discount` · `subscription` · `lifetime` · `offer_code`), `offer_id` (o nome no Remote Config:
+`resubscribe`, `discount_50`…), `product_id` (produto da loja; vazio no código e no reativar sem produto), `price`,
+`price_currency`, `discount_pct`. `segment` = `trial_cancelled` · `cancelled` · `billing_issue` · `expired` ·
+`trial_expired` · `free`.
+
+| Evento | Parâmetros | Quando |
+|--------|-----------|--------|
+| `retention_impression` | `segment`, `variant` (`premium_lost`·`premium_kept`), oferta principal, `secondary_offer_id` | 1x por pedido desenhado (o host remontar não conta de novo) |
+| `retention_click` | `segment`, `action` (`purchase`·`reactivate`·`update_payment`·`redeem`·`confirm` = "Já reativei"·`manage` = botão do aviso pós-compra), `role` (`primary`·`secondary`), oferta | cada toque |
+| `retention_close` | `segment`, `close_method` (`dismiss`·`swipe`·`back`·`overlay`·`recovered`·`purchased`·`redeem`·`hidden`), `offer_type`, `offer_id` (da principal) | todo fechamento, inclusive o `RetentionEvents.hide()` |
+| `retention_purchase` | `segment`, oferta, `product_id` (o que a loja devolveu), `premium` (1/0: algum entitlement ativo dá Premium depois da compra) | compra concluída |
+| `retention_purchase_error` | `segment`, oferta, `status` (`failed`·`pending`), `code` (código do RevenueCat: `20` pendente, `42` falha simulada da loja de teste, `6` já é da pessoa…; `not_purchasable`/`promotional_offer_unsigned` da lib), `message` | compra que falhou ou ficou pendente. **Cancelar não gera evento** (cancelados = cliques `purchase` − compras − erros) |
+| `retention_offer_unavailable` | `segment`, `offer_id`, `offer_type`, `reason` (`unknown_offer`·`not_for_segment`·`no_previous_product`·`missing_product_id`·`missing_offer_id`·`missing_code`·`unsupported_platform`·`product_not_found`·`offer_not_found`·`not_eligible`·`store_error`), `detail` (mensagem da loja) | 1 por oferta pulada na conferência da loja (`showRetention`) |
+
+Registrar: `segment`, `offer_id`, `action`, `close_method`, `reason`, `code`. **De propósito sem `value`/`currency`**
+(mesma regra do paywall): a receita vem do `in_app_purchase` automático e da integração do RevenueCat.
+`show_n` e `retention_recovered` (plano, seção 9) dependem da detecção automática, que ainda não existe.
+
 ## Review (`askForReview` / `AskForReviewOverlay`)
 
 | Evento | Parâmetros |

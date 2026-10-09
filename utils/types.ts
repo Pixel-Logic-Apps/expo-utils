@@ -99,6 +99,7 @@ export type ReviewStyle = "bottomsheet" | "formsheet" | "centered" | "fullscreen
  *  - `<segmento>.title`, `<segmento>.body`, `<segmento>.bullets`, `<segmento>.date` (linha com `{date}`);
  *  - `offers.<nome>.cta`, `.title`, `.period`, `.terms`, `.badge`, `.hint` (cartão e botão daquela oferta);
  *  - `notice.title`, `notice.body`, `notice.cta` (aviso depois do vitalício comprado com falha de pagamento);
+ *  - `purchase.error`, `purchase.pending` (linha acima do botão quando a compra falha ou fica pendente);
  *  - `dismiss` ("Agora não", em todos os segmentos);
  *  - legado da fase 1, valem para `trial_cancelled`: `header`, `body`, `bullets` e `cta` (botão do `resubscribe`).
  *
@@ -175,7 +176,8 @@ export type RetentionOfferConfig = {
  * regra própria de "quem vê o quê": cada segmento mostra só a lista de `segments.<segmento>.offers`,
  * na ordem dela. `resubscribe` e `winback` são embutidas (não precisam estar em `offers`).
  * Planos: `docs/PLANO-RETENCAO-OFERTAS.md` e `docs/PLANO-RETENCAO-TRIAL-CANCELADO.md`.
- * O motor que decide sozinho quando abrir ainda não existe: hoje só a interface e a pré-visualização.
+ * `showRetention()` abre com as ofertas conferidas na loja e compra de verdade (`enabled: false` desliga). A
+ * detecção que decide sozinha quando abrir (e as regras `max_shows`, `min_interval_hours`…) ainda não existe.
  */
 export type RetentionConfig = {
     enabled?: boolean;

@@ -52,11 +52,19 @@ const expirationMs = (entitlement: EntitlementLike): number => {
 
 // O entitlement que manda no ciclo de vida é a ASSINATURA que vence por último. Vitalício só
 // decide quando não há assinatura: "remove ads" vitalício + trial do premium = trial.
-const pickLifecycleEntitlement = (entitlements: EntitlementLike[]): EntitlementLike | undefined => {
+const pickLifecycleEntitlement = <T extends EntitlementLike>(entitlements: T[]): T | undefined => {
     const subscriptions = entitlements.filter((entitlement) => expirationMs(entitlement) !== Infinity);
     const pool = subscriptions.length > 0 ? subscriptions : entitlements;
-    return pool.reduce<EntitlementLike | undefined>((best, entitlement) => (!best || expirationMs(entitlement) > expirationMs(best) ? entitlement : best), undefined);
+    return pool.reduce<T | undefined>((best, entitlement) => (!best || expirationMs(entitlement) > expirationMs(best) ? entitlement : best), undefined);
 };
+
+/**
+ * O entitlement que decide o `rc_status`: o ativo do ciclo de vida e, sem nenhum ativo, o mesmo critério
+ * sobre todos (falha de cobrança na janela de nova tentativa, vencido). A retenção usa para achar o produto
+ * que a pessoa tinha (`utils/retention-store.ts`).
+ */
+export const getLifecycleEntitlement = (customerInfo: CustomerInfo | null | undefined): PurchasesEntitlementInfo | undefined =>
+    pickLifecycleEntitlement(Object.values(customerInfo?.entitlements?.active ?? {})) ?? pickLifecycleEntitlement(Object.values(customerInfo?.entitlements?.all ?? {}));
 
 /**
  * Estado atual do assinante. Ordem importa: falha de cobrança vence tudo (inclusive a 1ª cobrança

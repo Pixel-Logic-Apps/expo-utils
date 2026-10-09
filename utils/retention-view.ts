@@ -1,5 +1,6 @@
-// Tela do modal de retenção por segmento e ofertas, montada sem UI: títulos, botões, cartões e o aviso
-// pós-compra saem daqui, e o modal (`utils/retention-modal.tsx`) só desenha. Testado em
+// Tela do modal de retenção por segmento e ofertas, montada sem UI: títulos, botões, cartões, o aviso
+// pós-compra e a linha de compra que falhou/ficou pendente saem daqui, e o modal
+// (`utils/retention-modal.tsx`) só desenha. Testado em
 // `tests/retention-offers.test.ts`. Plano: docs/PLANO-RETENCAO-OFERTAS.md (seções 3, 4, 7 e 8).
 //
 // Ordem de cada texto (a mesma da fase 1): Remote Config `retention.texts[língua]` → lib na língua →
@@ -82,6 +83,8 @@ export interface RetentionView {
     checking: {hint: string; confirm: string; notYet: string};
     /** Vitalício comprado com falha de pagamento: cancelar a assinatura antiga. */
     notice: {header: string; body: string; cta: string};
+    /** Linha acima do botão quando a compra falha (`error`) ou fica pendente (`pending`); o modal continua aberto. */
+    purchase: {error: string; pending: string};
 }
 
 export interface BuildRetentionViewOptions {
@@ -249,7 +252,9 @@ export function buildRetentionView(options: BuildRetentionViewOptions): Retentio
         const legacyCta = segment === "trial_cancelled" && offer.type === "resubscribe" ? ["cta"] : [];
         const cta = fill(pick([`offers.${offer.name}.cta`, ...legacyCta], (t) => (ctaKey === "reactivate" ? t.cta : t.ctas[ctaKey])), values);
         const kind = retentionCardKind(offer.type, segment, role);
-        return {offer, role, ctaKey, cta, action: retentionOfferAction(offer.type, segment), card: kind ? cardView(offer, kind, values) : null};
+        // A conferência da loja decide a ação (ex.: reativar comprando de novo no Android); sem ela, tipo × segmento.
+        const action = offer.action ?? retentionOfferAction(offer.type, segment);
+        return {offer, role, ctaKey, cta, action, card: kind ? cardView(offer, kind, values) : null};
     };
 
     const billing = segment === "billing_issue";
@@ -277,6 +282,10 @@ export function buildRetentionView(options: BuildRetentionViewOptions): Retentio
             header: fill(pick(["notice.title"], (t) => t.notice.header), noticeValues),
             body: fill(pick(["notice.body"], (t) => t.notice.body), noticeValues),
             cta: fill(pick(["notice.cta"], (t) => t.notice.cta), noticeValues),
+        },
+        purchase: {
+            error: fill(pick(["purchase.error"], (t) => t.purchaseError)),
+            pending: fill(pick(["purchase.pending"], (t) => t.purchasePending)),
         },
     };
 }

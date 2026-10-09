@@ -1,6 +1,8 @@
 # Plano da retenção completa: descontos, falha de pagamento e vitalício pelo Remote Config
 
-Data: 07/10/2026. Status: **proposta**, sem ok para codar. Continua o [`PLANO-RETENCAO-TRIAL-CANCELADO.md`](PLANO-RETENCAO-TRIAL-CANCELADO.md), cuja fase 1 (o modal) já roda no expo-utils-lab. O que foi conferido e o que não foi está na [seção 13](#13-o-que-foi-verificado-e-o-que-não-foi).
+Data: 07/10/2026. Continua o [`PLANO-RETENCAO-TRIAL-CANCELADO.md`](PLANO-RETENCAO-TRIAL-CANCELADO.md), cuja fase 1 (o modal) já roda no expo-utils-lab. O que foi conferido e o que não foi está na [seção 13](#13-o-que-foi-verificado-e-o-que-não-foi).
+
+**Status em 08/10/2026:** interface de todos os segmentos e ofertas + pré-visualização e, depois, a **compra de verdade** (ok do Bruno: "pode colocar o purchase pra funcionar"): `showRetention()` confere as ofertas na loja, abre o modal e compra/resgata de verdade, com os eventos `retention_*`. **Ainda não existe** a detecção automática (quando abrir sozinho, `max_shows`, intervalo, episódio, volta ao primeiro plano) nem o push (seção 6). Detalhes do que entrou e do que só dá para conferir em loja de verdade: [seção 14](#14-implementado-compra-de-verdade-08102026).
 
 ## Em português simples
 
@@ -172,16 +174,17 @@ Peças novas:
 
 ## 9. Eventos do Analytics
 
-| Evento | Parâmetros principais |
-| --- | --- |
-| `retention_impression` | `segment`, `offer_type`, `offer_id`, `price`, `currency`, `discount_pct`, `show_n` |
-| `retention_click` | `segment`, `offer_type`, `action` |
-| `retention_close` | `segment`, `close_method`, `show_n` |
-| `retention_purchase` | `segment`, `offer_type`, `offer_id`, `price`, `currency` |
-| `retention_recovered` | `segment`, `via`, `hours_since_impression` |
-| `retention_offer_unavailable` | `offer_id`, `reason` (produto não existe, desconto não está no produto, não elegível…) |
+| Evento | Parâmetros principais | Status (08/10/2026) |
+| --- | --- | --- |
+| `retention_impression` | `segment`, `offer_type`, `offer_id`, `price`, `price_currency`, `discount_pct`, `show_n` | implementado, sem `show_n` (é da detecção) |
+| `retention_click` | `segment`, `offer_type`, `action` | implementado |
+| `retention_close` | `segment`, `close_method`, `show_n` | implementado, sem `show_n` |
+| `retention_purchase` | `segment`, `offer_type`, `offer_id`, `product_id`, `price`, `price_currency` | implementado |
+| `retention_purchase_error` | `segment`, `offer_id`, `status` (`failed`/`pending`), `code` | implementado |
+| `retention_recovered` | `segment`, `via`, `hours_since_impression` | não (é da detecção) |
+| `retention_offer_unavailable` | `offer_id`, `reason` (produto não existe, desconto não está no produto, não elegível…) | implementado |
 
-Tudo pelo `logUtilsEvent`, no `docs/ANALYTICS-EVENTS.md`. O último evento mostra quando o Remote Config pede uma oferta que a loja não tem.
+Tudo pelo `logUtilsEvent`, no `docs/ANALYTICS-EVENTS.md`. O último evento mostra quando o Remote Config pede uma oferta que a loja não tem. O preço vai em `price` + `price_currency`, não em `currency` (regra da lib desde o paywall: `value`/`currency` fazem o GA4 tratar o evento como receita e somar com o `in_app_purchase` automático).
 
 ## 10. O que precisa existir fora do código, por app
 
@@ -225,3 +228,49 @@ Não verificado:
 - Se o arquivo StoreKit do Xcode simula a falha de pagamento e a carência.
 - Os códigos promocionais da Play.
 - Se a Test Store do RevenueCat simula ofertas e falha de pagamento.
+
+Conferido em 08/10/2026 (compra de verdade, seção 14), sem aparelho:
+- No SDK Android do RevenueCat (purchases 10.22.1, que o hybrid-common 19.2.0 do lab puxa; lido no AAR com `javap`): `getProducts(["assinatura"])` devolve um produto por base plan (`assinatura:basePlan`), e `getProducts(["assinatura:basePlan"])` só aquele; a compra por produto (`purchaseStoreProduct`) busca a assinatura e acha o produto pelo id exato. Por isso a lib pede o id do entitlement como está e escolhe o base plan da pessoa na resposta (pedir `monthly:testBasePlanId` na loja de teste não devolveria nada: o filtro por base plan só vale para produto do Google).
+- No `react-native-purchases` 10.10.1: `getPromotionalOffer` e `getEligibleWinBackOffersForProduct` devolvem `undefined` no Android sem chamar o nativo; `presentCodeRedemptionSheet` não faz nada no Android; as compras marcam `userCancelled` pelo código 1.
+
+Não verificado (08/10/2026): nada da compra rodou em aparelho nesta passada (o Bruno testa no lab). Ver a tabela da seção 14.
+
+## 14. Implementado: compra de verdade (08/10/2026)
+
+**Abrir:** `showRetention({segment?, offers?, productIdentifier?, variant?, locale?, imageUrl?, defaultBullets?})` (`utils/retention-show.ts`, exportado no `index.ts`). Quem chama decide o momento (a detecção automática não existe). Ordem:
+
+1. `retention.enabled === false` desliga, mesmo com ofertas passadas pelo app.
+2. `Purchases.getCustomerInfo()` (falhou: `rc_unavailable`).
+3. Segmento: o forçado (`segment`) ou o `rc_status`. Fora dos 6 segmentos de retenção, não abre.
+4. Premium ativo (o critério do `isPremiumEntitlement`: cancelado ou com falha de pagamento não conta) não recebe oferta, a não ser com segmento forçado.
+5. Ofertas: as do app (`offers`) ou `retention.segments.<segmento>.offers`. Sem lista, não abre.
+6. Conferência na loja (`resolveRetentionOffers`, `utils/retention-store.ts`), na ordem, parando em 2 válidas. As puladas saem em `skipped` com o motivo e no `retention_offer_unavailable`. Nenhuma válida: não abre.
+7. `RetentionEvents.show({segment, offers, productIdentifier, expirationDate, managementURL, variant, locale, imageUrl, defaultBullets})`.
+
+Devolve `{request, segment, skipped, reason}` e nunca lança. `reason`: `disabled`, `rc_unavailable`, `not_retention_segment`, `premium`, `no_offers`, `no_valid_offers` ou `error` (null = abriu). O catálogo de exemplo da pré-visualização (`discount_50`, `lifetime_deal`, `promo_code`) **não** vale aqui: o nome tem que estar em `retention.offers`, ser embutido (`resubscribe`, `winback`) ou ser o próprio tipo (`"lifetime"`).
+
+**O que cada tipo vira na loja** (o preço é sempre o da loja: `priceString` ou `formatted`):
+
+| Tipo | iOS | Android | Pula quando |
+| --- | --- | --- | --- |
+| `resubscribe` | trial/assinatura cancelados: reativar pela gestão; falha de pagamento: atualizar o pagamento; vencidos: compra do produto anterior | renovação desligada: compra do mesmo base plan (sem o produto, ou a loja dizendo que já é da pessoa, código 6: reativar pela gestão); falha de pagamento: atualizar; vencidos: compra | `free`; vencido sem produto anterior ou com o produto fora da loja |
+| `subscription` | `product_id` pelo preço normal | idem; produto com várias opções → `purchaseSubscriptionOption` do base plan (o `defaultOption` podia escolher um trial ou desconto) | sem `product_id`; produto fora da loja |
+| `lifetime` | `product_id` (NON_SUBSCRIPTION) ou, sem ele, o pacote vitalício do offering atual (depois o de qualquer offering) | idem | nenhum dos dois |
+| `discount` | `product.discounts` com `identifier === ios_offer_id` + `getPromotionalOffer` assinando (pede de novo na hora da compra) + `purchaseDiscountedProduct` | `subscriptionOptions` (oferta, não o base plan) com a tag `android_offer_tag`, no base plan da pessoa e depois nos outros da assinatura; `purchaseSubscriptionOption` | sem id/tag; sem produto (nem `product_id` nem o anterior); desconto fora do produto; sem assinatura da Apple |
+| `winback` | `getEligibleWinBackOffersForProduct` (iOS 18+) + `purchaseProductWithWinBackOffer` | não existe | Android; nenhuma elegível; erro |
+| `offer_code` | link `https://apps.apple.com/redeem?ctx=offercodes&id={ios_app_id do Remote Config}&code={ios_code}`; sem App ID ou sem código, `presentCodeRedemptionSheet` | link `https://play.google.com/redeem?code={android_code}` | Android sem `android_code` |
+
+- **Produto anterior:** `trial_cancelled`/`cancelled`/`billing_issue` → o entitlement que decide o `rc_status` (`getLifecycleEntitlement` em `utils/rc-status.ts`); `expired`/`trial_expired` → a assinatura vencida mais recente; `free` → nenhum. `productIdentifier` troca o produto (teste). O produto é buscado pelo `getProducts` e, sem ele, nos pacotes dos offerings.
+- **Comparação (`compare_product_id`):** mesmo período (ou os dois sem período) = o preço da loja; período diferente = `pricePerWeek`/`pricePerMonth`/`pricePerYear` do produto de comparação × a quantidade, sem `formatted` (o `Intl` formata). Só entra se for mais caro que a oferta. No desconto e no win-back o riscado é sempre o preço cheio do próprio produto (a regra "depois R$ X/mês" depende disso).
+- **Compra:** `purchaseRetentionOffer(oferta)` → `purchased` (com `premium`; grava `@isPremium` quando libera, como o PaywallUtils), `cancelled` (`userCancelled` ou código 1), `pending` (código 20) ou `failed` (código e mensagem). Nunca lança.
+- **Modal (fora da pré-visualização):** spinner no botão tocado e todos os botões desligados enquanto compra; comprou → fecha com `purchased` (vitalício em `billing_issue` → o aviso de cancelar a assinatura antiga); cancelou → volta ao normal, sem mensagem; pendente → "Pagamento pendente. O Premium libera assim que a loja confirmar." e continua aberto; falhou → "Não deu para concluir a compra. Tente de novo." e continua aberto. Código → `redeemRetentionCode` e fecha com `redeem` (a folha da Apple espera o modal sair). A pré-visualização continua sem compra.
+- **Textos novos** nas 12 línguas: `purchaseError` e `purchasePending` (Remote Config: `purchase.error`, `purchase.pending`).
+- **Eventos:** seção 9 e `docs/ANALYTICS-EVENTS.md`.
+
+**O que dá para ver na loja de teste da RevenueCat (o lab) e o que só em loja de verdade:**
+
+| Dá para ver no expo-utils-lab (loja de teste) | Só em loja de verdade (sandbox do App Store / testador de licença do Play) |
+| --- | --- |
+| `resubscribe` de quem venceu (compra do `monthly`, US$ 9,99), `lifetime` pelo pacote do offering (US$ 99,99), `subscription` anual × mensal (US$ 79,99 contra US$ 119,88, selo −33%), falha de pagamento forçada → compra do vitalício → aviso pós-compra, compra cancelada, falha simulada pela loja de teste (código 42, a conferir no aparelho), `discount` pulado (`offer_not_found`) com a próxima oferta valendo, win-back pulado no Android, os eventos `retention_*` no DebugView | promotional offer do iOS (desconto + assinatura do RevenueCat, que exige a chave de In-App Purchase), oferta com tag do Play, win-back do iOS 18+, offer codes da Apple (link e folha) e códigos do Play, `resubscribe` com a renovação desligada no Android (pedido de US$ 0,00 e a mesma data de cobrança; e o código 6 caindo na gestão), pagamento pendente (código 20), `managementURL` real, falha de pagamento de verdade, a compra liberando o entitlement em produção |
+
+Cenários do lab: `src/constants/retention-live.ts` — botões `live-…` no bloco "Retenção — compra de verdade (loja de teste)" e `expoutilslab://retencao?live=<id>`; `live-novo-cliente` (`Purchases.logIn("lab-" + Date.now())`) zera o cliente depois de comprar.

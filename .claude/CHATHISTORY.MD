@@ -1773,3 +1773,116 @@ a lib não tem regra própria de "quem vê o quê".
   Hermes o árabe pode sair com algarismos ١٢); as traduções não passaram por revisão humana; nenhuma compra, oferta da
   loja, win-back ou código foi exercitado (o motor é a próxima fase); `docs/index.html` (gerador do JSON) não ganhou o
   `retention`.
+
+---
+
+# 2026-10-08 — Retenção: compra de verdade (`showRetention`) + cenários na loja de teste do lab (sem versão nova)
+
+**Pedido:** o Bruno aprovou "pode colocar o purchase pra funcionar". Até aqui o modal só tinha as telas: na
+pré-visualização os botões só registravam no log e fora dela `purchase`/`redeem` davam um warn. Implementar a compra
+de verdade (conferência das ofertas na loja, compra, resgate de código, analytics) e um bloco de teste no
+expo-utils-lab com os produtos da loja de teste da RevenueCat. Sem commit/push/publish/tag, sem mexer em aparelho, sem
+prebuild/build nativo, Metro do lab (8082) intocado, expo-urna-v2 só para typecheck.
+
+**Fatos medidos antes (loja de teste, chave `test_…` do lab):** offering "default" com `monthly` (SUBSCRIPTION,
+US$ 9,99, P1M, base plan `testBasePlanId` sem tags, sem intro, sem discounts), `yearly` (US$ 79,99, P1Y) e `lifetime`
+(NON_SUBSCRIPTION, US$ 99,99; CONSUMABLE no Android, NON_CONSUMABLE no iOS). Sem descontos, tags, win-back nem códigos.
+Cliente do Pixel: `expoutils_lab_pro`, produto `monthly`, TEST_STORE, vencido em 24/09 (`expired`); iPhone: `free`.
+
+### O que entrou (lib)
+- **`utils/retention-store.ts`** (novo, importa o SDK, sem UI): `findRetentionPreviousProduct` (por segmento:
+  `trial_cancelled`/`cancelled`/`billing_issue` → o entitlement do `rc_status`, via `getLifecycleEntitlement` exportado
+  de `utils/rc-status.ts`; `expired`/`trial_expired` → a assinatura vencida mais recente; `free` → nenhum; override
+  `productIdentifier`), `resolveRetentionOffers` (nome → `retention.offers` → embutidas → tipo; o catálogo de exemplo
+  NÃO vale; confere na loja e para em 2 válidas; puladas em `skipped` com motivo), `purchaseRetentionOffer`
+  (`purchased`/`cancelled`/`pending`/`failed`, nunca lança, grava `@isPremium` com Premium), `redeemRetentionCode`.
+  Regras por tipo na seção 14 do `docs/PLANO-RETENCAO-OFERTAS.md` (resubscribe iOS × Android, base plan explícito no
+  Android com várias opções, comparação normalizada por `pricePerX`, promotional offer assinada de novo na compra, tag
+  do Android só em oferta, win-back só iOS, links de código). Produto pelo `getProducts`, com os pacotes dos offerings
+  de reserva.
+- **Lido no AAR** (purchases 10.22.1, puxado pelo hybrid-common 19.2.0 do RN purchases 10.10.1; `javap`):
+  `getProducts(["assinatura"])` devolve um produto por base plan; `getProducts(["assinatura:basePlan"])` filtra pelo
+  `GoogleStoreProduct.basePlanId` — na loja de teste o produto não é Google, então pedir `monthly:testBasePlanId` não
+  devolveria nada. Por isso a lib pede o id do entitlement como está e escolhe o base plan na resposta. A compra por
+  produto (hybrid `purchaseProduct`) busca a assinatura e acha o produto pelo id exato (`storeProductForProductId`).
+- **`utils/retention-show.ts`** (novo): `showRetention(options)` → `{request, segment, skipped, reason}`; ordem:
+  `retention.enabled === false` → customerInfo → segmento (forçado ou `rc_status`) → Premium ativo não recebe (a não ser
+  forçado) → lista (`offers` do app ou `retention.segments.<segmento>.offers`) → loja → `RetentionEvents.show`. Fora do
+  `retention-events.ts` porque aquele é módulo-folha (o `Utils.ts` importa dele).
+- **`utils/retention-analytics.ts`** (novo): `retention_impression` (1x por pedido), `retention_click`,
+  `retention_close`, `retention_purchase`, `retention_purchase_error` (`status` failed/pending + `code`),
+  `retention_offer_unavailable`. Preço em `price` + `price_currency` (regra da lib desde o paywall — o pedido falava em
+  `currency`; ver "Decisões").
+- **Modal** (`utils/retention-modal.tsx`): spinner no botão tocado, todos os botões desligados enquanto compra;
+  comprou → fecha com `purchased` (vitalício em `billing_issue` → aviso); cancelou → nada; pendente/falhou → linha acima
+  do botão e continua aberto; `resubscribe` com código 6 (loja diz que já é da pessoa, Android) → reativar pela gestão;
+  código → `redeemRetentionCode` e fecha com `redeem` (a folha da Apple espera 600 ms o modal sair). Pré-visualização
+  igual a antes. Host: `retention_impression` e `retention_close` (inclusive `hidden`).
+- `RetentionOffer` ganhou `action` (decidida na conferência; a view usa ela antes do tipo × segmento) e `store`
+  (`RetentionStoreRef`, opaca para a view). `RetentionCloseMethod` ganhou `purchased` e `redeem`. Textos novos nas 12
+  línguas: `purchaseError` / `purchasePending` (Remote Config `purchase.error` / `purchase.pending`), expostos em
+  `view.purchase`. Exports novos no `index.ts`/`index.d.ts` (iguais).
+- Docs: plano (status + seção 14 + tabela de eventos + o que foi conferido), `docs/ANALYTICS-EVENTS.md` (seção
+  "Retenção"), AGENTS.md (seção do modal, testes, lab), README (abrir com compra), upgrade §5.4.2. `templates/AGENTS.md`
+  não fala de retenção: intocado. `docs/index.html` (gerador do JSON) continua sem `retention`.
+
+### Lab (expo-utils-lab)
+- `src/constants/retention-live.ts` (novo): cenários `minha_situacao` (segmento real + ofertas do lab para ele),
+  `venceu` (expired: resubscribe + lifetime; override `monthly` só quando o cliente não tem produto anterior),
+  `anual_comparado` (subscription `yearly` × `monthly`: US$ 79,99 contra US$ 119,88, selo −33%), `falha_pagamento`
+  (billing_issue forçado: atualizar + vitalício → aviso pós-compra), `nunca_assinou` (free: vitalício),
+  `desconto_inexistente` (discount pulado com `offer_not_found`, valem resubscribe + vitalício); `runRetentionLive`,
+  `newLabCustomer` (`Purchases.logIn("lab-" + Date.now())`), `describeLabCustomer`.
+- `src/app/index.tsx`: bloco "Retenção — compra de verdade (loja de teste)" (linha do cliente, último resultado, botões
+  `live-<id>`, `live-novo-cliente`, `live-atualizar-cliente`; a linha se atualiza a cada fechamento do modal).
+- `src/app/retencao.tsx`: `expoutilslab://retencao?live=<id>` (aceita `locale`, `image=1`, `bullets=1`) e
+  `live=novo_cliente`; log `[lab] retention-live <id> {about, request, segment, reason, productIdentifier, offers,
+  skipped}`. `src/app/rc-produtos.tsx` mantido.
+- Instalado como antes: `npm pack` no scratchpad → `tar -xzmf --strip-components=1` por cima de
+  `node_modules/expo-utils` → `cmp` dos 70 arquivos do pacote (0 diferentes). `package.json` do lab com o mesmo md5.
+
+### Verificado × NÃO verificado
+- `./tests/run.sh`: **312 pass / 0 fail em 21 arquivos** (antes 245/0 em 19). Novos: `tests/retention-store.test.ts`
+  (53), `tests/retention-show.test.ts` (12), +2 em `retention-offers.test.ts`; mocks em `tests/helpers/rc-store-mock.ts`
+  (getProducts com o filtro de base plan do SDK) e produtos no formato do SDK em `tests/helpers/rc-store-fixtures.ts`.
+  15 mutações numa cópia: 14 quebram os testes; a que sobrevive (tag no base plan contar como desconto) é equivalente
+  na prática — base plan do Play não tem fase com desconto e a lib já pula opção sem ela.
+- `tsc` strict pela receita (symlinks no scratchpad) contra expo-utils-lab (RC 10.10.1 / internal 19.2.0) e expo-urna-v2
+  (RC 10.9.1 / internal 18.37.0): **0 erros** nos dois. `bunx tsc --noEmit` no lab: só o erro antigo do
+  `app-tabs.web.tsx` (`/explore`). ESLint do lab (config `eslint-config-expo/flat` temporária no scratchpad; o lab não
+  tem config): os mesmos 4 achados de antes (2 erros + 2 avisos em código antigo do `index.tsx`/`retencao.tsx`), 0 no
+  arquivo novo. Babel do lab transforma os arquivos tocados para android e ios.
+- O Metro recarregou os apps sozinho (sem ninguém tocar nos aparelhos por esta tarefa) e o log mostrou a linha nova do
+  bloco: Pixel `expired · monthly (expoutils_lab_pro, TEST_STORE, até 2026-09-24)`, iPhone `free · nenhum produto`.
+- **NÃO verificado:** nenhuma compra rodou (o Bruno testa no lab); se o `getProducts` da loja de teste devolve os
+  produtos (a lib cai nos offerings se não); o código que a loja de teste devolve na falha simulada (42 esperado);
+  se o vitalício da loja de teste libera o `expoutils_lab_pro` (sem isso: `premium: false`, o modal fecha igual); e,
+  só em loja de verdade: promotional offer do iOS, oferta com tag do Play, win-back, offer codes/códigos do Play,
+  resubscribe US$ 0 no Android (e o código 6), pagamento pendente, `managementURL` real.
+
+### Decisões tomadas sem perguntar (anotar para o Bruno)
+- `retention_purchase` com `price_currency` em vez de `currency` (regra documentada da lib: `value`/`currency` viram
+  receita no GA4 e duplicam o `in_app_purchase`). Cancelamento não gera evento (= cliques − compras − erros).
+- `resubscribe` no Android que falha com código 6 cai no "Reativar" pela gestão (não pedido, mas evita erro na cara de
+  quem já tem a assinatura ativa e cancelada).
+- Produto anterior também busca nos offerings quando o `getProducts` não devolve; `retention.enabled: false` desliga até
+  com ofertas passadas pelo app.
+- Entrada desta passada no FIM do CHATHISTORY (o arquivo é cronológico e as de 07–08/10 estão no fim; o topo é de 20/09).
+
+### 2026-10-08 — Compra conferida nos aparelhos + review (formsheet/fullscreen) na área segura
+- **Compra na loja de teste da RevenueCat (lab, Metro 8082):**
+  - **Pixel 10a** (cliente `expired · monthly`): `live=minha_situacao` abriu "Sentimos sua falta" com "Seu plano US$ 9,99/mês" + cartão do vitalício US$ 99,99.
+    - "Assinar de novo" abre o diálogo "Test Store Purchase" (monthly, US$ 9,99) com spinner no botão.
+    - Cancelar: o modal continua aberto, sem aviso.
+    - Falha simulada: `retention_purchase_error` code 42 e a linha "Não deu para concluir a compra. Tente de novo.".
+    - Compra válida: `retention_purchase` premium 1, `retention_close` purchased, e o cliente passou a `active · monthly`.
+  - **`live=falha_pagamento`:** "Comprar vitalício" abre o diálogo e leva ao aviso "Seu Premium vitalício está ativo / Cancele a assinatura antiga / Gerenciar assinaturas". O vitalício da loja de teste libera o `expoutils_lab_pro`.
+  - **`anual_comparado`:** US$ 79,99/ano, riscado US$ 119,88, −33%.
+  - **`desconto_inexistente`:** `discount_50` pulado; ficam resubscribe + vitalício.
+  - **iPhone 17 Pro** (cliente `free`): "Que tal o Premium para sempre?" com vitalício + anual −33%; compra válida → `active · lifetime`.
+- **Review (`utils/ask-for-review.tsx`):** o formsheet e o fullscreen passam a usar a área segura de verdade (`SafeAreaInsetsContext`; sem provider, reserva do `StatusBar`/`expo-constants`). Antes, no iOS, os dois usavam 0:
+  - **fullscreen:** o X ficava a 8 pt do topo, embaixo do relógio/Dynamic Island, e não dava para tocar;
+  - **formsheet:** o botão encostava na borda, sob a barra de gestos e cortado pelos cantos da tela.
+
+  Agora o formsheet fica a `bottom + 8` e o fullscreen tem `top + 56`, X em `top + 8` e `bottom + 24`. Conferido no iPhone 17 Pro e no Pixel 10a: o X fecha (`review_prompt_action later/close`) e o botão fica acima da barra.
+- **Testes e tipos:** `./tests/run.sh` com 312 pass; `bunx tsc --noEmit` do lab só com o erro antigo do `/explore`. Nada commitado.

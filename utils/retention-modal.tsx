@@ -12,13 +12,20 @@
 //  - "Reativar"/"Atualizar pagamento": iOS `Purchases.showManageSubscriptions()` (resolve quando a folha
 //    ABRE, por isso o estado "conferindo" com "Já reativei"); Android abre o `managementURL` (o
 //    showManageSubscriptions do SDK lança no Android), com a página de assinaturas do Play como reserva.
-//  - Compra (desconto, vitalício, assinatura) e código ainda NÃO existem fora da pré-visualização: o
-//    motor é a próxima fase. Na pré-visualização os botões só registram no log e seguem o fluxo.
+//  - Compra (fora da pré-visualização): `purchaseRetentionOffer` (utils/retention-store.ts) com a oferta já
+//    conferida na loja pelo `showRetention`. Spinner no botão tocado e todos os botões desligados enquanto
+//    compra; comprou → fecha (`purchased`), ou vai para o aviso de cancelar a assinatura antiga quando é o
+//    vitalício em `billing_issue`; cancelou → volta ao normal; pendente/falhou → linha acima do botão e o
+//    modal continua aberto. `resubscribe` no Android que a loja diz já ser da pessoa → reativar pela gestão.
+//  - Código promocional: `redeemRetentionCode` (link da loja ou a folha da Apple) e fecha (`redeem`).
+//  - Pré-visualização (`showRetentionPreview`): nenhuma chamada à loja; os botões só registram no log e
+//    seguem o fluxo.
 //
-// Abre por `RetentionEvents.show()` (utils/retention-events.ts). Quem desenha é UM RetentionModalSlot:
-// o ExpoUtilsLayout, o AskForReviewOverlay e o PromotionalContent montam um cada, e só o de menor
-// prioridade vira dono — assim o modal aparece também nos apps com o layout manual do template, sem
-// linha nova. Sem analytics nesta fase (os eventos retention_* vêm com a detecção).
+// Abre por `RetentionEvents.show()` (utils/retention-events.ts) — com compra, pelo `showRetention`
+// (utils/retention-show.ts). Quem desenha é UM RetentionModalSlot: o ExpoUtilsLayout, o AskForReviewOverlay
+// e o PromotionalContent montam um cada, e só o de menor prioridade vira dono — assim o modal aparece também
+// nos apps com o layout manual do template, sem linha nova. Analytics (`retention_*`, fora da
+// pré-visualização): utils/retention-analytics.ts.
 import React, {useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore} from "react";
 import {
     ActivityIndicator,
@@ -46,8 +53,10 @@ import {getLocales} from "expo-localization";
 import Purchases from "react-native-purchases";
 import {expoUtilsLog, expoUtilsWarn} from "./Utils";
 import {getRevenueCatStatus, type RcStatus} from "./rc-status";
+import {logRetentionClick, logRetentionClose, logRetentionImpression, logRetentionPurchase, logRetentionPurchaseError} from "./retention-analytics";
 import {RetentionEvents, type RetentionCloseMethod, type RetentionRequest} from "./retention-events";
-import {retentionPreviewNext, type RetentionModalState} from "./retention-offers";
+import {retentionPreviewNext, type RetentionModalState, type RetentionOfferRole} from "./retention-offers";
+import {purchaseRetentionOffer, RC_ERROR_CODES, redeemRetentionCode} from "./retention-store";
 import {playSubscriptionsUrl} from "./retention-texts";
 import {buildRetentionView, type RetentionCardView, type RetentionOfferView, type RetentionView} from "./retention-view";
 import {SquircleCorners, SquircleFill} from "./squircle";
@@ -106,6 +115,10 @@ const RECOVERED: readonly RcStatus[] = ["trial", "intro", "active"];
 const RLM = "\u200F";
 const MONOSPACE = Platform.select({ios: "Menlo", default: "monospace"});
 const CHIP_GOLD = "#E3B95A";
+/** Botão desligado enquanto a OUTRA oferta compra. */
+const DIMMED = 0.5;
+/** A folha de resgate da Apple espera o modal sair: apresentada por cima dele, sumiria junto. */
+const REDEEM_SHEET_DELAY_MS = 600;
 
 const useColors = (): RetentionColors => PALETTE[useColorScheme() === "dark" ? "dark" : "light"];
 
@@ -279,8 +292,22 @@ function OfferCard({card, colors, dir}: {card: RetentionCardView; colors: Retent
     );
 }
 
-/** 2ª oferta: cartão tocável abaixo do botão principal, com o próprio botão pequeno. */
-function SecondaryOfferCard({item, colors, dir, onPress}: {item: RetentionOfferView; colors: RetentionColors; dir: Direction; onPress: () => void}) {
+/** 2ª oferta: cartão tocável abaixo do botão principal, com o próprio botão pequeno (spinner nele enquanto compra). */
+function SecondaryOfferCard({
+    item,
+    colors,
+    dir,
+    onPress,
+    busy,
+    disabled,
+}: {
+    item: RetentionOfferView;
+    colors: RetentionColors;
+    dir: Direction;
+    onPress: () => void;
+    busy: boolean;
+    disabled: boolean;
+}) {
     const card = item.card;
     if (!card) return null;
     const note = [card.period, card.terms].filter(Boolean).join(" · ");
@@ -288,9 +315,11 @@ function SecondaryOfferCard({item, colors, dir, onPress}: {item: RetentionOfferV
     return (
         <Pressable
             onPress={onPress}
+            disabled={disabled}
             accessibilityRole="button"
             accessibilityLabel={label}
-            style={({pressed}) => [styles.secondaryCard, {borderColor: colors.handle, flexDirection: dir.row, opacity: pressed ? 0.7 : 1}]}>
+            accessibilityState={{busy, disabled}}
+            style={({pressed}) => [styles.secondaryCard, {borderColor: colors.handle, flexDirection: dir.row, opacity: disabled && !busy ? DIMMED : pressed ? 0.7 : 1}]}>
             <View style={styles.secondaryInfo}>
                 {card.title ? (
                     <Text style={[styles.secondaryTitle, {color: colors.text}, dir.start]} numberOfLines={2}>
@@ -308,9 +337,13 @@ function SecondaryOfferCard({item, colors, dir, onPress}: {item: RetentionOfferV
                 {note ? <Text style={[styles.secondaryNote, {color: colors.textSecondary}, dir.start]}>{dir.mark + note}</Text> : null}
             </View>
             <View style={[styles.secondaryCta, {backgroundColor: colors.bulletFill}]}>
-                <Text style={[styles.secondaryCtaText, {color: colors.primary}]} numberOfLines={2}>
-                    {item.cta}
-                </Text>
+                {busy ? (
+                    <ActivityIndicator color={colors.primary} />
+                ) : (
+                    <Text style={[styles.secondaryCtaText, {color: colors.primary}]} numberOfLines={2}>
+                        {item.cta}
+                    </Text>
+                )}
             </View>
         </Pressable>
     );
@@ -341,9 +374,16 @@ function RetentionBody({request, colors, onClose, bottomInset, fill}: BodyProps)
     const [notYet, setNotYet] = useState(false);
     const [imageFailed, setImageFailed] = useState(false);
     const [aspect, setAspect] = useState(16 / 9);
+    /** Oferta sendo comprada: spinner no botão dela e todos os botões desligados. */
+    const [buying, setBuying] = useState<RetentionOfferRole | null>(null);
+    /** Linha acima do botão depois da compra: falhou (tente de novo) ou ficou pendente. */
+    const [purchaseNote, setPurchaseNote] = useState<"error" | "pending" | null>(null);
     const mountedRef = useRef(true);
     const openingRef = useRef(false);
     const verifyingRef = useRef(false);
+    const buyingRef = useRef(false);
+    const requestIdRef = useRef(request.id);
+    requestIdRef.current = request.id;
 
     useEffect(() => {
         mountedRef.current = true;
@@ -358,7 +398,10 @@ function RetentionBody({request, colors, onClose, bottomInset, fill}: BodyProps)
         setVerifying(false);
         setNotYet(false);
         setImageFailed(false);
+        setBuying(null);
+        setPurchaseNote(null);
         verifyingRef.current = false;
+        buyingRef.current = false;
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [request.id]);
 
@@ -386,6 +429,7 @@ function RetentionBody({request, colors, onClose, bottomInset, fill}: BodyProps)
             return;
         }
         if (verifyingRef.current) return;
+        logRetentionClick(request, "confirm", view.primary.offer, "primary");
         verifyingRef.current = true;
         setVerifying(true);
         setNotYet(false);
@@ -400,6 +444,41 @@ function RetentionBody({request, colors, onClose, bottomInset, fill}: BodyProps)
         setNotYet(true);
     };
 
+    const purchase = async (item: RetentionOfferView) => {
+        if (buyingRef.current) return;
+        buyingRef.current = true;
+        const current = request;
+        setBuying(item.role);
+        setPurchaseNote(null);
+        const result = await purchaseRetentionOffer(item.offer);
+        // Analytics antes de olhar a tela: a compra conta mesmo se o modal fechou no meio.
+        if (result.status === "purchased") logRetentionPurchase(current, item.offer, result);
+        else if (result.status === "pending") logRetentionPurchaseError(current, item.offer, {status: "pending", code: RC_ERROR_CODES.paymentPending});
+        else if (result.status === "failed") logRetentionPurchaseError(current, item.offer, {status: "failed", code: result.code, message: result.message});
+        if (!mountedRef.current || requestIdRef.current !== current.id) return;
+        buyingRef.current = false;
+        setBuying(null);
+        switch (result.status) {
+            case "purchased":
+                // Vitalício com falha de pagamento: a assinatura antiga continua tentando cobrar → aviso para cancelar.
+                if (item.offer.type === "lifetime" && view.segment === "billing_issue") setPhase("notice");
+                else onClose("purchased");
+                return;
+            case "cancelled":
+                return;
+            case "pending":
+                setPurchaseNote("pending");
+                return;
+            case "failed":
+                // Android: a loja diz que a assinatura (cancelada, ainda ativa) já é da pessoa → religa pela gestão.
+                if (item.offer.type === "resubscribe" && result.code === RC_ERROR_CODES.productAlreadyPurchased) {
+                    void reactivate();
+                    return;
+                }
+                setPurchaseNote("error");
+        }
+    };
+
     const pressOffer = (item: RetentionOfferView) => {
         if (request.preview) {
             const next = retentionPreviewNext(item.offer.type, view.segment);
@@ -409,12 +488,21 @@ function RetentionBody({request, colors, onClose, bottomInset, fill}: BodyProps)
             else onClose("confirmed");
             return;
         }
-        if (item.action === "reactivate" || item.action === "update_payment") {
-            void reactivate();
-            return;
+        if (buyingRef.current) return;
+        logRetentionClick(request, item.action, item.offer, item.role);
+        switch (item.action) {
+            case "reactivate":
+            case "update_payment":
+                void reactivate();
+                return;
+            case "redeem":
+                // Link da loja abre na hora; a folha de resgate da Apple (iOS sem link) espera o modal sair.
+                void redeemRetentionCode(item.offer, {sheetDelayMs: REDEEM_SHEET_DELAY_MS});
+                onClose("redeem");
+                return;
+            case "purchase":
+                void purchase(item);
         }
-        // Compra e código são do motor (próxima fase): nada é cobrado nesta versão.
-        expoUtilsWarn(`retention: a oferta "${item.offer.name}" (${item.offer.type}) ainda não compra nada; nesta versão só existem a interface e a pré-visualização.`);
     };
 
     // Aviso pós-compra: abre a tela de assinaturas e o modal continua aberto, como depois do "Reativar".
@@ -425,6 +513,7 @@ function RetentionBody({request, colors, onClose, bottomInset, fill}: BodyProps)
             return;
         }
         if (openingRef.current) return;
+        logRetentionClick(request, "manage");
         openingRef.current = true;
         try {
             await openSubscriptionManagement(request);
@@ -462,10 +551,15 @@ function RetentionBody({request, colors, onClose, bottomInset, fill}: BodyProps)
 
     const title = notice ? view.notice.header : view.header;
     const body = notice ? view.notice.body : view.body;
-    const hint = phase === "checking" ? (notYet ? view.checking.notYet : view.checking.hint) : null;
+    const purchaseHint = phase === "offer" && purchaseNote ? (purchaseNote === "error" ? view.purchase.error : view.purchase.pending) : null;
+    const hint = phase === "checking" ? (notYet ? view.checking.notYet : view.checking.hint) : purchaseHint;
+    const hintWarning = phase === "checking" ? notYet : purchaseNote === "error";
     const primaryLabel = phase === "offer" ? view.primary.cta : phase === "checking" ? view.checking.confirm : view.notice.cta;
     const onPrimary = phase === "offer" ? () => pressOffer(view.primary) : phase === "checking" ? confirm : pressNotice;
     const primaryCard = !notice ? view.primary.card : null;
+    const primaryBusy = verifying || buying === "primary";
+    /** Enquanto compra, nenhum botão responde (o tocado mostra o spinner; os outros ficam apagados). */
+    const locked = verifying || buying !== null;
 
     return (
         <>
@@ -503,19 +597,19 @@ function RetentionBody({request, colors, onClose, bottomInset, fill}: BodyProps)
 
             <View style={[styles.footer, {paddingBottom: bottomInset}]}>
                 {hint ? (
-                    <Text style={[styles.hint, {color: notYet ? colors.warning : colors.textSecondary}, dir.writing]} accessibilityLiveRegion="polite">
+                    <Text style={[styles.hint, {color: hintWarning ? colors.warning : colors.textSecondary}, dir.writing]} accessibilityLiveRegion="polite">
                         {dir.mark + hint}
                     </Text>
                 ) : null}
                 <TouchableOpacity
                     onPress={onPrimary}
-                    disabled={verifying}
+                    disabled={locked}
                     activeOpacity={0.85}
                     accessibilityRole="button"
-                    accessibilityState={{busy: verifying, disabled: verifying}}
-                    style={styles.primaryButton}>
+                    accessibilityState={{busy: primaryBusy, disabled: locked}}
+                    style={[styles.primaryButton, locked && !primaryBusy && styles.dimmed]}>
                     <SquircleFill radius={BUTTON_RADIUS} color={colors.primary} />
-                    {verifying ? (
+                    {primaryBusy ? (
                         <ActivityIndicator color={colors.onPrimary} />
                     ) : (
                         <Text style={[styles.primaryText, {color: colors.onPrimary}]} numberOfLines={2}>
@@ -524,9 +618,22 @@ function RetentionBody({request, colors, onClose, bottomInset, fill}: BodyProps)
                     )}
                 </TouchableOpacity>
                 {phase === "offer" && view.secondary && (
-                    <SecondaryOfferCard item={view.secondary} colors={colors} dir={dir} onPress={() => view.secondary && pressOffer(view.secondary)} />
+                    <SecondaryOfferCard
+                        item={view.secondary}
+                        colors={colors}
+                        dir={dir}
+                        onPress={() => view.secondary && pressOffer(view.secondary)}
+                        busy={buying === "secondary"}
+                        disabled={locked}
+                    />
                 )}
-                <TouchableOpacity onPress={() => onClose("dismiss")} hitSlop={8} accessibilityRole="button" style={styles.secondaryButton}>
+                <TouchableOpacity
+                    onPress={() => onClose("dismiss")}
+                    disabled={buying !== null}
+                    hitSlop={8}
+                    accessibilityRole="button"
+                    accessibilityState={{disabled: buying !== null}}
+                    style={[styles.secondaryButton, buying !== null && styles.dimmed]}>
                     <Text style={[styles.secondaryText, {color: colors.textSecondary}]} numberOfLines={2}>
                         {view.dismiss}
                     </Text>
@@ -665,11 +772,19 @@ function RetentionModalHost() {
         sync(); // pedido feito antes deste host montar (ou durante a troca de dono)
         const offShow = RetentionEvents.onShow(sync);
         const offHide = RetentionEvents.onHide(sync);
+        // `retention_close` de todo fechamento (inclusive o `hidden` do RetentionEvents.hide()); a pré-visualização não conta.
+        const offClosed = RetentionEvents.onClosed((event) => logRetentionClose(event.request, event.method));
         return () => {
             offShow();
             offHide();
+            offClosed();
         };
     }, []);
+
+    // `retention_impression` 1x por pedido desenhado (o helper ignora o mesmo id quando o host remonta).
+    useEffect(() => {
+        if (request) logRetentionImpression(request);
+    }, [request]);
 
     if (!request) return null;
     return <RetentionModal request={request} onClosed={(method) => RetentionEvents.closed(request.id, method)} />;
@@ -1094,6 +1209,9 @@ const styles = StyleSheet.create({
     secondaryButton: {
         paddingVertical: 12,
         alignItems: "center",
+    },
+    dimmed: {
+        opacity: DIMMED,
     },
     secondaryText: {
         fontSize: 15,

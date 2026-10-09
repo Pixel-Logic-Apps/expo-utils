@@ -1278,9 +1278,10 @@ Oferta para quem cancelou, teve falha de pagamento ou deixou a assinatura vencer
 Messaging da App Store: imagem (ou o ícone do app), título, texto, bullets opcionais, a linha da data e os cartões de
 oferta. Planos: `docs/PLANO-RETENCAO-TRIAL-CANCELADO.md` e `docs/PLANO-RETENCAO-OFERTAS.md`.
 
-**Status:** a interface de todos os segmentos e ofertas está pronta e aparece pela pré-visualização. O motor que decide
-sozinho quando abrir, confere a oferta na loja e faz a compra **ainda não existe**: em produção nada abre o modal
-sozinho, e fora da pré-visualização só "Reativar"/"Atualizar pagamento" fazem algo (abrem a assinatura na loja).
+**Status (08/10/2026):** a interface de todos os segmentos e ofertas está pronta, e o `showRetention()` confere as
+ofertas na loja, abre o modal e **compra de verdade** (desconto, vitalício, assinatura, assinar de novo, win-back) ou
+abre o resgate do código. Ainda **não existe** a detecção que abre sozinha (volta ao primeiro plano, `max_shows`,
+intervalo): em produção o modal só abre quando o app chama `showRetention()`.
 
 - **iOS:** folha nativa (`pageSheet`). **Android:** bottom sheet. Árabe da direita para a esquerda, só no modal.
 - **Segmentos:** `trial_cancelled`, `cancelled`, `billing_issue` (ilustração de cartão com alerta), `expired`,
@@ -1288,6 +1289,8 @@ sozinho, e fora da pré-visualização só "Reativar"/"Atualizar pagamento" faze
 - **Ofertas:** a 1ª da lista é o botão principal (com o cartão dela acima, quando tem); a 2ª vira um cartão tocável
   abaixo do botão, com botão próprio; as outras são ignoradas. "Agora não" sempre embaixo.
 - Depois de "Reativar"/"Atualizar pagamento", o modal mostra "Já reativei"/"Já atualizei", que confere de novo no RevenueCat.
+- Compra: spinner no botão tocado e os outros desligados; comprou → fecha; cancelou → volta ao normal; pendente ou
+  falhou → "Pagamento pendente…" / "Não deu para concluir a compra. Tente de novo." acima do botão, e o modal continua.
 - Vitalício comprado com falha de pagamento: aviso "Cancele a assinatura antiga para não ser cobrado de novo", com o
   botão que abre as assinaturas da loja.
 - Não precisa de linha nova no app: o `ExpoUtilsLayout`, o `AskForReviewOverlay` e o `PromotionalContent` já montam o
@@ -1301,7 +1304,30 @@ sozinho, e fora da pré-visualização só "Reativar"/"Atualizar pagamento" faze
 | `lifetime` | Comprar vitalício | "Pague uma vez, use para sempre", preço (riscado e selo com `compare_product_id`) |
 | `offer_code` | Usar código | o código em fonte monoespaçada + "válido na loja" |
 
-### Testar
+### Abrir com compra de verdade
+
+```typescript
+import {showRetention} from "expo-utils";
+
+// Segmento do RevenueCat (rc_status) + a lista de ofertas do Remote Config para ele:
+const {request, reason, skipped} = await showRetention();
+// Ofertas do app (nomes de retention.offers, as embutidas, o próprio tipo ou objetos no formato do Remote Config):
+await showRetention({offers: ["resubscribe", "lifetime"]});
+// Teste: segmento forçado (abre mesmo com Premium) e produto anterior trocado
+await showRetention({segment: "expired", offers: ["resubscribe", "lifetime"], productIdentifier: "monthly"});
+```
+
+- Não abre (`reason`): `disabled` (`retention.enabled: false`), `rc_unavailable`, `not_retention_segment` (pagante,
+  trial normal…), `premium` (Premium ativo e segmento não forçado), `no_offers` (sem lista), `no_valid_offers` (a loja
+  não tinha nenhuma; o motivo de cada uma em `skipped`), `error`. Nunca lança.
+- Cada oferta é conferida na loja e para em 2 válidas; a que a loja não tem é pulada (evento
+  `retention_offer_unavailable`) e vale a próxima. Preço sempre da loja. Regras por tipo (iOS × Android) na seção 14 do
+  `docs/PLANO-RETENCAO-OFERTAS.md`.
+- Também exportados: `resolveRetentionOffers`, `purchaseRetentionOffer`, `redeemRetentionCode`,
+  `findRetentionPreviousProduct`. Eventos `retention_*`: `docs/ANALYTICS-EVENTS.md`.
+- No `expo-utils-lab`: bloco "Retenção — compra de verdade (loja de teste)" e `expoutilslab://retencao?live=<cenário>`.
+
+### Testar sem loja (pré-visualização)
 
 ```typescript
 import {showRetentionPreview} from "expo-utils";
@@ -1348,7 +1374,7 @@ dele, na ordem; segmento sem lista não vê nada. Nomes de campo em inglês.
 - **Oferta sem `product_id`:** vale para a MESMA assinatura que a pessoa tinha. **Com `product_id`:** aquele produto.
   `subscription` = uma assinatura específica pelo preço normal. `resubscribe` e `winback` não precisam estar em `offers`.
 - **Textos** (`texts.<língua>`): `<segmento>.title|body|bullets|date`, `offers.<nome>.cta|title|period|terms|badge|hint`,
-  `notice.title|body|cta` e `dismiss`. As chaves da fase 1 (`header`, `body`, `bullets`, `cta`) continuam valendo no
+  `notice.title|body|cta`, `purchase.error|pending` e `dismiss`. As chaves da fase 1 (`header`, `body`, `bullets`, `cta`) continuam valendo no
   `trial_cancelled`. Ordem: Remote Config na língua → lib na língua (12 línguas) → Remote Config `en` → lib `en`.
 - **Variáveis:** `{app}`, `{price}`, `{original_price}`, `{discount}`, `{period}`, `{date}`, `{code}` e `{per}` ("/mês").
   Preço com `Intl.NumberFormat` na língua da pessoa.
@@ -1357,7 +1383,7 @@ dele, na ordem; segmento sem lista não vê nada. Nomes de campo em inglês.
 - **Limites da Apple** (testados nas 12 línguas, com `{app}` de 20 caracteres e preços reais): título e cada bullet até
   66 caracteres, texto até 144.
 - O formato da fase 1 (`style`, `max_shows`, `reminder_hours`) continua aceito. As regras de exibição
-  (`max_shows`, `min_interval_hours`…) só vão valer com o motor.
+  (`max_shows`, `min_interval_hours`…) só vão valer com a detecção automática; o `showRetention` não as lê.
 
 ---
 

@@ -57,6 +57,8 @@ export interface RetentionCardTranslations {
  *  - `lost*`: Premium já saiu (padrão da lib); `kept*`: `is_opted_out_trial_enabled: true`.
  *  - `trialEnds` leva `{date}`, formatada com `Intl.DateTimeFormat` na língua do texto.
  *  - `checking` aparece depois do "Reativar"; `notYet` quando o "Já reativei" não confirma.
+ *  - `purchaseError`/`purchasePending`: linha acima do botão quando a compra falha ou fica pendente (o modal
+ *    continua aberto). Remote Config: `purchase.error` / `purchase.pending`.
  */
 export interface RetentionTranslations {
     lostHeader: string;
@@ -69,6 +71,8 @@ export interface RetentionTranslations {
     confirm: string;
     checking: string;
     notYet: string;
+    purchaseError: string;
+    purchasePending: string;
     trialEnds: string;
     segments: RetentionSegmentTranslations;
     ctas: RetentionCtaTranslations;
@@ -106,6 +110,8 @@ export const translations: Record<string, Translations> = {
             confirm: "Já reativei",
             checking: "Depois de reativar na loja, toque em “Já reativei”.",
             notYet: "Ainda não vimos a reativação. Pode levar alguns minutos.",
+            purchaseError: "Não deu para concluir a compra. Tente de novo.",
+            purchasePending: "Pagamento pendente. O Premium libera assim que a loja confirmar.",
             trialEnds: "Seu teste vai até {date}.",
             segments: {
                 cancelled: {
@@ -183,6 +189,8 @@ export const translations: Record<string, Translations> = {
             confirm: "I've reactivated",
             checking: "After reactivating in the store, tap “I've reactivated”.",
             notYet: "We can't see the reactivation yet. It may take a few minutes.",
+            purchaseError: "We couldn't complete the purchase. Please try again.",
+            purchasePending: "Payment pending. Premium unlocks as soon as the store confirms it.",
             trialEnds: "Your trial lasts until {date}.",
             segments: {
                 cancelled: {
@@ -260,6 +268,8 @@ export const translations: Record<string, Translations> = {
             confirm: "Ya la reactivé",
             checking: "Cuando la reactives en la tienda, toca “Ya la reactivé”.",
             notYet: "Aún no vemos la reactivación. Puede tardar unos minutos.",
+            purchaseError: "No se pudo completar la compra. Inténtalo de nuevo.",
+            purchasePending: "Pago pendiente. Premium se activará en cuanto la tienda lo confirme.",
             trialEnds: "Tu prueba dura hasta el {date}.",
             segments: {
                 cancelled: {
@@ -338,6 +348,8 @@ export const translations: Record<string, Translations> = {
             confirm: "J'ai réactivé",
             checking: "Après la réactivation dans le store, touchez «\u00A0J'ai réactivé\u00A0».",
             notYet: "Nous ne voyons pas encore la réactivation. Cela peut prendre quelques minutes.",
+            purchaseError: "Impossible de finaliser l'achat. Veuillez réessayer.",
+            purchasePending: "Paiement en attente. Premium sera activé dès que le store l'aura confirmé.",
             trialEnds: "Votre essai dure jusqu'au {date}.",
             segments: {
                 cancelled: {
@@ -415,6 +427,8 @@ export const translations: Record<string, Translations> = {
             confirm: "Schon erledigt",
             checking: "Tippe nach dem Reaktivieren im Store auf „Schon erledigt“.",
             notYet: "Wir sehen die Reaktivierung noch nicht. Das kann ein paar Minuten dauern.",
+            purchaseError: "Der Kauf konnte nicht abgeschlossen werden. Versuch es noch einmal.",
+            purchasePending: "Zahlung ausstehend. Premium wird freigeschaltet, sobald der Store sie bestätigt.",
             trialEnds: "Deine Testphase läuft bis zum {date}.",
             segments: {
                 cancelled: {
@@ -492,6 +506,8 @@ export const translations: Record<string, Translations> = {
             confirm: "L'ho riattivato",
             checking: "Dopo averlo riattivato nello store, tocca “L'ho riattivato”.",
             notYet: "Non vediamo ancora la riattivazione. Potrebbe volerci qualche minuto.",
+            purchaseError: "Non è stato possibile completare l'acquisto. Riprova.",
+            purchasePending: "Pagamento in sospeso. Premium si attiverà appena lo store lo confermerà.",
             trialEnds: "La tua prova dura fino al {date}.",
             segments: {
                 cancelled: {
@@ -569,6 +585,8 @@ export const translations: Record<string, Translations> = {
             confirm: "再開しました",
             checking: "ストアで再開したら「再開しました」をタップしてください。",
             notYet: "まだ再開を確認できません。反映まで数分かかる場合があります。",
+            purchaseError: "購入を完了できませんでした。もう一度お試しください。",
+            purchasePending: "お支払いが保留中です。ストアで確認され次第、プレミアムが有効になります。",
             trialEnds: "トライアルは{date}までです。",
             segments: {
                 cancelled: {
@@ -646,6 +664,8 @@ export const translations: Record<string, Translations> = {
             confirm: "다시 활성화했어요",
             checking: "스토어에서 다시 활성화한 후 ‘다시 활성화했어요’를 눌러 주세요.",
             notYet: "아직 다시 활성화가 확인되지 않았습니다. 몇 분 정도 걸릴 수 있습니다.",
+            purchaseError: "구매를 완료하지 못했습니다. 다시 시도해 주세요.",
+            purchasePending: "결제 대기 중입니다. 스토어에서 확인되면 바로 프리미엄이 활성화됩니다.",
             trialEnds: "체험 기간은 {date}까지입니다.",
             // {app} fica de fora de propósito: a partícula (을/를) depende da última letra do nome.
             segments: {
@@ -724,6 +744,8 @@ export const translations: Record<string, Translations> = {
             confirm: "我已重新开启",
             checking: "在商店重新开启后，请点按“我已重新开启”。",
             notYet: "暂未检测到重新开启，可能需要几分钟。",
+            purchaseError: "无法完成购买，请重试。",
+            purchasePending: "付款待处理。商店确认后将立即开通高级版。",
             trialEnds: "你的试用将于{date}结束。",
             segments: {
                 cancelled: {
@@ -801,6 +823,8 @@ export const translations: Record<string, Translations> = {
             confirm: "Подписка возобновлена",
             checking: "После возобновления в магазине нажмите «Подписка возобновлена».",
             notYet: "Мы пока не видим возобновления. Это может занять несколько минут.",
+            purchaseError: "Не удалось завершить покупку. Попробуйте ещё раз.",
+            purchasePending: "Оплата в обработке. Premium откроется, как только магазин её подтвердит.",
             trialEnds: "Пробный период действует до {date}.",
             segments: {
                 cancelled: {
@@ -878,6 +902,8 @@ export const translations: Record<string, Translations> = {
             confirm: "أعدتُ التفعيل",
             checking: "بعد إعادة التفعيل في المتجر، اضغط على «أعدتُ التفعيل».",
             notYet: "لم نرصد إعادة التفعيل بعد. قد يستغرق ذلك بضع دقائق.",
+            purchaseError: "تعذّر إتمام الشراء. حاول مرة أخرى.",
+            purchasePending: "الدفع قيد الانتظار. ستُفعَّل المزايا المميزة فور تأكيد المتجر.",
             trialEnds: "تستمر الفترة التجريبية حتى {date}.",
             segments: {
                 cancelled: {
@@ -955,6 +981,8 @@ export const translations: Record<string, Translations> = {
             confirm: "Al geactiveerd",
             checking: "Tik na het activeren in de store op ‘Al geactiveerd’.",
             notYet: "We zien de heractivering nog niet. Dit kan een paar minuten duren.",
+            purchaseError: "De aankoop is niet gelukt. Probeer het opnieuw.",
+            purchasePending: "Betaling in behandeling. Premium wordt actief zodra de store die bevestigt.",
             trialEnds: "Je proefperiode loopt tot {date}.",
             segments: {
                 cancelled: {

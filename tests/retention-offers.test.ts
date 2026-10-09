@@ -403,6 +403,28 @@ describe("Remote Config: chaves por segmento e por oferta", () => {
         expect(v.date).toBe("Oferta até 12 de outubro.");
     });
 
+    test("linha da compra que falhou/ficou pendente: texto da lib nas 12 línguas e as chaves purchase.* do Remote Config", () => {
+        for (const lang of LANGUAGES) {
+            const v = view("expired", ["lifetime"], {language: lang});
+            for (const line of [v.purchase.error, v.purchase.pending]) {
+                expect(line.trim().length > 0, `${lang}`).toBe(true);
+                expect(length(line), line).toBeLessThanOrEqual(RETENTION_LIMITS.body);
+                expect(line).not.toMatch(/\{\w+\}/);
+            }
+            expect(v.purchase.error === v.purchase.pending, lang).toBe(false);
+        }
+        const pt = view("expired", ["lifetime"]);
+        expect(pt.purchase).toEqual({error: "Não deu para concluir a compra. Tente de novo.", pending: "Pagamento pendente. O Premium libera assim que a loja confirmar."});
+        const remote = view("expired", ["lifetime"], {remoteTexts: {pt: {"purchase.error": "A loja recusou. Tente outra vez no {app}."}, en: {"purchase.pending": "Pending"}}});
+        expect(remote.purchase).toEqual({error: "A loja recusou. Tente outra vez no Meu App.", pending: "Pagamento pendente. O Premium libera assim que a loja confirmar."});
+    });
+
+    test("ação do toque: a da conferência da loja vence o tipo × segmento", () => {
+        const withAction = buildRetentionView({segment: "cancelled", variant: "premium_lost", offers: [{name: "resubscribe", type: "resubscribe", action: "purchase"}], language: "pt", appName: "X"});
+        expect(withAction.primary).toMatchObject({action: "purchase", ctaKey: "reactivate", cta: "Reativar", card: null});
+        expect(view("cancelled", ["resubscribe"]).primary.action).toBe("reactivate");
+    });
+
     test("texto só do Remote Config (título do desconto) não mistura línguas", () => {
         const remoteTexts = {en: {"offers.discount_50.title": "Special offer"}};
         expect(view("expired", ["discount"], {remoteTexts}).primary.card!.title).toBeNull();

@@ -130,31 +130,56 @@ em SDK de terceiro, leia o fonte de verdade (os `Pods/` e AARs dos apps locais),
 - Proxy CORS público genérico foi testado e descartado (todos instáveis); não reintroduza. Se um leitor morrer, troque a entrada dele em `PLAY_READERS` por outro serviço de metadados (ou um Worker próprio) e teste **num navegador de verdade** — `curl` não aplica CORS, então não prova nada.
 
 
-## Modal de retenção (UI de todos os segmentos e ofertas pronta; motor ainda não)
+## Modal de retenção (UI de todos os segmentos e ofertas + compra de verdade; detecção automática ainda não)
 
 Planos: `docs/PLANO-RETENCAO-TRIAL-CANCELADO.md` (07/10/2026: UI do trial cancelado) e `docs/PLANO-RETENCAO-OFERTAS.md`
-(08/10/2026: UI por segmento + cartões de oferta + pré-visualização, seções 3, 4, 7 e 8). O motor (detecção na volta ao
-primeiro plano, limites, conferência da oferta na loja, compra) e os eventos `retention_*` NÃO existem: em produção nada
-abre o modal sozinho e nada é cobrado.
+(08/10/2026: UI por segmento + cartões de oferta + pré-visualização, seções 3, 4, 7 e 8; compra de verdade, seção 14).
+`showRetention()` confere as ofertas na loja, abre o modal e compra de verdade, com os eventos `retention_*`. A
+detecção (abrir sozinho na volta ao primeiro plano, `max_shows`, intervalo, episódio) e o push NÃO existem: em
+produção o modal só abre quando o app chama `showRetention`.
 
 - **Arquivos**: `utils/retention-texts.ts` (textos da fase 1, data, RTL, URL do Play), `utils/retention-offers.ts`
   (tipo de oferta → botão/cartão/ação, preço e percentual com `Intl.NumberFormat`, plurais, catálogo e preços falsos da
-  pré-visualização), `utils/retention-view.ts` (`buildRetentionView`: a tela inteira, pura — o modal só desenha),
-  `utils/retention-events.ts` (`RetentionEvents` no `DeviceEventEmitter` + `showRetentionPreview`; módulo-folha, o
-  `Utils.ts` importa dele o item "Simular trial cancelado" do menu de dev) e `utils/retention-modal.tsx` (UI). Tudo
-  menos o `.tsx` é testado no bun (`tests/retention-*.test.ts`).
-- **Abrir**: `RetentionEvents.show({segment, offers, state, variant, productIdentifier, expirationDate, managementURL})`.
-  Sem `segment`/`offers` = fase 1 (trial cancelado + "Reativar"). `offers` são `RetentionOffer` JÁ com o preço da loja
-  (o motor vai montar); só a pré-visualização resolve nomes (`resolveRetentionOfferInput`) com preços falsos (BRL em pt,
-  USD nas outras). A 1ª oferta é o botão principal, a 2ª um cartão tocável abaixo dele, o resto o modal ignora. O motor
-  deve conferir `retention.enabled` e a lista do segmento antes (a lib não tem regra própria de "quem vê o quê"); o
-  modal em si não confere. Sem `variant`, sai do `is_opted_out_trial_enabled` (true → `premium_kept`).
-  `RetentionEvents.hide()` fecha por fora; `onClosed` traz o motivo (`dismiss`/`swipe`/`back`/`overlay`/`recovered`/
-  `confirmed`/`hidden`) para a fase de analytics.
-- **Toque**: fora da pré-visualização só `reactivate`/`update_payment` fazem algo (abrem a gestão da assinatura e vão
-  para "conferindo"); `purchase`/`redeem` só dão `expoUtilsWarn` — compra entra com o motor, não antes. Na
-  pré-visualização, `retentionPreviewNext` decide (conferindo / aviso pós-compra do vitalício em `billing_issue` / fecha
-  com `confirmed`) e cada toque sai no Metro por `expoUtilsLog` (`[expo-utils] retention preview: …`).
+  pré-visualização, tipo `RetentionStoreRef`), `utils/retention-view.ts` (`buildRetentionView`: a tela inteira, pura —
+  o modal só desenha), `utils/retention-events.ts` (`RetentionEvents` no `DeviceEventEmitter` + `showRetentionPreview`;
+  módulo-folha, o `Utils.ts` importa dele o item "Simular trial cancelado" do menu de dev — por isso NÃO importa o
+  SDK), `utils/retention-store.ts` (conferência na loja, compra e resgate; importa o `react-native-purchases`, sem UI),
+  `utils/retention-show.ts` (`showRetention`), `utils/retention-analytics.ts` (eventos `retention_*`) e
+  `utils/retention-modal.tsx` (UI). Tudo menos o `.tsx` é testado no bun (`tests/retention-*.test.ts`; a loja mockada
+  em `tests/helpers/rc-store-mock.ts`, produtos no formato do SDK em `tests/helpers/rc-store-fixtures.ts`).
+- **Abrir com compra**: `showRetention({segment?, offers?, productIdentifier?, variant?, locale?, imageUrl?,
+  defaultBullets?})` → `{request, segment, skipped, reason}`, nunca lança. Ordem: `retention.enabled === false` desliga
+  → `getCustomerInfo` → segmento (forçado ou `rc_status`; fora dos 6 de retenção não abre) → Premium ativo
+  (`isPremiumEntitlement`) não recebe oferta, a não ser com segmento forçado → ofertas (`offers` do app ou
+  `retention.segments.<segmento>.offers`; sem lista não abre) → `resolveRetentionOffers` (para em 2 válidas; nenhuma =
+  não abre) → `RetentionEvents.show`. O catálogo de exemplo (`discount_50`, `lifetime_deal`, `promo_code`) é SÓ da
+  pré-visualização.
+- **Conferência na loja** (`resolveRetentionOffers`, regras na seção 14 do plano): preço sempre da loja; produto
+  anterior por segmento (`findRetentionPreviousProduct`, usa `getLifecycleEntitlement` do `rc-status.ts`); produto pelo
+  `getProducts` com os pacotes dos offerings de reserva; no Android o RevenueCat devolve um produto por base plan
+  (`assinatura:basePlan`) — a lib pede o id do entitlement como está e escolhe o base plan da pessoa (pedir
+  `id:basePlan` na loja de teste não devolve nada); preço normal no Android com várias opções = `purchaseSubscriptionOption`
+  do base plan (o `defaultOption` escolheria trial/desconto). `RetentionOffer` ganhou `action` (o que o toque faz:
+  `resubscribe` com renovação desligada é `purchase` no Android e `reactivate` no iOS) e `store` (referência de compra,
+  opaca para a view). Oferta pulada vai em `skipped` com o motivo e no `retention_offer_unavailable`.
+- **Abrir sem compra**: `RetentionEvents.show({segment, offers, state, variant, productIdentifier, expirationDate,
+  managementURL})` — `offers` já com preço; sem `segment`/`offers` = fase 1 (trial cancelado + "Reativar"). A
+  pré-visualização resolve nomes (`resolveRetentionOfferInput`) com preços falsos (BRL em pt, USD nas outras). A 1ª
+  oferta é o botão principal, a 2ª um cartão tocável abaixo dele, o resto o modal ignora. O modal em si não confere
+  `retention.enabled` nem a lista (quem confere é o `showRetention`). Sem `variant`, sai do `is_opted_out_trial_enabled`
+  (true → `premium_kept`). `RetentionEvents.hide()` fecha por fora; `onClosed` traz o motivo (`dismiss`/`swipe`/`back`/
+  `overlay`/`recovered`/`confirmed`/`purchased`/`redeem`/`hidden`).
+- **Toque fora da pré-visualização**: `reactivate`/`update_payment` abrem a gestão da assinatura e vão para
+  "conferindo"; `purchase` → `purchaseRetentionOffer` com spinner no botão tocado e todos os botões desligados —
+  comprou: fecha com `purchased` (vitalício em `billing_issue` → aviso de cancelar a antiga), cancelou: nada, pendente
+  (código 20) / falhou: linha `purchase.pending` / `purchase.error` acima do botão e o modal continua aberto;
+  `resubscribe` no Android com o código 6 (a loja diz que já é da pessoa) cai no `reactivate`. `redeem` →
+  `redeemRetentionCode` (link da loja; no iOS sem link, a folha da Apple depois de o modal sair) e fecha com `redeem`.
+  Comprou com Premium: `@isPremium` gravado (como o PaywallUtils). Analytics só fora da pré-visualização
+  (`docs/ANALYTICS-EVENTS.md`, seção "Retenção"; preço em `price`/`price_currency`, nunca `value`/`currency`).
+- **Pré-visualização** (`showRetentionPreview`): nada vai à loja; `retentionPreviewNext` decide (conferindo / aviso
+  pós-compra do vitalício em `billing_issue` / fecha com `confirmed`) e cada toque sai no Metro por `expoUtilsLog`
+  (`[expo-utils] retention preview: …`).
 - **Dono único (`RetentionModalSlot`)**: o `ExpoUtilsLayout` (prioridade 0), o `AskForReviewOverlay` (1) e o
   `PromotionalContent` (2) montam um slot cada; só o de menor prioridade desenha. Isso existe porque o template padrão
   (e o lab) NÃO usam o `ExpoUtilsLayout` — montar só nele deixava o modal invisível nesses apps. Os dois overlays devolvem
@@ -169,7 +194,9 @@ abre o modal sozinho e nada é cobrado.
   `units` são das ofertas). Ordem por campo: `retention.texts[língua]` do Remote Config → lib na língua → `texts.en` do
   Remote Config → lib en. Chaves do Remote Config: `<segmento>.title|body|bullets|date`, `offers.<nome>.cta|title|
   period|terms|badge|hint`, `notice.*`, `dismiss` e as da fase 1 (`header`/`body`/`bullets`/`cta`, só no
-  `trial_cancelled`). Bullets nunca misturam línguas. Linha da data por `Intl.DateTimeFormat` (sem plural de dias).
+  `trial_cancelled`) e `purchase.error`/`purchase.pending` (linha da compra que falhou/ficou pendente; lib:
+  `purchaseError`/`purchasePending`). Bullets nunca misturam línguas. Linha da data por `Intl.DateTimeFormat` (sem
+  plural de dias).
   Texto novo tem que caber nos limites da Apple (título/bullet ≤ 66, corpo ≤ 144 com `{app}` de 20 caracteres e preços
   reais; botão ≤ 30): `tests/retention-texts.test.ts` e `tests/retention-offers.test.ts` quebram se passar.
 - **Plural e preço**: `units.per` ("/mês") e `units.first` ("nos 3 primeiros meses") por categoria do CLDR, escolhida à
@@ -562,7 +589,8 @@ Hard-won lessons from debugging consumer apps — they affect anyone integrating
   `mock.module` do bun e global e vaza entre arquivos, e os modulos guardam estado de sessao. Os mocks dos
   modulos nativos ficam em `tests/helpers/rn-mocks.ts`. `tests/` nao entra no pacote npm. Tambem: premium
   (`premium.test.ts`, fixtures do RC em `tests/helpers/rc-fixtures.ts`, compartilhadas com `rc-status.test.ts`),
-  link-in-bio, referrer 1x por install e o catalogo de mediacao (`mediation-catalog.test.ts`, com o
+  link-in-bio, referrer 1x por install, a retencao (`retention-*.test.ts`; a loja do RevenueCat mockada em
+  `tests/helpers/rc-store-mock.ts`, com o filtro de base plan do SDK Android) e o catalogo de mediacao (`mediation-catalog.test.ts`, com o
   `@expo/config-plugins` mockado — o repo nao tem node_modules). `scripts/check-mediation-poms.js` precisa de rede
   e NAO roda no `run.sh`.
 - Typecheck: o Metro NAO checa tipos e o pacote distribui `.ts`/`.tsx` — rode `tsc` contra os `node_modules`
@@ -578,8 +606,11 @@ Firebase real (projeto `local-desenv`, pacote `com.pixellogic.expoutilslab`: Deb
 console) e RevenueCat real (projeto "ExpoUtils Lab", loja de teste `test_…`, offering `default` com 3 produtos — a
 Test Store simula compra valida/falha/cancelamento sem cobranca). `src/app/index.tsx` tem um bloco por feature (review
 nos 4 estilos com imagem padrao/custom, retencao do trial cancelado nas 2 variantes e 12 linguas, "Retenção — casos"
-(um botao por caso do plano de ofertas; deep link `expoutilslab://retencao?case=<id>&locale=pt`), cross-promo, geo, token
-FCM, atributo custom) e `src/app/paywall.tsx` exercita
+(um botao por caso do plano de ofertas; deep link `expoutilslab://retencao?case=<id>&locale=pt`), "Retenção — compra de
+verdade (loja de teste)" (`showRetention` com os produtos `monthly`/`yearly`/`lifetime` da Test Store; botoes `live-<id>`,
+deep link `expoutilslab://retencao?live=<id>`, `live=novo_cliente` faz `Purchases.logIn("lab-…")` para zerar depois de
+comprar; cenarios em `src/constants/retention-live.ts`; log `[lab] retention-live …`; `expoutilslab://rc-produtos` loga
+ofertas e cliente), cross-promo, geo, token FCM, atributo custom) e `src/app/paywall.tsx` exercita
 o funil. Roteiro: `npm pack` → extrair o `.tgz` por cima de `node_modules/expo-utils` (conferir com grep) →
 `expo start --dev-client --port 8082` → abrir com `exp+expo-utils-lab://expo-development-client/?url=…` → conferir o
 customer no RevenueCat e os eventos no DebugView. Mudou modulo nativo: `expo prebuild` + `./gradlew :app:assembleDebug`.

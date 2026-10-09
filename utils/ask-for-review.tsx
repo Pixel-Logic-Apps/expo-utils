@@ -1,5 +1,5 @@
 /// <reference path="./images.d.ts" />
-import React, {useEffect, useRef} from "react";
+import React, {useContext, useEffect, useRef} from "react";
 import DEFAULT_REVIEW_IMAGE from "../assets/banner-star.jpg";
 import {
     View,
@@ -17,6 +17,7 @@ import {
     useWindowDimensions
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import {SafeAreaInsetsContext} from "react-native-safe-area-context";
 import * as StoreReview from "expo-store-review";
 import * as Application from "expo-application";
 import Constants from "expo-constants";
@@ -390,10 +391,19 @@ const MEDIA_RADIUS = 24;
 /** Raio dos botoes. Era 12. */
 const BUTTON_RADIUS = 20;
 
-/** Altura da status bar (Android). No iOS o notch entra pelo padding proprio do card. */
-const SYS_TOP = Platform.OS === "android" ? StatusBar.currentHeight || 24 : 0;
-/** Barra de navegacao do Android: 48dp de 3 botoes, o pior caso. */
-const SYS_BOTTOM = Platform.OS === "android" ? 48 : 0;
+/** Barras do sistema que o card precisa respeitar: em cima a status bar/notch, embaixo a barra de navegacao/gestos. */
+type SystemBars = {top: number; bottom: number};
+
+/**
+ * Reserva quando nao ha SafeAreaProvider na arvore. Android: status bar e barra de navegacao de 3 botoes
+ * (48dp, o pior caso). iOS: a status bar do expo-constants (com notch/Dynamic Island ela passa de 20) e,
+ * nesses aparelhos, os 34pt da barra de gestos. Antes o iOS ficava com 0 nos dois: o X do fullscreen
+ * caia embaixo do relogio/Dynamic Island e o botao do formsheet encostava na borda da tela.
+ */
+const FALLBACK_BARS: SystemBars =
+    Platform.OS === "android"
+        ? {top: StatusBar.currentHeight || 24, bottom: 48}
+        : {top: Constants.statusBarHeight || 20, bottom: (Constants.statusBarHeight || 0) > 20 ? 34 : 0};
 
 /**
  * Fracao da tela ocupada pelo formsheet. Com 1/3 sobravam 93dp pra midia depois do cabecalho
@@ -448,9 +458,10 @@ interface VariantSpec {
 /**
  * Overrides por layout. O que nao aparece aqui vem do StyleSheet base, entao `bottomsheet`
  * e exatamente o comportamento historico e nenhum app existente muda de aparencia.
- * `winHeight` so e usado pelo formsheet, que e definido como 1/3 da tela.
+ * `winHeight` so e usado pelo formsheet (fracao da tela); `bars` (area segura) pelo formsheet e pelo
+ * fullscreen, os dois que encostam nas bordas da tela.
  */
-const buildVariants = (winHeight: number): Record<ReviewStyle, VariantSpec> => ({
+const buildVariants = (winHeight: number, bars: SystemBars): Record<ReviewStyle, VariantSpec> => ({
     bottomsheet: {
         mediaAlign: "center",
         cornerRadius: 40,
@@ -486,7 +497,8 @@ const buildVariants = (winHeight: number): Record<ReviewStyle, VariantSpec> => (
             height: Math.round(winHeight * FORMSHEET_FRACTION),
             padding: 0,
             marginBottom: 0,
-            paddingBottom: SYS_BOTTOM,
+            // acima da barra de gestos (iOS) / navegacao (Android), com 8 de folga
+            paddingBottom: bars.bottom + 8,
         },
         // altura livre: a midia fica com o que sobrar do 1/3 depois de texto e botoes
         mediaStyle: {flex: 1, height: undefined, borderRadius: 0, marginBottom: 12},
@@ -544,9 +556,9 @@ const buildVariants = (winHeight: number): Record<ReviewStyle, VariantSpec> => (
             marginBottom: 0,
             padding: 24,
             // edge-to-edge: o card cobre status bar e barra de navegacao, o respiro delas
-            // entra aqui. StatusBar.currentHeight so existe no Android.
-            paddingTop: SYS_TOP + 56,
-            paddingBottom: SYS_BOTTOM + 24,
+            // entra aqui (area segura de verdade nas duas plataformas).
+            paddingTop: bars.top + 56,
+            paddingBottom: bars.bottom + 24,
         },
         mediaStyle: {height: 240},
         textStyle: {},
@@ -556,7 +568,7 @@ const buildVariants = (winHeight: number): Record<ReviewStyle, VariantSpec> => (
         singleButton: true,
         noSidePadding: true,
         fillsScreen: true,
-        closeTop: SYS_TOP + 8,
+        closeTop: bars.top + 8,
         closeOverMedia: false,
         closeInHeader: false,
         morphs: true,
@@ -614,9 +626,13 @@ const AskForReviewOverlay: React.FC<AskForReviewOverlayProps> = ({
     // Resolvido no render (nao em estado): o RC ja esta carregado quando o overlay abre.
     // useWindowDimensions para o formsheet acompanhar rotacao/split-screen.
     const {height: winHeight} = useWindowDimensions();
+    // Contexto cru (e nao useSafeAreaInsets, que lanca sem SafeAreaProvider): sem ele, a reserva.
+    const safeArea = useContext(SafeAreaInsetsContext);
+    const barsTop = safeArea ? safeArea.top : FALLBACK_BARS.top;
+    const barsBottom = safeArea ? safeArea.bottom : FALLBACK_BARS.bottom;
     const layout = React.useMemo(
-        () => buildVariants(winHeight)[resolveVariant(variant)],
-        [winHeight, variant, visible],
+        () => buildVariants(winHeight, {top: barsTop, bottom: barsBottom})[resolveVariant(variant)],
+        [winHeight, barsTop, barsBottom, variant, visible],
     );
 
     // Imagem: prop > slot global (AskForReviewEvents.setImage / askForReview(texts, image)) > padrão.

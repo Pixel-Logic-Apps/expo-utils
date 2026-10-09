@@ -2,12 +2,12 @@
 // Quem desenha é o RetentionModalSlot (utils/retention-modal.tsx), montado pelo ExpoUtilsLayout e pelos
 // overlays da lib — o app não ganha linha nova.
 //
-// O motor de decisão (próxima fase do docs/PLANO-RETENCAO-OFERTAS.md, ainda não implementado) só
-// precisa chamar `RetentionEvents.show({segment, offers, variant, productIdentifier, expirationDate,
-// managementURL})` com as ofertas já conferidas na loja. Sem `segment`/`offers` é o pedido da fase 1
-// (trial cancelado + "Reativar").
+// Com compra de verdade, quem abre é o `showRetention` (utils/retention-show.ts): lê o customerInfo,
+// confere as ofertas na loja (utils/retention-store.ts) e chama `RetentionEvents.show({segment, offers,
+// variant, productIdentifier, expirationDate, managementURL})` com elas já conferidas e com preço. Sem
+// `segment`/`offers` é o pedido da fase 1 (trial cancelado + "Reativar").
 // Módulo-folha de propósito (só react-native, expo-localization e módulos puros): o Utils.ts importa
-// daqui o item do menu de dev.
+// daqui o item do menu de dev — por isso o `showRetention`, que importa o SDK, mora em outro arquivo.
 import {DeviceEventEmitter, Platform} from "react-native";
 import {getLocales} from "expo-localization";
 import {
@@ -64,10 +64,10 @@ export interface RetentionRequest extends RetentionShowPayload {
 /**
  * Como o modal fechou: `dismiss` (Agora não), `swipe` (arrastou para baixo), `back` (voltar do
  * Android), `overlay` (toque fora, Android), `confirmed` (botão concluído na pré-visualização: "Já
- * reativei", compra simulada, aviso), `recovered` (Já reativei e o RevenueCat confirmou), `hidden`
- * (RetentionEvents.hide()).
+ * reativei", compra simulada, aviso), `recovered` (Já reativei e o RevenueCat confirmou), `purchased`
+ * (compra feita na loja), `redeem` (abriu o resgate do código), `hidden` (RetentionEvents.hide()).
  */
-export type RetentionCloseMethod = "dismiss" | "swipe" | "back" | "overlay" | "confirmed" | "recovered" | "hidden";
+export type RetentionCloseMethod = "dismiss" | "swipe" | "back" | "overlay" | "confirmed" | "recovered" | "purchased" | "redeem" | "hidden";
 
 export interface RetentionClosedEvent {
     request: RetentionRequest;
@@ -127,7 +127,7 @@ export class RetentionEvents {
         return () => subscription.remove();
     }
 
-    /** Depois de fechar, com o motivo — é onde a fase de analytics vai registrar `retention_close`. */
+    /** Depois de fechar, com o motivo (o modal registra o `retention_close` daqui, fora da pré-visualização). */
     static onClosed(callback: (event: RetentionClosedEvent) => void): () => void {
         const subscription = DeviceEventEmitter.addListener(CLOSED_EVENT, callback);
         return () => subscription.remove();

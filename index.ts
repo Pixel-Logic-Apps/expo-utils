@@ -22,6 +22,10 @@ export type {PaywallConfig, PaywallItem, PaywallLoadResult, PaywallOptions, Payw
 export {CrossPromoCard} from "./utils/cross-promo-card";
 export type {CrossPromoConfig, CrossPromoColors} from "./utils/cross-promo-card";
 export {RetentionEvents, showRetentionPreview} from "./utils/retention-events";
+export {showRetention} from "./utils/retention-show";
+export type {ShowRetentionOptions, ShowRetentionResult, ShowRetentionReason} from "./utils/retention-show";
+export {findRetentionPreviousProduct, purchaseRetentionOffer, redeemRetentionCode, resolveRetentionOffers} from "./utils/retention-store";
+export type {ResolveRetentionOffersOptions, ResolvedRetentionOffers, RetentionPreviousProduct, RetentionPurchaseResult, RetentionRedeemResult, RetentionSkippedOffer, RetentionSkipReason} from "./utils/retention-store";
 export type {RetentionVariant, RetentionShowPayload, RetentionRequest, RetentionPreviewOptions, RetentionCloseMethod, RetentionClosedEvent} from "./utils/retention-events";
-export type {RetentionOffer, RetentionOfferInput, RetentionPrice, RetentionPeriod, RetentionModalState} from "./utils/retention-offers";
+export type {RetentionOffer, RetentionOfferInput, RetentionPrice, RetentionPeriod, RetentionModalState, RetentionOfferAction, RetentionStoreRef} from "./utils/retention-offers";
 export {RetentionModalSlot} from "./utils/retention-modal";

@@ -883,14 +883,24 @@ Pontos de atenção:
   Oferta sem `product_id` = a mesma assinatura que a pessoa tinha; com `product_id` = aquele produto.
 - **Nenhuma linha nova no app.** O modal é montado pelo `ExpoUtilsLayout`, pelo `AskForReviewOverlay` e pelo
   `PromotionalContent` (só um desenha). App que não renderiza nenhum dos três: `<RetentionModalSlot />` no `_layout`.
-- Ainda **não abre sozinho** e **não compra nada**: o motor é a próxima fase. Para ver:
-  `showRetentionPreview({segment, offers, state, locale, variant, imageUrl})` (as opções antigas continuam) ou o item
-  **Simular trial cancelado** do menu de dev. Fora da pré-visualização só "Reativar"/"Atualizar pagamento" fazem algo.
+- Ainda **não abre sozinho** (a detecção é a próxima fase), mas **compra de verdade** desde 08/10/2026: o app chama
+  `showRetention({segment?, offers?, ...})`, que lê o customerInfo, confere as ofertas na loja (preço sempre da loja) e
+  abre o modal; o toque compra (`purchaseRetentionOffer`) ou abre o resgate do código. Nada muda para quem não chama.
+  Precisa do RevenueCat configurado (sem ele, `reason: "rc_unavailable"`) e, no Remote Config, da lista
+  `retention.segments.<segmento>.offers` (ou das ofertas passadas pelo app). Para ver sem loja:
+  `showRetentionPreview({segment, offers, state, locale, variant, imageUrl})` ou o item **Simular trial cancelado** do
+  menu de dev. Eventos novos `retention_*` (`docs/ANALYTICS-EVENTS.md`).
 - Exports novos (`index.ts` / `index.d.ts`): `showRetentionPreview`, `RetentionEvents`, `RetentionModalSlot` e os tipos
   `RetentionConfig`, `RetentionTexts`, `RetentionTranslations`, `RetentionVariant`, `RetentionShowPayload`,
   `RetentionRequest`, `RetentionPreviewOptions`, `RetentionCloseMethod`, `RetentionClosedEvent` e (08/10)
   `RetentionSegment`, `RetentionOfferType`, `RetentionSegmentConfig`, `RetentionOfferConfig`, `RetentionPeriodUnit`,
   `RetentionPluralForms`, `RetentionOffer`, `RetentionOfferInput`, `RetentionPrice`, `RetentionPeriod`, `RetentionModalState`.
+  Compra (08/10/2026): `showRetention`, `resolveRetentionOffers`, `purchaseRetentionOffer`, `redeemRetentionCode`,
+  `findRetentionPreviousProduct` e os tipos `ShowRetentionOptions`, `ShowRetentionResult`, `ShowRetentionReason`,
+  `ResolveRetentionOffersOptions`, `ResolvedRetentionOffers`, `RetentionPreviousProduct`, `RetentionPurchaseResult`,
+  `RetentionRedeemResult`, `RetentionSkippedOffer`, `RetentionSkipReason`, `RetentionOfferAction`, `RetentionStoreRef`.
+  `RetentionCloseMethod` ganhou `purchased` e `redeem`; `RetentionTranslations` ganhou `purchaseError` e
+  `purchasePending` (só quebra app que monta um `Translations` à mão).
 - `Translations` (i18n) ganhou o campo obrigatório `retention`, e `RetentionTranslations` ganhou (08/10) `segments`,
   `ctas`, `cards`, `notice` e `units`. Só quebra app que monta um `Translations` à mão.
 - `RetentionTexts` aceita qualquer chave (`billing_issue.title`, `offers.<nome>.cta`…); `RetentionRequest` agora sempre
