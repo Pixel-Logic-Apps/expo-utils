@@ -196,58 +196,205 @@ export type RetentionConfig = {
     reminder_hours?: number;
 };
 
+/** Como o app pede a avaliação (`review_type`). */
+export type ReviewType = "store-review" | "popup" | "dialog";
+
+/**
+ * Bloco `utils` do Remote Config: o que a lib lê. Fica no parâmetro `settings` (`{utils, screens}`) ou, nos apps que
+ * ainda não migraram, no parâmetro `utils`. Ver docs/PLANO-SETTINGS.md.
+ *
+ * O pldev monta o formulário do Remote Config a partir DESTE tipo, lido com o parser do TypeScript: o tipo e as
+ * opções saem do próprio tipo, a dica sai do comentário e as tags dizem o resto — `@section` (grupo do formulário),
+ * `@label` (nome na tela), `@default` (o que vale sem a chave, em texto) e `@platform ios|android` (campo que só vale
+ * numa plataforma). Campo novo: tipo + comentário com as tags.
+ */
 export interface RemoteConfigUtilsType {
+    /**
+     * Liga ou desliga todos os anúncios sem build novo.
+     * @section Anúncios
+     * @label Anúncios ligados
+     * @default ligado em produção
+     */
     is_ads_enabled: boolean;
+    /**
+     * Quantas ações até mostrar um anúncio (quem conta é o app).
+     * @section Anúncios
+     * @label Ações antes do anúncio
+     */
+    repeat_ads_count?: number;
+    /**
+     * Placements que não carregam anúncio.
+     * @section Anúncios
+     * @label Placements bloqueados
+     * @default nenhum
+     */
+    ad_blocklist?: string[];
+    /**
+     * Eventos Taichi habilitados: ausente = todos os 60; [] = nenhum. Nomes em docs/ANALYTICS-EVENTS.md.
+     * @section Anúncios
+     * @label Eventos Taichi
+     * @default todos
+     */
+    taichi_events?: string[];
+    /**
+     * Abaixo desta versão o app pede para atualizar.
+     * @section Loja e versão
+     * @label Versão mínima
+     * @default 1.0
+     */
     min_version: number;
+    /**
+     * ID numérico da App Store. Usado quando a busca pelo bundle ID falha.
+     * @section Loja e versão
+     * @label ID da App Store
+     * @platform ios
+     */
     ios_app_id: string;
-    review_type?: string; // "store-review" | "popup" | "dialog"
-    /** ms até habilitar "Agora não" no AskForReviewOverlay (prop `delay`). */
+    /**
+     * Versão na App Store para a trava de anúncios por versão (Utils.disableAdsIfBuildIsNewerThanStore), usada
+     * quando a busca na loja falha ou o app ainda não aparece nela.
+     * @section Loja e versão
+     * @label Versão na App Store
+     * @default lida da loja
+     * @platform ios
+     */
+    ios_store_version?: string;
+    /**
+     * Versão no Google Play para a trava de anúncios por versão (Utils.disableAdsIfBuildIsNewerThanStore), usada
+     * quando a busca na loja falha ou o app ainda não aparece nela.
+     * @section Loja e versão
+     * @label Versão no Google Play
+     * @default lida da loja
+     * @platform android
+     */
+    android_store_version?: string;
+    /**
+     * Como o app pede a avaliação.
+     * @section Avaliação
+     * @label Tipo
+     * @default store-review
+     */
+    review_type?: ReviewType;
+    /**
+     * ms até habilitar "Agora não" no AskForReviewOverlay (prop `delay`).
+     * @section Avaliação
+     * @label Espera do "Agora não" (ms)
+     * @default 0
+     */
     review_type_delay?: number;
-    /** ms antes do review aparecer (askForReview). Override local: 3º arg `showDelay`. */
+    /**
+     * ms antes do review aparecer (askForReview). Override local: 3º arg `showDelay`.
+     * @section Avaliação
+     * @label Espera para abrir (ms)
+     * @default 0
+     */
     review_show_delay?: number;
     /**
      * Layout do AskForReviewOverlay, trocável sem release. Override local: prop `variant`.
      * Ausente ou inválido cai em `bottomsheet` (o layout histórico).
+     * @section Avaliação
+     * @label Layout
+     * @default bottomsheet
      */
     review_style?: ReviewStyle;
     /**
      * Mostra o tutorial animado da Play Store no AskForReviewOverlay (prop `tutorial`)
-     * em vez da imagem estática. Android apenas; requer `react-native-webview`.
+     * em vez da imagem estática. Requer `react-native-webview`.
+     * @section Avaliação
+     * @label Tutorial animado
+     * @default desligado
+     * @platform android
      */
     review_tutorial_enabled?: boolean;
     /**
      * HTML completo substituindo o tutorial embutido. Serve para corrigir um redesenho
      * da Play Store sem release — o app usa este valor se presente.
+     * @section Avaliação
+     * @label HTML do tutorial
+     * @default o embutido na lib
+     * @platform android
      */
     review_tutorial_html?: string;
-    repeat_ads_count?: number;
-    ad_blocklist?: string[];
-    /** Eventos Taichi habilitados: ausente = todos os 60; [] = nenhum. Nomes em docs/ANALYTICS-EVENTS.md. */
-    taichi_events?: string[];
-    promotional?: PromotionalConfig;
-    tiktokads?: {token: string; appid: string; tkappid: string; isdebug: boolean};
-    clarity_id?: string;
-    trends_tracking_url?: string;
-    is_opted_out_trial_enabled?: boolean;
-    /** Retenção (trial cancelado, falha de pagamento, vencido…). Ausente = desligado. Ver RetentionConfig. */
-    retention?: RetentionConfig;
-    // Fallback de versão da loja para Utils.disableAdsIfBuildIsNewerThanStore
-    // (usado quando o lookup na loja falha ou o app ainda não é encontrado).
-    ios_store_version?: string;
-    android_store_version?: string;
     /**
-     * Geo por IP (país/estado/cidade como atributos do customer no RevenueCat). LIGADA por
-     * padrão; `false` desliga sem build novo. Ver `utils/geo.ts`.
+     * Anúncio de outro app: bottom-sheet, card, banner, tela cheia ou notificação.
+     * @section Promo
+     * @label Promocional
+     * @default nenhum
+     */
+    promotional?: PromotionalConfig;
+    /**
+     * Mesmo formato do `promotional`, nome antigo: só vale quando não há `promotional`.
+     * @section Promo
+     * @label Modal do app
+     * @default nenhum
+     */
+    appmodal?: PromotionalConfig;
+    /**
+     * Ligado: assinatura ativa conta como Premium mesmo cancelada, e qualquer entitlement ativo também.
+     * @section Assinatura
+     * @label Premium com trial cancelado
+     * @default desligado
+     */
+    is_opted_out_trial_enabled?: boolean;
+    /**
+     * Retenção (trial cancelado, falha de pagamento, vencido…). Ausente = desligado. Ver RetentionConfig.
+     * @section Assinatura
+     * @label Retenção
+     * @default desligado
+     */
+    retention?: RetentionConfig;
+    /**
+     * Geo por IP (país/estado/cidade como atributos do customer no RevenueCat). `false` desliga sem build novo.
+     * Ver `utils/geo.ts`.
+     * @section Rastreamento
+     * @label Geo por IP
+     * @default ligado
      */
     geo_lookup_enabled?: boolean;
     /**
      * Endpoint PRÓPRIO de geo (https), tentado antes dos provedores gratuitos embutidos.
      * Contrato da resposta: `{country, region, regionCode, city}` (ex.: Cloudflare Worker
      * devolvendo `request.cf`).
+     * @section Rastreamento
+     * @label Endpoint de geo
+     * @default provedores gratuitos
      */
     geo_lookup_url?: string;
-    /** Chave de decriptação do install referrer da Meta (hex de 64 chars). Ver `AppStrings.metaInstallReferrerKey`. */
+    /**
+     * Chave de decriptação do install referrer da Meta (hex de 64 chars). Ver `AppStrings.metaInstallReferrerKey`.
+     * @section Rastreamento
+     * @label Chave do referrer da Meta
+     * @default a do AppStrings
+     * @platform android
+     */
     meta_install_referrer_key?: string;
+    /**
+     * Endpoint do link-in-bio (casa o install com a visita na web). Vazio = desligado.
+     * @section Rastreamento
+     * @label Link-in-bio
+     * @default desligado
+     */
+    trends_tracking_url?: string;
+    /**
+     * Projeto do Microsoft Clarity.
+     * @section Rastreamento
+     * @label Microsoft Clarity
+     * @default desligado
+     */
+    clarity_id?: string;
+    /**
+     * SDK de eventos do TikTok.
+     * @section Rastreamento
+     * @label TikTok Ads
+     * @default desligado
+     */
+    tiktokads?: {token: string; appid: string; tkappid: string; isdebug: boolean};
+    /**
+     * Valor livre que volta no evento `cfg_integrity` como `remote_hash`, para conferir qual config chegou.
+     * @section Diagnóstico
+     * @label Marca da config
+     */
+    hash?: string;
 }
 
 /**
@@ -268,7 +415,8 @@ export type CrossPromoConfig = {
 };
 
 /**
- * Mapa da key `screens` do Remote Config (features/telas configuráveis do app).
+ * Bloco `screens` do Remote Config (features/telas configuráveis do app), no parâmetro `settings` ou, nos apps que
+ * ainda não migraram, no parâmetro `screens`. Sem tipo fixo: o pldev monta o formulário a partir dos valores.
  *
  * `cross_promo` é OBRIGATÓRIO: todo app do portfólio deve ter cross-promo
  * implementado em algum lugar (home, resultado, histórico, settings…). O type
@@ -278,6 +426,16 @@ export type CrossPromoConfig = {
 export interface RemoteConfigScreensType {
     cross_promo: CrossPromoConfig;
     [key: string]: any;
+}
+
+/**
+ * Valor do parâmetro `settings` do Remote Config (um por plataforma): os dois blocos num valor só. A lib lê e expõe
+ * `remoteConfigUtils` (bloco utils), `remoteConfigScreens` (bloco screens) e `remoteConfigs` (os dois juntos).
+ * Sem os blocos, a lib ignora o `settings` e lê os parâmetros `utils` + `screens`. Ver `utils/settings.ts`.
+ */
+export interface RemoteConfigSettingsType {
+    utils: Partial<RemoteConfigUtilsType> & {[key: string]: any};
+    screens: {[key: string]: any};
 }
 
 /**
@@ -292,9 +450,10 @@ declare global {
     // eslint-disable-next-line no-var
     var global: typeof globalThis;
     var remoteConfigUtils: RemoteConfigUtilsType;
-    // Alias de remoteConfigUtils (mesmo objeto), setado pelo setupGlobalConfigs — nome
-    // documentado no CLAUDE.md; o store gate e apps legados leem/escrevem por ele.
-    var remoteConfigs: RemoteConfigUtilsType;
+    // Os dois blocos juntos (utils + screens; em conflito vale o utils), setado pelo setupGlobalConfigs, como era
+    // antes de fevereiro de 2026. Até a 1.4 era apelido do remoteConfigUtils: o store gate e apps legados leem e
+    // escrevem por ele.
+    var remoteConfigs: RemoteConfigUtilsType & RemoteConfigScreensType;
     var remoteConfigScreens: RemoteConfigScreensType;
     var isAdsEnabled: boolean;
     // Setada (true) pelo gate fail-closed de versão da loja (Utils.disableAdsIfBuildIsNewerThanStore)

@@ -12,7 +12,7 @@ Não pule passos. Se o app-alvo for outro, mantenha a mesma **ordem** e o mesmo 
 | App referência Expo 57 + utils moderno | `../expo-meclivros` (`package.json`, `app.json`, `src/app/_layout.tsx`, `src/constants/Strings.ts`) |
 | App de referência secundária | `../expo-carsoundidentifier` |
 | Template oficial do utils | `expo-utils/templates/RootLayout.tsx`, `Strings.ts`, `babel.config.js` |
-| README do utils | `expo-utils/README.md` (Remote Config `utils` + `screens`, CLI) |
+| README do utils | `expo-utils/README.md` (Remote Config `settings` com `utils` + `screens`, CLI) |
 
 ---
 
@@ -36,7 +36,7 @@ Não pule passos. Se o app-alvo for outro, mantenha a mesma **ordem** e o mesmo 
 - expo-utils **1.2.5**
 - Boot via **`<ExpoUtilsLayout appConfig appStrings>`**
 - `Strings.ts` = **AppStrings**: `hotUpdaterUrl` + `rckey` + `adUnits` por plataforma
-- Remote Config Firebase: keys **`utils`** e **`screens`**
+- Remote Config Firebase: parâmetro **`settings`** com os blocos `utils` e `screens` (lib 1.5.0+, seção 5.1); antes da 1.5.0, os parâmetros `utils` e `screens`
 - `app.json` limpo (SKAd injetado pelo plugin no prebuild)
 - Premium via **`PremiumUtils`**
 - TypeScript limpo (`npx tsc --noEmit` exit 0 no app)
@@ -617,12 +617,37 @@ Não misturar API do hot-updater 0.20.
 
 ## 5. Remote Config — migração de código + Firebase
 
-### 5.1 Modelo novo (expo-utils 1.x+)
+### 5.1 Modelo novo (expo-utils 1.5.0+)
 
-| Key no Firebase Console | Global no app | Conteúdo |
-|-------------------------|---------------|----------|
-| `utils` (JSON string) | `global.remoteConfigUtils` **e** alias `global.remoteConfigs` | ads, review, promo, clarity, tiktok, min_version… |
-| `screens` (JSON string) | `global.remoteConfigScreens` (`RemoteConfigScreensType`) | features do app: api, paywall, limits, flags + **`cross_promo` (obrigatório em todo app — ver 5.3)** |
+Os dois blocos ficam num parâmetro só, **`settings`**, com um valor por plataforma (cada plataforma é um app no
+Firebase, com a sua condição):
+
+```json
+{
+  "utils":   { "is_ads_enabled": true, "review_type": "store-review" },
+  "screens": { "api_url": "https://…", "cross_promo": { "enabled": true } }
+}
+```
+
+| Bloco | Global no app | Conteúdo |
+|-------|---------------|----------|
+| `utils` | `global.remoteConfigUtils` | o que a lib lê: ads, review, promo, clarity, tiktok, min_version… (`RemoteConfigUtilsType`) |
+| `screens` | `global.remoteConfigScreens` (`RemoteConfigScreensType`) | features do app: api, paywall, limits, flags + **`cross_promo` (obrigatório em todo app — ver 5.3)** |
+| os dois | `global.remoteConfigs` | os dois blocos juntos; em conflito vale o `utils`. Até a 1.4 era apelido do `remoteConfigUtils` |
+
+- **Publicar:** `pldev firebase rc push`. O pldev olha a versão **instalada** da lib (`node_modules/expo-utils`):
+  abaixo da 1.5.0 publica os parâmetros `utils` e `screens`, como antes; da 1.5.0 em diante cria e atualiza o
+  `settings` com a condição `app.id` + `app.version >= V` (V = a primeira versão do app com a lib nova) e continua
+  publicando cópias de `utils` e `screens` para os builds antigos até `pldev firebase rc legacy off`. Plano completo:
+  `docs/PLANO-SETTINGS.md`.
+- **Sem o `settings` no formato de blocos** (ausente, JSON inválido ou o `settings` plano de antes de fevereiro de
+  2026), a lib lê os parâmetros `utils` + `screens`, como antes. O evento `cfg_integrity` diz qual caminho valeu:
+  `cfg_source` = `settings`, `legacy` ou `default`.
+- **Nunca publique `settings` com blocos sem a condição de versão** em app que ainda tem build com a lib 1.0.x nas
+  lojas: esses builds leem o `settings` no formato plano antigo (caso real: o expo-urna e o expo-urna-v2 são o mesmo
+  app Android no Firebase).
+- Antes da 1.5.0 os blocos eram os parâmetros `utils` (→ `remoteConfigUtils` e o apelido `remoteConfigs`) e `screens`
+  (→ `remoteConfigScreens`), com o mesmo conteúdo.
 
 **Se o Firebase continuar com um único JSON flat antigo, o app sobe com defaults e paywall/API quebram.**
 
@@ -648,7 +673,7 @@ Não misturar API do hot-updater 0.20.
 - `src/app/(tabs)/_layout.tsx`
 - `src/utils/plant-storage.ts`
 
-### 5.3 Exemplo de JSON `screens` (plant)
+### 5.3 Exemplo do bloco `screens` (plant)
 
 ```json
 {
@@ -683,9 +708,9 @@ Não misturar API do hot-updater 0.20.
 
 **`cross_promo` é campo OBRIGATÓRIO do `RemoteConfigScreensType` (`utils/types.ts`)** — todo app do portfólio deve ter cross-promo implementado em algum lugar. O card pronto é o `CrossPromoCard` (`utils/cross-promo-card.tsx`); sem a key no Remote Config o app monta `remoteConfigScreens` incompleto e o typecheck acusa.
 
-Para preencher o `cross_promo` (e o `promotional` do parâmetro `utils`) sem digitar à mão: gerador em <https://pixel-logic-apps.github.io/expo-utils/> (`docs/index.html` deste repo) — cola o link da App Store/Google Play do app anunciado e ele devolve o JSON pronto.
+Para preencher o `cross_promo` (e o `promotional` do bloco `utils`) sem digitar à mão: gerador em <https://pixel-logic-apps.github.io/expo-utils/> (`docs/index.html` deste repo) — cola o link da App Store/Google Play do app anunciado e ele devolve o JSON pronto.
 
-### 5.4 Exemplo mínimo `utils`
+### 5.4 Exemplo mínimo do bloco `utils`
 
 ```json
 {
@@ -875,7 +900,7 @@ Pontos de atenção:
 
 ### 5.4.2 Modal de retenção (`retention`, opcional)
 
-- Chave nova e **opcional** no parâmetro `utils`: `retention` (`RetentionConfig` em `utils/types.ts`). Sem ela, fica
+- Chave nova e **opcional** no bloco `utils`: `retention` (`RetentionConfig` em `utils/types.ts`). Sem ela, fica
   desligado. Não migre nada: app que não usa continua compilando igual. O formato da fase 1 (`enabled`, `style`,
   `max_shows`, `reminder_hours`, `image_url`, `texts` com `header`/`body`/`bullets`/`cta`/`dismiss`) continua tipando.
 - Formato novo (08/10/2026, plano `docs/PLANO-RETENCAO-OFERTAS.md`): `segments.<segmento>.offers` (lista na ordem; a lib
@@ -1143,7 +1168,7 @@ Use URL em `appStrings.hotUpdaterUrl` + `initHotUpdater` dentro do `ExpoUtilsLay
 | 1 | `Utils.prepare(..., adUnits, revenueKeys)` | RC key errada / RevenueCat não configura | AppStrings com `rckey` + `adUnits` |
 | 2 | SKAd no app.json | arquivo monstro, IDs duplicados | remover; plugin prebuild |
 | 3 | Plugins duplicados | prebuild confuso | um de cada |
-| 4 | Remote Config flat | paywall/API undefined | keys `utils` + `screens` + rewrites |
+| 4 | Remote Config flat | paywall/API undefined | `settings` com os blocos `utils` + `screens` (pldev `rc push`) + rewrites |
 | 5 | `paywall_data` nome | UI vazia | renomear para `paywall` em screens |
 | 6 | `store_ratings_type` | review nunca no modo certo | `review_type` em utils |
 | 7 | HotUpdater.wrap legado | API 0.20 | ExpoUtilsLayout + hotUpdaterUrl |
@@ -1268,10 +1293,12 @@ Regras:
 
 Após o código, alguém com acesso ao Firebase Remote Config do app deve:
 
-1. Criar/atualizar parâmetro **`utils`** (JSON) — ads/review/promo.
-2. Criar/atualizar parâmetro **`screens`** (JSON) — api_url, free_limits, paywall, flags.
+1. Preencher os blocos em `.pldev/.firebaserc/rc-config-{ios,android}.json` (ou no `pldev firebase rc edit`):
+   **`utils`** — ads/review/promo; **`screens`** — api_url, free_limits, paywall, flags, cross_promo.
+2. `pldev firebase rc push`. Com a lib 1.5.0+ ele cria o `settings` com a condição de versão (confirma o V) e mantém
+   `utils` + `screens` para os builds antigos; com lib anterior publica só `utils` + `screens`.
 3. Remover dependência do JSON flat antigo (ou deixar de ler).
-4. Publicar RC para os apps iOS/Android corretos.
+4. Quando o GA4 não mostrar mais versões abaixo de V: `pldev firebase rc legacy off`.
 
 Sem isso o app “compila e abre”, mas paywall/limites/API podem ficar vazios.
 

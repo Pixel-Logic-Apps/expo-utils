@@ -671,7 +671,8 @@ function refresh() {
     const json = JSON.stringify(o, null, 2);
     $("out").value = $("withKey").checked ? `"${kind}": ${json}` : json;
     $("where").textContent =
-        "→ cole dentro do JSON do parâmetro “" + (shape() === "cross_promo" ? "screens" : "utils") + "” do Remote Config" +
+        "→ cole dentro do bloco “" + (shape() === "cross_promo" ? "screens" : "utils") + "” do rc-config-{ios,android}.json do pldev " +
+        "(parâmetro settings; em app com expo-utils anterior à 1.5.0, o parâmetro de mesmo nome)" +
         (kind === "appmodal" ? " (chave legada: a lib só lê appmodal quando promotional não existe)" : "") + ".";
     const w = warnings(o);
     $("warn").hidden = !w.length;

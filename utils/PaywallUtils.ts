@@ -225,7 +225,8 @@ export class PaywallUtils {
 
         const globals = getGlobalObject();
         const screens = globals.remoteConfigScreens || {};
-        const legacy = globals.remoteConfigs || {};
+        // Só o bloco utils: desde a 1.5 o remoteConfigs junta utils + screens (antes era apelido do utils).
+        const legacy = globals.remoteConfigUtils || globals.remoteConfigs || {};
         const selected = options.configKey
             ? screens[options.configKey]
             : screens.paywallData || screens.paywall || screens.paywallConfig || {};

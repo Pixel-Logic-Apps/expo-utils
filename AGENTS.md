@@ -12,7 +12,7 @@ Atualize o doc se voce alterar qualquer um destes:
 
 - `package.json` peers / versoes alvo (Expo, RN, React, Firebase, hot-updater, purchases, admob, reanimated/worklets, etc.)
 - Contrato de boot: `Utils.prepare`, `ExpoUtilsLayout`, `initHotUpdater`, `AppStrings` / `templates/Strings.ts` / `templates/RootLayout.tsx`
-- Remote Config: keys `utils` / `screens`, shape de `RemoteConfigUtilsType`, nomes de campos legados vs novos
+- Remote Config: parâmetro `settings` (blocos `utils` / `screens`) e os parâmetros `utils` / `screens` de antes, shape de `RemoteConfigUtilsType` (e as tags `@section`/`@label`/`@default`/`@platform` que o pldev lê), nomes de campos legados vs novos
 - Premium: `PremiumUtils`, regras DEV/prod, exports em `index.ts` / `index.d.ts`
 - Config plugin (`app.plugin.js`): SKAdNetwork, ATT, usage descriptions, forceStaticLinking, flags documentadas
 - CLI (`bin/install.js`): flags novas/renomeadas/comportamento de `--new`, `--skadnetwork`, `--hot-updater`, etc.
@@ -370,8 +370,9 @@ Central initialization module with a `prepare()` function that:
 **Global Variables Set by prepare()**:
 
 ```typescript
-global.remoteConfigUtils; // Firebase Remote Config values (fonte)
-global.remoteConfigs;     // alias do MESMO objeto (nome legado; setupGlobalConfigs seta os dois)
+global.remoteConfigUtils;   // bloco `utils` do Remote Config (do `settings` ou, sem ele, do parâmetro `utils`)
+global.remoteConfigScreens; // bloco `screens`
+global.remoteConfigs;       // os dois juntos (em conflito vale o utils); até a 1.4 era apelido do remoteConfigUtils
 global.isAdsEnabled;      // Master ad toggle
 global.adUnits;           // AdMob unit IDs per platform
 ```
@@ -519,6 +520,7 @@ Templates in `/templates` can use placeholders:
 - Firebase is **optional** - all Firebase code has null checks
 - The package uses Firebase v24+/v25 modular API (getRemoteConfig, getAnalytics, etc.). Remote Config dual-path supports RNFB v24 modular helpers and v25 instance `settings`/`defaultConfig`.
 - `Utils.getRemoteConfigUtils()` é **memoizado** (1 fetch por sessão — prepare e todos os banners compartilham a mesma promise; antes cada banner refazia `fetchAndActivate` e arriscava throttle) e tem teto de **10s** (era 60s) pra nunca segurar o splash em RC nativo pendurado.
+- **Remote Config em blocos (v1.5.0, `utils/settings.ts`, plano `docs/PLANO-SETTINGS.md`):** a lib lê o parâmetro `settings` = `{"utils": {...}, "screens": {...}}`; sem os blocos (ausente, inválido ou o `settings` plano de antes de fevereiro de 2026) lê os parâmetros `utils` + `screens`. O `getRemoteConfigScreens()` sai da mesma leitura. `cfg_integrity.cfg_source` diz qual caminho valeu (`settings`/`legacy`/`default`). Quem publica é o pldev (`rc push`): pela versão instalada da lib decide entre o modelo antigo e o `settings` com a condição `app.id` + `app.version >= V`, e mantém cópias de `utils`/`screens` para os builds antigos até `rc legacy off`. **Nunca publicar `settings` com blocos sem a condição de versão** onde ainda há build da lib 1.0.x (ele lê o `settings` plano: expo-urna e expo-urna-v2 são o mesmo app Android). O pldev monta o formulário a partir do `RemoteConfigUtilsType` (parser do TypeScript, não regex): campo novo leva comentário com `@section` e `@label` — `tests/settings.test.ts` quebra sem eles.
 - Placeholder files work for development but must be replaced with real configs for production
 
 #### APNS / FCM gate (`Utils.ensureApnsReady`)

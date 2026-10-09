@@ -3,7 +3,7 @@ export {default} from "./utils/Utils";
 export {PremiumUtils} from "./utils/PremiumUtils";
 export {ExpoUtilsLayout} from "./utils/ExpoUtilsLayout";
 export {ExpoUtilsStyles} from "./utils/styles";
-export type {AppConfig, AppStrings, AdUnits, RemoteConfigUtilsType, ReviewStyle, FacebookConfig, RevenueCatKeys, PromotionalType, PromotionalConfig, PromotionalShadow, RetentionConfig, RetentionTexts, RetentionSegment, RetentionOfferType, RetentionSegmentConfig, RetentionOfferConfig, RetentionPeriodUnit} from "./utils/types";
+export type {AppConfig, AppStrings, AdUnits, RemoteConfigUtilsType, RemoteConfigScreensType, RemoteConfigSettingsType, ReviewStyle, ReviewType, FacebookConfig, RevenueCatKeys, PromotionalType, PromotionalConfig, PromotionalShadow, RetentionConfig, RetentionTexts, RetentionSegment, RetentionOfferType, RetentionSegmentConfig, RetentionOfferConfig, RetentionPeriodUnit} from "./utils/types";
 export type {Translations, RetentionTranslations, RetentionPluralForms} from "./utils/i18n";
 export {getLocalizedMessages, translations, getSystemLanguage} from "./utils/i18n";
 export {default as RouteTracker} from "./utils/RouteTracker";

@@ -108,7 +108,12 @@ export const logConfigIntegrityValues = (remoteConfigs: any, appConfig?: any): v
     }
 };
 
-export const reportConfigIntegrity = async (remoteConfigs: any, appConfig?: any): Promise<void> => {
+/**
+ * @param source de onde saiu o bloco `utils` (`cfg_source`): `settings` (formato novo), `legacy` (parâmetros
+ *               `utils` + `screens`) ou `default` (o boot seguiu com os defaults). O `cfg_hash` é do bloco `utils`
+ *               nos três casos, então build antigo e novo com a mesma config dão o mesmo hash.
+ */
+export const reportConfigIntegrity = async (remoteConfigs: any, appConfig?: any, source?: string): Promise<void> => {
     try {
         const app = getApp();
         const analytics = getAnalytics(app);
@@ -119,6 +124,7 @@ export const reportConfigIntegrity = async (remoteConfigs: any, appConfig?: any)
 
         const rawParams: Record<string, any> = {
             cfg_hash: checksum,
+            cfg_source: source ?? null,
             remote_hash: toEventValue(payload.hash),
 
             is_ads_enabled: payload.is_ads_enabled ?? null,

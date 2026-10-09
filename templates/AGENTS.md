@@ -199,7 +199,7 @@ O componente lê `global.remoteConfigScreens?.cross_promo` e retorna `null` sozi
 | Gate próprio duplicando o do componente    | `if (cfg.enabled)` na tela, `useState` de visibilidade — o componente **já** faz isso           |
 | Cortar o cross-promo alegando "polui a UI" | Poluição decide **onde**, não **se**. Não achou ponto visível e limpo? Procure outro.           |
 
-### Remote Config (parâmetro `screens`, chave `cross_promo`)
+### Remote Config (bloco `screens`, chave `cross_promo`)
 
 Quem preenche é o **dono**, no Firebase:
 

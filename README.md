@@ -94,9 +94,27 @@ bunx expo-utils-install --new
 
 ### Configurar Firebase Remote Config
 
-Após criar seu projeto no Firebase Console, vá em **Remote Config** e adicione duas keys:
+Desde a 1.5.0 a config fica num parâmetro só do Remote Config, **`settings`**, com um valor por plataforma e dois blocos:
 
-**Key `utils`** — configurações do expo-utils (tipado como `RemoteConfigUtilsType`):
+```json
+{
+  "utils":   { "is_ads_enabled": true },
+  "screens": { "cross_promo": { "enabled": false } }
+}
+```
+
+| Bloco | Global no app | O que é |
+|---|---|---|
+| `utils` | `global.remoteConfigUtils` | o que a lib lê (`RemoteConfigUtilsType`) |
+| `screens` | `global.remoteConfigScreens` | o que só o app lê (estrutura livre; `cross_promo` obrigatório) |
+| os dois | `global.remoteConfigs` | os dois juntos; em conflito vale o `utils` |
+
+O jeito normal de editar e publicar é o pldev: `.pldev/.firebaserc/rc-config-{ios,android}.json` (`{utils, screens}`) e
+`pldev firebase rc push`. O pldev cria o `settings` com a condição `app.version >= V` e, enquanto houver build antigo
+nas lojas, publica também os parâmetros `utils` e `screens`. Sem o `settings` no formato de blocos, a lib lê os
+parâmetros `utils` e `screens` (o modelo até a 1.4). Plano: [`docs/PLANO-SETTINGS.md`](docs/PLANO-SETTINGS.md).
+
+**Bloco `utils`** — configurações do expo-utils (tipado como `RemoteConfigUtilsType`):
 
 ```json
 {
@@ -133,7 +151,7 @@ Após criar seu projeto no Firebase Console, vá em **Remote Config** e adicione
 
 > **Nota:** `rckey` (chave RevenueCat) e `adUnits` (unit IDs do AdMob) **NÃO** ficam no Remote Config. Eles são definidos localmente via `AppStrings` (veja seção [AppStrings e AdUnits](#-appstrings-e-adunits)).
 
-**Key `screens`** — configurações de telas do app (tipo `any`, estrutura livre):
+**Bloco `screens`** — configurações de telas do app (tipo `any`, estrutura livre):
 
 ```json
 {
@@ -177,7 +195,7 @@ Após criar seu projeto no Firebase Console, vá em **Remote Config** e adicione
 }
 ```
 
-> A key `screens` é opcional. Sua estrutura é livre e acessada via `global.remoteConfigScreens`.
+> O bloco `screens` é opcional. Sua estrutura é livre e acessada via `global.remoteConfigScreens`.
 
 ### Paywall headless
 
@@ -507,7 +525,7 @@ Quando o install vem de um anúncio da Meta, o `utm_content` do referrer é um J
 **Configurar a chave** (uma das duas; o Remote Config vence):
 
 1. Meta for Developers → seu app → **Configurações do app → Básico → Android → “Install Referrer Decryption Key”** (hex de 64 caracteres).
-2. Remote Config, dentro do parâmetro `utils`: `"meta_install_referrer_key": "<chave>"` — troca sem publicar versão; **ou** no `Strings.ts`: `metaInstallReferrerKey: "<chave>"`.
+2. Remote Config, dentro do bloco `utils`: `"meta_install_referrer_key": "<chave>"` — troca sem publicar versão; **ou** no `Strings.ts`: `metaInstallReferrerKey: "<chave>"`.
 
 A decriptação é TypeScript puro (`utils/aes-gcm.ts`, sem módulo nativo, validada contra o `crypto` do Node e o vetor do NIST; ~6 ms no Hermes) e confere a **tag** do GCM: chave errada ou dado adulterado nunca vira atributo lixo — cai no caminho “sem chave”. O evento `install_attribution` ganha o parâmetro `meta` (`decrypted` · `encrypted` · `decrypt_failed`) para medir em produção se a chave está certa.
 
@@ -677,7 +695,7 @@ marcos ficam no AsyncStorage. Instalações já marcadas por `@first_open_logged
 Taichi, ficam excluídas para não parecerem novas no upgrade. Hosts mais antigos sem esse
 marcador devem seguir a [migração](docs/UPGRADE-EXPO57-EXPO-UTILS.md#taichi).
 
-No JSON `utils` do Remote Config, `taichi_events` ausente habilita todos, `[]` desliga as
+No bloco `utils` do Remote Config, `taichi_events` ausente habilita todos, `[]` desliga as
 emissões, e uma lista seleciona nomes exatos. A soma continua sendo coletada com `[]`;
 ativação posterior pode qualificar marcos ainda não emitidos na próxima impressão válida,
 se a janela continuar aberta. Não há conversão de BRL para USD. Consulte os
@@ -1017,7 +1035,7 @@ const adsBlocked = await Utils.disableAdsIfBuildIsNewerThanStore();
 2. Busca a versão publicada na loja:
     - **🍎 iOS**: iTunes lookup — tenta primeiro a storefront do usuário (`country=<regionCode>`, onde o app certamente existe, já que foi de onde ele instalou) e cai para a consulta global (storefront US)
     - **🤖 Android**: página do app no Play Store
-    - **Fallback/válvula**: `ios_store_version` / `android_store_version` do Remote Config (key `utils`) — vale inclusive quando o lookup está fora do ar
+    - **Fallback/válvula**: `ios_store_version` / `android_store_version` do Remote Config (bloco `utils`) — vale inclusive quando o lookup está fora do ar
 3. **Fail-closed**: sem versão da loja confirmada, ou com build local **maior** que a loja, desliga tudo — `global.isAdsEnabled = false`, `is_ads_enabled: false` nos remote configs globais e `global.adsDisabledByStoreGate = true`. `LoadAdsManager`, app-open e `BannerAdComponent` param de exibir ads.
 
 ### Comportamento
@@ -1035,7 +1053,7 @@ const adsBlocked = await Utils.disableAdsIfBuildIsNewerThanStore();
 
 ## 🎁 Conteúdo Promocional
 
-O expo-utils inclui um sistema completo de conteúdo promocional para promover outros apps ou conteúdos. Suporta 5 tipos de exibição, todos configuráveis via key `utils` do Firebase Remote Config.
+O expo-utils inclui um sistema completo de conteúdo promocional para promover outros apps ou conteúdos. Suporta 5 tipos de exibição, todos configuráveis via bloco `utils` do Firebase Remote Config.
 
 ### Tipos de Exibição
 
@@ -1047,9 +1065,9 @@ O expo-utils inclui um sistema completo de conteúdo promocional para promover o
 | `fullscreen` | `PromotionalContent` | Interstitial tela inteira com timer countdown |
 | `banner` | `PromotionalBanner` | View inline (não é modal), dev coloca onde quiser |
 
-### Configuração no Remote Config (key `utils`)
+### Configuração no Remote Config (bloco `utils`)
 
-O objeto `promotional` fica dentro da key `utils` do Firebase Remote Config:
+O objeto `promotional` fica dentro do bloco `utils` do Firebase Remote Config:
 
 ```json
 {
@@ -1345,7 +1363,7 @@ Ofertas por nome (`resubscribe`/`winback` embutidas, as de `retention.offers` do
 `discount_50`/`lifetime_deal`/`promo_code` ou o próprio tipo) ou como objeto no formato do Remote Config. No menu de
 dev: **Simular trial cancelado**. No `expo-utils-lab`: bloco "Retenção — casos" e `expoutilslab://retencao?case=<id>`.
 
-### Remote Config (key `utils`, opcional)
+### Remote Config (bloco `utils`, opcional)
 
 Sem a chave `retention`, fica desligado. A lib não tem regra própria de "quem vê o quê": cada segmento mostra só a lista
 dele, na ordem; segmento sem lista não vê nada. Nomes de campo em inglês.
@@ -1391,7 +1409,7 @@ dele, na ordem; segmento sem lista não vê nada. Nomes de campo em inglês.
 
 ### TikTok Ads SDK
 
-Configuração na key `utils` do Firebase Remote Config:
+Configuração no bloco `utils` do Firebase Remote Config:
 
 ```json
 {
@@ -1423,7 +1441,7 @@ O expo-utils verifica automaticamente por updates no `prepare()` e aplica se nec
 
 ### Trendings Tracker
 
-Configuração na key `utils` do Firebase Remote Config:
+Configuração no bloco `utils` do Firebase Remote Config:
 
 ```json
 {
@@ -1435,7 +1453,7 @@ Rastreia instalações automaticamente na primeira abertura do app. Se `trends_t
 
 ### Microsoft Clarity
 
-Configuração na key `utils` do Firebase Remote Config:
+Configuração no bloco `utils` do Firebase Remote Config:
 
 ```json
 {
@@ -1591,7 +1609,7 @@ Os `adUnits` são carregados automaticamente em `global.adUnits` pela função `
 
 ### Configurações Remotas Firebase (RemoteConfigUtilsType)
 
-Estrutura da key `utils` no Remote Config, acessível via `global.remoteConfigUtils`:
+Estrutura do bloco `utils` no Remote Config, acessível via `global.remoteConfigUtils`:
 
 ```typescript
 interface RemoteConfigUtilsType {
@@ -1647,8 +1665,9 @@ const revenueCatKeys: RevenueCatKeys = {
 import type {RemoteConfigUtilsType} from "expo-utils/utils/types";
 
 declare global {
-    var remoteConfigUtils: RemoteConfigUtilsType;  // Tipado — configs do expo-utils (key "utils")
-    var remoteConfigScreens: any;                  // Livre — configs de telas do app (key "screens")
+    var remoteConfigUtils: RemoteConfigUtilsType;  // Tipado — configs do expo-utils (bloco "utils")
+    var remoteConfigScreens: any;                  // Livre — configs de telas do app (bloco "screens")
+    // global.remoteConfigs (os dois blocos juntos) já vem declarado pela lib
     var isAdsEnabled: boolean;
     var adUnits: any;
 }

@@ -920,11 +920,15 @@ E reverta o marcador no código. O `deploy` também acrescenta `.hot-updater/out
 
 ### Etapa O.1 — Firebase Remote Config: utils + screens (**rehome / conta alvo**)
 
-Arquivos locais (contrato do app):
+Arquivos locais (contrato do app), em `.pldev/.firebaserc/`, um por plataforma com os dois blocos `{utils, screens}`:
 
-- `rc-config-utils-ios.json`
-- `rc-config-screens-ios.json`
-- (Android se no escopo: `rc-config-utils-android.json`, `rc-config-screens-android.json`)
+- `rc-config-ios.json`
+- (Android se no escopo: `rc-config-android.json`)
+
+Os 4 arquivos antigos (`rc-config-{utils,screens}-{ios,android}.json`) o pldev junta nesses 2 sozinho. O que ele
+publica depende da versão **instalada** do expo-utils: antes da 1.5.0, os parâmetros `utils` e `screens`; da 1.5.0 em
+diante, o parâmetro `settings` (condição `app.id` + `app.version >= V`) e, enquanto houver build antigo, as cópias em
+`utils`/`screens`. Ver `docs/PLANO-SETTINGS.md`.
 
 **Antes do push:**
 
@@ -936,7 +940,7 @@ Arquivos locais (contrato do app):
 **Fluxo pldev (interativo):**
 
 ```bash
-# 1) Criar condições do APP ATUAL (utils + screens) se ainda não existirem
+# 1) Criar condições do APP ATUAL se ainda não existirem (lib 1.5.0+: só `settings`; antes: utils + screens)
 pldev firebase rc create -a brunovercosa487@gmail.com
 # plataforma iOS (ou all), selecionar app com o bundle deste projeto
 # nomes default tipo "iOS <displayName> Utils" / "… Screens"
@@ -951,11 +955,12 @@ pldev firebase rc push -a brunovercosa487@gmail.com
 - Um projeto Firebase (ex. `principal-cb260`) pode ter **vários apps**. Condições são por `app.id`.  
   **Nunca** sobrescrever condições de outro app sem OK.
 - `rc create` em condições que já existem: **pula** criação e não apaga o resto do template.
-- `rc push` só atualiza as condições **selecionadas** com o arquivo `rc-config-*-{ios|android}.json` da plataforma.
+- `rc push` só atualiza as condições **selecionadas** com o arquivo `rc-config-{ios|android}.json` da plataforma.
+- `rc push --dry-run` mostra o que seria publicado (e a condição de versão que seria criada) sem publicar.
 - Backup do template: preferir `/tmp` (não soltar `firebase-rc-backup-*.json` na raiz do repo).
 - Gate humano: confirmar conta + appId + “não mexer em condições alheias” antes do push.
 
-**Sucesso:** no console Firebase Remote Config, condições do bundle atual com `utils` e `screens` populados; app em runtime lê RC da conta alvo.
+**Sucesso:** no console Firebase Remote Config, condições do bundle atual com `settings` (lib 1.5.0+) ou `utils` e `screens` populados; app em runtime lê RC da conta alvo (`cfg_integrity.cfg_source` no DebugView).
 
 **Se `pldev firebase rc push` só listar condições de outro produto** (ex. “iOS Consulta PIS”): o app deste projeto **ainda não tem** condições → rodar `rc create` primeiro (ou criar condições + setar valores via API com o mesmo contrato: `app.id == '<appId>'`, params `utils`/`screens`).
 

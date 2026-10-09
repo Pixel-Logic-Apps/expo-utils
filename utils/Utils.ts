@@ -61,6 +61,7 @@ import {registerDevMenuItems} from "expo-dev-menu";
 import {HotUpdater} from "@hot-updater/react-native";
 import mobileAds, {AdsConsent, AdsConsentDebugGeography} from "react-native-google-mobile-ads";
 import {reportConfigIntegrity} from "./config-integrity";
+import {mergeRemoteConfigBlocks, readRemoteConfigBlocks, type RemoteConfigSource} from "./settings";
 import {setBlocklist} from "./AdPlacementTracker";
 import {PremiumUtils} from "./PremiumUtils";
 
@@ -279,6 +280,10 @@ const reportConsentFlow = async (att: string, push: string): Promise<void> => {
 
 // Memos de boot: Remote Config compartilhado entre prepare() e banners; prepare roda 1x.
 let remoteConfigUtilsPromise: Promise<RemoteConfigUtilsType> | null = null;
+// O bloco `screens` sai da mesma leitura do `utils` (settings ou parâmetros de antes). `default` = o boot seguiu
+// com os defaults (sem Firebase, erro ou teto de 10s) e vai no `cfg_source` do cfg_integrity.
+let remoteConfigScreensBlock: Record<string, any> | null = null;
+let remoteConfigSource: RemoteConfigSource | "default" = "default";
 let preparePromise: Promise<void> | null = null;
 // UMP + mobileAds().initialize() rodam UMA vez por sessão (o fluxo do ATT pode ser reentrante).
 let mobileAdsSetupPromise: Promise<void> | null = null;
@@ -450,7 +455,7 @@ const runPrepare = async (appConfig?: any, appStrings?: AppStrings): Promise<voi
         // antes de a fila pós-ATT chegar na atribuição e o customer ficava vazio no RevenueCat.
         runAttributionPhase1(rckey, {metaInstallReferrerKey: appStrings?.metaInstallReferrerKey}).catch((e) => expoUtilsWarn("runAttributionPhase1:", e));
         try { await Utils.setupGlobalConfigs(appConfig, remoteConfigs, adUnits); } catch (e) { expoUtilsWarn("setupGlobalConfigs:", e); }
-        try { await reportConfigIntegrity(remoteConfigs, appConfig); }             catch (e) { expoUtilsWarn("reportConfigIntegrity:", e); }
+        try { await reportConfigIntegrity(remoteConfigs, appConfig, remoteConfigSource); } catch (e) { expoUtilsWarn("reportConfigIntegrity:", e); }
 
         // Opt-in via app.json (["expo-utils", {"disableAdsIfBuildIsNewerThanStore": true}], default
         // DESATIVADO): gate FAIL-CLOSED de ads por versão da loja. AGUARDADO de propósito — o
@@ -548,6 +553,7 @@ const Utils = {
                 try {
                     const remoteConfig = getRemoteConfig(app);
                     const defaults = {
+                        settings: JSON.stringify({}),
                         utils: JSON.stringify({is_ads_enabled: !__DEV__}),
                         screens: JSON.stringify({}),
                     };
@@ -557,9 +563,13 @@ const Utils = {
                     try {
                         await fetchAndActivate(remoteConfig);
                     } catch {}
-                    // Coalesce com DEFAULT: se o param `utils` existir mas vier sem is_ads_enabled,
+                    // `settings` ({utils, screens}) quando o app já está no formato novo; senão `utils` + `screens`.
+                    const blocks = readRemoteConfigBlocks((key) => getValue(remoteConfig, key).asString());
+                    remoteConfigScreensBlock = blocks.screens;
+                    remoteConfigSource = blocks.source;
+                    // Coalesce com DEFAULT: se o bloco `utils` existir mas vier sem is_ads_enabled,
                     // não cai em undefined (que apagaria o banner) — herda o default (ON em prod).
-                    return {...DEFAULT, ...JSON.parse(getValue(remoteConfig, "utils").asString())};
+                    return {...DEFAULT, ...blocks.utils};
                 } catch {
                     return DEFAULT;
                 }
@@ -575,12 +585,19 @@ const Utils = {
         return remoteConfigUtilsPromise;
     },
 
+    /**
+     * Bloco `screens`: do `settings` no formato novo ou do parâmetro `screens`. Sai da mesma leitura do
+     * getRemoteConfigUtils (memoizada). Se essa leitura ainda não terminou (teto de 10s), lê os valores ativos
+     * agora — os da última sessão, como antes.
+     */
     getRemoteConfigScreens: async (): Promise<any> => {
+        try { await Utils.getRemoteConfigUtils(); } catch {}
+        if (remoteConfigScreensBlock) return remoteConfigScreensBlock;
         try {
             const app = getApp();
             if (!app) return {};
             const remoteConfig = getRemoteConfig(app);
-            return JSON.parse(getValue(remoteConfig, "screens").asString());
+            return readRemoteConfigBlocks((key) => getValue(remoteConfig, key).asString()).screens;
         } catch {
             return {};
         }
@@ -1230,10 +1247,12 @@ const Utils = {
             (global as any).isAdsEnabled = false;
         }
         (global as any).remoteConfigUtils = remoteConfigs;
-        // Alias documentado: CLAUDE.md/apps leem global.remoteConfigs (o PaywallUtils trata
-        // como "legacy" e o store gate já escreve nos dois) — sem o alias ficava undefined.
-        (global as any).remoteConfigs = remoteConfigs;
-        try { (global as any).remoteConfigScreens = await Utils.getRemoteConfigScreens(); } catch {}
+        let screens: Record<string, any> = {};
+        try { screens = (await Utils.getRemoteConfigScreens()) ?? {}; } catch {}
+        (global as any).remoteConfigScreens = screens;
+        // Os dois blocos juntos (em conflito vale o utils), como era antes de fevereiro de 2026. Até a 1.4 era
+        // apelido do remoteConfigUtils: quem lê chave da lib aqui (gate da loja, apps) continua achando.
+        (global as any).remoteConfigs = mergeRemoteConfigBlocks(remoteConfigs, screens);
         if (remoteConfigs?.ad_blocklist) {
             setBlocklist(remoteConfigs.ad_blocklist);
         }
