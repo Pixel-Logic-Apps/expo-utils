@@ -25,7 +25,7 @@ mock.module("react-native", () => ({
     },
 }));
 
-const {RetentionEvents, showRetentionPreview} = await import("../utils/retention-events");
+const {RetentionEvents, resolveRetentionStyle, showRetentionPreview} = await import("../utils/retention-events");
 
 afterEach(() => {
     RetentionEvents.hide();
@@ -76,6 +76,48 @@ describe("RetentionEvents (abre o modal sem linha no app)", () => {
         RetentionEvents.hide(); // sem pedido aberto: nada
         off();
         expect(closedEvents).toEqual([{request, method: "hidden"}]);
+    });
+});
+
+describe("formato do modal (style)", () => {
+    test("padrão da plataforma: fullscreen (pageSheet) no iOS, bottomsheet no Android", () => {
+        expect(RetentionEvents.show({}).style).toBe("fullscreen");
+        device.os = "android";
+        expect(RetentionEvents.show({}).style).toBe("bottomsheet");
+    });
+
+    test("retention.style do Remote Config vale nas duas plataformas; o do pedido vence", () => {
+        (globalThis as any).remoteConfigUtils = {retention: {style: "bottomsheet"}};
+        expect(RetentionEvents.show({}).style).toBe("bottomsheet");
+        expect(RetentionEvents.show({style: "fullscreen"}).style).toBe("fullscreen");
+        device.os = "android";
+        (globalThis as any).remoteConfigUtils = {retention: {style: "fullscreen"}};
+        expect(RetentionEvents.show({}).style).toBe("fullscreen");
+        expect(RetentionEvents.show({style: "bottomsheet"}).style).toBe("bottomsheet");
+    });
+
+    test("valor desconhecido e o `sheet` da fase 1 caem no padrão da plataforma", () => {
+        (globalThis as any).remoteConfigUtils = {retention: {style: "sheet"}};
+        expect(RetentionEvents.show({}).style).toBe("fullscreen");
+        expect(RetentionEvents.show({style: "modal" as any}).style).toBe("fullscreen");
+        device.os = "android";
+        (globalThis as any).remoteConfigUtils = {retention: {style: "FULLSCREEN"}};
+        expect(RetentionEvents.show({}).style).toBe("bottomsheet");
+    });
+
+    test("a pré-visualização passa o formato", () => {
+        expect(showRetentionPreview({style: "bottomsheet"}).style).toBe("bottomsheet");
+        expect(showRetentionPreview().style).toBe("fullscreen");
+        (globalThis as any).remoteConfigUtils = {retention: {style: "bottomsheet"}};
+        expect(showRetentionPreview().style).toBe("bottomsheet");
+    });
+
+    test("resolveRetentionStyle: pedido → Remote Config → plataforma", () => {
+        expect(resolveRetentionStyle(undefined, undefined, "ios")).toBe("fullscreen");
+        expect(resolveRetentionStyle(undefined, undefined, "android")).toBe("bottomsheet");
+        expect(resolveRetentionStyle(undefined, "fullscreen", "android")).toBe("fullscreen");
+        expect(resolveRetentionStyle("bottomsheet", "fullscreen", "ios")).toBe("bottomsheet");
+        expect(resolveRetentionStyle(null, 42, "web")).toBe("bottomsheet");
     });
 });
 

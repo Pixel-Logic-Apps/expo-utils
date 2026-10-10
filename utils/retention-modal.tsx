@@ -3,8 +3,11 @@
 // imagem opcional, título, texto, bullets opcionais, mais a linha da data e os cartões de oferta, que só
 // o app consegue mostrar.
 //
-//  - iOS: `Modal` com `presentationStyle="pageSheet"` (a folha nativa, como a de assinaturas).
-//  - Android: bottom sheet no padrão do promo (overlay + slide + arrastar para fechar).
+//  - Formato (`request.style`, resolvido no RetentionEvents.show: pedido → `retention.style` do Remote Config →
+//    plataforma). `fullscreen`: no iOS a folha nativa (`Modal` com `presentationStyle="pageSheet"`, como a de
+//    assinaturas); no Android uma folha em JS da altura da tela, que para logo abaixo da status bar.
+//    `bottomsheet`: folha em JS no padrão do promo (overlay + slide + arrastar para fechar), da altura do
+//    conteúdo, nas duas plataformas. Padrão: `fullscreen` no iOS, `bottomsheet` no Android.
 //  - Por segmento (`trial_cancelled`, `cancelled`, `billing_issue`, `expired`, `trial_expired`, `free`):
 //    título/texto, ilustração (cartão com alerta na falha de pagamento) e linha da data. A 1ª oferta é o
 //    botão principal (com o cartão dela acima, quando tem); a 2ª vira um cartão tocável abaixo do botão.
@@ -38,6 +41,7 @@ import {
     Platform,
     Pressable,
     ScrollView,
+    StatusBar,
     StyleSheet,
     Text,
     useColorScheme,
@@ -108,6 +112,11 @@ type RetentionColors = (typeof PALETTE)["light"];
 const ICON_SIZE = 76;
 const ICON_RADIUS = 17; // ~22% do lado, a proporção do ícone do iOS
 const SHEET_RADIUS = 24; // mesmo do bottom sheet do promo
+/**
+ * Folha cheia do Android: o vão entre a status bar e o topo da folha. A faixa do app que fica à mostra em cima sai
+ * igual à do pageSheet do iOS 26 (medido: 64dp no Pixel 10a × 62pt no iPhone 17 Pro, onde a folha começa na área segura).
+ */
+const FULL_SHEET_GAP = 10;
 const ZERO_INSETS = {top: 0, bottom: 0, left: 0, right: 0};
 const RECOVERED: readonly RcStatus[] = ["trial", "intro", "active"];
 /** Marca de direita-para-esquerda: o Android decide a direção do parágrafo pelo 1º caractere forte. */
@@ -356,15 +365,17 @@ type BodyProps = {
     onClose: (method: RetentionCloseMethod) => void;
     /** espaço abaixo dos botões (home indicator / barra de navegação) */
     bottomInset: number;
-    /** pageSheet do iOS: ocupa a folha inteira; bottom sheet: cresce com o conteúdo */
+    /** `fullscreen` (pageSheet do iOS, folha cheia do Android): ocupa a folha inteira; bottom sheet: cresce com o conteúdo */
     fill: boolean;
+    /** Folha em JS: avisa quando o conteúdo passa da altura da área rolável (aí o arrastar fica com a rolagem). */
+    onScrollableChange?: (scrollable: boolean) => void;
 };
 
 /** offer → (reativar/atualizar pagamento) checking; offer → (vitalício com falha de pagamento) notice. */
 type Phase = "offer" | "checking" | "notice";
 const initialPhase = (state: RetentionModalState): Phase => (state === "lifetime_notice" ? "notice" : "offer");
 
-function RetentionBody({request, colors, onClose, bottomInset, fill}: BodyProps) {
+function RetentionBody({request, colors, onClose, bottomInset, fill, onScrollableChange}: BodyProps) {
     const {height: windowHeight} = useWindowDimensions();
     const view = useMemo(() => buildView(request), [request]);
     const dir = directionOf(view.rtl);
@@ -379,6 +390,11 @@ function RetentionBody({request, colors, onClose, bottomInset, fill}: BodyProps)
     /** Linha acima do botão depois da compra: falhou (tente de novo) ou ficou pendente. */
     const [purchaseNote, setPurchaseNote] = useState<"error" | "pending" | null>(null);
     const mountedRef = useRef(true);
+    const scrollSizeRef = useRef({viewport: 0, content: 0});
+    const reportScrollable = () => {
+        const {viewport, content} = scrollSizeRef.current;
+        onScrollableChange?.(viewport > 0 && content > viewport + 1);
+    };
     const openingRef = useRef(false);
     const verifyingRef = useRef(false);
     const buyingRef = useRef(false);
@@ -567,6 +583,14 @@ function RetentionBody({request, colors, onClose, bottomInset, fill}: BodyProps)
                 style={fill ? styles.scrollFill : styles.scrollFit}
                 contentContainerStyle={[styles.scrollContent, fill && !showBanner && styles.scrollCentered]}
                 bounces={false}
+                onLayout={(event) => {
+                    scrollSizeRef.current.viewport = event.nativeEvent.layout.height;
+                    reportScrollable();
+                }}
+                onContentSizeChange={(_, height) => {
+                    scrollSizeRef.current.content = height;
+                    reportScrollable();
+                }}
                 showsVerticalScrollIndicator={false}>
                 {media}
                 <View style={styles.textBlock}>
@@ -645,7 +669,7 @@ function RetentionBody({request, colors, onClose, bottomInset, fill}: BodyProps)
     );
 }
 
-// ─── iOS: pageSheet nativo ─────────────────────────────────────────────────────
+// ─── iOS, `fullscreen`: pageSheet nativo ───────────────────────────────────────
 
 type ModalProps = {request: RetentionRequest; onClosed: (method: RetentionCloseMethod) => void};
 
@@ -678,16 +702,20 @@ function RetentionPageSheet({request, onClosed}: ModalProps) {
     );
 }
 
-// ─── Android: bottom sheet (padrão do promo) ───────────────────────────────────
+// ─── Folha em JS: bottom sheet (padrão do promo) e a folha cheia do Android ────
 
 function RetentionBottomSheet({request, onClosed}: ModalProps) {
     const colors = useColors();
     const insets = useInsets();
     const {height: windowHeight} = useWindowDimensions();
+    // Folha cheia: vai até logo abaixo da status bar (o Modal do Android é edge-to-edge) e o vão em cima fecha.
+    const full = request.style === "fullscreen";
+    const topInset = insets.top || (Platform.OS === "android" ? StatusBar.currentHeight ?? 0 : 0);
     const slide = useRef(new Animated.Value(windowHeight)).current;
     const backdrop = useRef(new Animated.Value(0)).current;
     const drag = useRef(new Animated.Value(0)).current;
     const closingRef = useRef(false);
+    const scrollableRef = useRef(false);
 
     const close = (method: RetentionCloseMethod) => {
         if (closingRef.current) return;
@@ -711,10 +739,14 @@ function RetentionBottomSheet({request, onClosed}: ModalProps) {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [request.id]);
 
-    // Arrastar para baixo fecha. Com o conteúdo cabendo, o ScrollView não intercepta o gesto.
+    // Arrastar para baixo fecha. Com o conteúdo cabendo, a folha pega o toque já no início: o Modal do RN responde `true`
+    // no onStartShouldSetResponder, o toque que ninguém dentro dele pegava virava dele, e daí em diante o RN não
+    // perguntava mais à folha no movimento — o arrastar nunca fechava (medido no Android). Com o conteúdo maior que a
+    // área rolável ela não pega: no Android o responder JS segura o toque dos filhos e o ScrollView parava de rolar.
+    // Botões e o cartão da 2ª oferta pegam o toque antes (estão mais fundo), e arrastar a partir deles também fecha.
     const pan = useRef(
         PanResponder.create({
-            onStartShouldSetPanResponder: () => false,
+            onStartShouldSetPanResponder: () => !scrollableRef.current,
             onMoveShouldSetPanResponder: (_, gesture) => gesture.dy > 10 && Math.abs(gesture.dy) > Math.abs(gesture.dx),
             onPanResponderMove: (_, gesture) => {
                 if (gesture.dy > 0) drag.setValue(gesture.dy);
@@ -743,21 +775,31 @@ function RetentionBottomSheet({request, onClosed}: ModalProps) {
                     {...pan.panHandlers}
                     style={[
                         styles.sheet,
+                        full ? {flex: 1, marginTop: topInset + FULL_SHEET_GAP} : {maxHeight: windowHeight - topInset - 24},
                         {
                             backgroundColor: colors.background,
-                            maxHeight: windowHeight - insets.top - 24,
                             transform: [{translateY: Animated.add(slide, drag)}],
                         },
                     ]}>
-                    <RetentionBody request={request} colors={colors} onClose={close} bottomInset={Math.max(insets.bottom, 12)} fill={false} />
+                    <RetentionBody
+                        request={request}
+                        colors={colors}
+                        onClose={close}
+                        bottomInset={Math.max(insets.bottom, 12)}
+                        fill={full}
+                        onScrollableChange={(scrollable) => {
+                            scrollableRef.current = scrollable;
+                        }}
+                    />
                 </Animated.View>
             </View>
         </Modal>
     );
 }
 
+/** `fullscreen` no iOS é a folha nativa; o resto (bottom sheet nas duas plataformas, folha cheia no Android) é em JS. */
 function RetentionModal(props: ModalProps) {
-    return Platform.OS === "ios" ? <RetentionPageSheet {...props} /> : <RetentionBottomSheet {...props} />;
+    return Platform.OS === "ios" && props.request.style === "fullscreen" ? <RetentionPageSheet {...props} /> : <RetentionBottomSheet {...props} />;
 }
 
 /** Lê o pedido aberto (RetentionEvents) e desenha o modal. */

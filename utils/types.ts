@@ -122,6 +122,15 @@ export type RetentionTexts = {
 export type RetentionSegment = "trial_cancelled" | "cancelled" | "billing_issue" | "expired" | "trial_expired" | "free";
 
 /**
+ * Formato do modal de retenção, igual nas duas plataformas:
+ *  - `bottomsheet`: folha embaixo, da altura do conteúdo, com o app escurecido em cima (toque fora, arrastar para
+ *    baixo ou o voltar do Android fecham). Padrão no Android.
+ *  - `fullscreen`: folha da altura da tela, com o conteúdo no meio e os botões no rodapé. No iOS é a folha nativa
+ *    (`pageSheet`); no Android, uma folha igual, que vai até logo abaixo da status bar. Padrão no iOS.
+ */
+export type RetentionStyle = "bottomsheet" | "fullscreen";
+
+/**
  * O que a oferta faz (o `type` de `retention.offers.<nome>`):
  *  - `resubscribe` (embutida): voltar com a MESMA assinatura de antes, pelo preço normal — reativar a
  *    renovação (`trial_cancelled`/`cancelled`), atualizar o pagamento (`billing_issue`) ou assinar de
@@ -188,8 +197,12 @@ export type RetentionConfig = {
     image_url?: string;
     /** Por língua (`pt`, `en`…): ver RetentionTexts. */
     texts?: Record<string, RetentionTexts>;
-    /** Legado (fase 1). Só "sheet": pageSheet nativo no iOS, bottom sheet no Android. */
-    style?: "sheet";
+    /**
+     * Formato do modal nas duas plataformas (os valores de RetentionStyle, escritos aqui para o pldev montar a lista).
+     * Ausente, inválido ou `sheet` (o valor da fase 1): o padrão de cada uma, `fullscreen` no iOS e `bottomsheet` no
+     * Android. Override local: `style` do `showRetention`.
+     */
+    style?: "bottomsheet" | "fullscreen" | "sheet";
     /** Legado (fase 1): o equivalente novo é `segments.<segmento>.max_shows`. */
     max_shows?: number;
     /** Legado (fase 1): o equivalente novo é `segments.trial_cancelled.reminder_hours_before_end`. */

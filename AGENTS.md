@@ -186,8 +186,15 @@ produção o modal só abre quando o app chama `showRetention`.
   `PromotionalContent` (2) montam um slot cada; só o de menor prioridade desenha. Isso existe porque o template padrão
   (e o lab) NÃO usam o `ExpoUtilsLayout` — montar só nele deixava o modal invisível nesses apps. Os dois overlays devolvem
   `[overlay | null, slot]` sempre na mesma posição para o slot não remontar quando o review abre/fecha.
-- **Plataforma**: iOS = `Modal` `pageSheet` + `allowSwipeDismissal` (no RN 0.86 a folha só fecha arrastando com essa
-  prop; o arraste chega como `onRequestClose`). Android = bottom sheet do padrão do promo. "Reativar": iOS
+- **Plataforma e formato** (`request.style`, resolvido no `RetentionEvents.show`: `style` da chamada → `retention.style`
+  do Remote Config → plataforma; `"sheet"` da fase 1 e valor desconhecido caem no padrão). `fullscreen` (padrão no iOS):
+  iOS = `Modal` `pageSheet` + `allowSwipeDismissal` (no RN 0.86 a folha só fecha arrastando com essa prop; o arraste
+  chega como `onRequestClose`); Android = folha em JS da altura da tela, 10dp abaixo da status bar (a faixa à mostra
+  fica igual à do pageSheet do iOS 26, medido). `bottomsheet` (padrão no Android) = folha em JS do padrão do promo, da
+  altura do conteúdo, nas duas plataformas. O arrastar da folha em JS: o `Modal` do RN responde `true` no
+  `onStartShouldSetResponder`, então o `PanResponder` da folha tem que pegar o toque no início (senão o RN nunca mais
+  pergunta a ela no movimento — o arrastar não fechava até 10/10/2026); mas só quando o conteúdo cabe, porque no Android
+  o responder JS num ancestral segura o toque do ScrollView e a rolagem morre. "Reativar": iOS
   `Purchases.showManageSubscriptions()` (resolve quando a folha ABRE) e Android `managementURL` via `Linking`
   (`showManageSubscriptions` lança no Android), com `playSubscriptionsUrl(pacote, produto)` de reserva (`sku` sem o
   `:basePlan`). Depois do toque, nas duas plataformas, estado "conferindo" com "Já reativei" (invalida o cache do RC e
@@ -574,6 +581,12 @@ Hard-won lessons from debugging consumer apps — they affect anyone integrating
 - **React StrictMode (dev) runs mount effects twice** — boot callbacks fire twice in dev unless guarded (module-level `bootDone` pattern in `Utils.handleReady`; ref guard for `onReady` in `ExpoUtilsLayout`; `preparePromise` no `prepare()`; `listenerRegistered` no `setupAppOpenListener`).
 - **iOS drops overlapping `alert()`s silently** (RN doesn't queue `UIAlertController`) — two back-to-back alerts show only the first, which reads as "code stopped in the middle". Use o `queueAlert(title, message)` do Utils (serializa; o push em foreground já usa) ou encadeie via callback do botão.
 - **Expo dev lazy bundling**: grepping Metro's `entry.bundle` for app code is a false negative — app modules aren't in the initial bundle.
+- **`PanResponder` dentro de `Modal` só recebe o arrastar se pegar o toque no INÍCIO**: o `Modal` do RN responde `true`
+  no `onStartShouldSetResponder`; o toque que ninguém dentro dele pega vira dele, e daí o RN só pergunta aos ancestrais
+  do Modal no movimento (`onMoveShouldSetPanResponder` da folha nunca roda). Só que no Android o responder JS segura o
+  toque dos filhos: pegando no início num ancestral de ScrollView, a rolagem morre. Receita em `utils/retention-modal.tsx`
+  (pega no início só com o conteúdo cabendo). Duas folhas do promo (`modal-promotional-content.tsx`, as com
+  `onStartShouldSetPanResponder: () => false`) têm o mesmo padrão — não testado lá.
 - **Android pausa os timers do JS com dialogo do sistema na frente** (permissao, UMP, compra): `setTimeout` so dispara quando a Activity volta. Chamada nativa e `fetch` seguem funcionando. Nada que precise sair DURANTE um prompt pode depender de timer/debounce.
 - **`<Image>` com `require()` herda o tamanho INTRINSECO do arquivo como estilo padrao.** So `flex: 1` nao sobrescreve a largura: a imagem padrao do review (1024x572) renderizava com 1024dp num card de ~360dp e o `cover` virava um recorte gigante do "4.7" (bug da 1.3.1, publicado). Imagem que deve preencher um host leva `width: "100%", height: "100%"` explicitos.
 - **Nunca mate o Metro por porta** (`lsof -ti tcp:8082 | xargs kill`): o `netsimd` do emulador Android tambem segura conexao nessa porta (e por ele que o app fala com o Metro) e, morto, derruba o emulador ~20s depois. Mate pelo processo: `pkill -f "expo start --dev-client --port 8082"`.
@@ -615,8 +628,10 @@ verdade (loja de teste)" (`showRetention` com os produtos `monthly`/`yearly`/`li
 deep link `expoutilslab://retencao?live=<id>`, `live=novo_cliente` faz `Purchases.logIn("lab-…")` para zerar depois de
 comprar; cenarios em `src/constants/retention-live.ts`; log `[lab] retention-live …`; `expoutilslab://rc-produtos` loga
 ofertas e cliente), cross-promo, geo, token FCM, atributo custom) e `src/app/paywall.tsx` exercita
-o funil. Roteiro: `npm pack` → extrair o `.tgz` por cima de `node_modules/expo-utils` (conferir com grep) →
-`expo start --dev-client --port 8082` → abrir com `exp+expo-utils-lab://expo-development-client/?url=…` → conferir o
+o funil. Roteiro: `npm pack` → extrair o `.tgz` por cima de `node_modules/expo-utils` (conferir com grep) → `find
+node_modules/expo-utils -type f -exec touch {} +` (o `npm pack` grava mtime de 1985 em tudo e o Metro reaproveita a
+transformação velha do arquivo: em 10/10/2026 o `retention-events.ts` novo rodou velho até o touch + `--clear`) →
+`expo start --dev-client --port 8082 --clear` → abrir com `exp+expo-utils-lab://expo-development-client/?url=…` → conferir o
 customer no RevenueCat e os eventos no DebugView. Mudou modulo nativo: `expo prebuild` + `./gradlew :app:assembleDebug`.
 
 ### App de teste do zero

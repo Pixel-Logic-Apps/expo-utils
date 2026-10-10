@@ -149,6 +149,14 @@ describe("showRetention: quando abre", () => {
         expect(result.request).toMatchObject({locale: "ar", imageUrl: "https://example.com/r.png", defaultBullets: true, variant: "premium_kept"});
     });
 
+    test("formato: o do app vence o retention.style do Remote Config; sem os dois, o da plataforma", async () => {
+        setRetention({segments: {expired: {offers: ["resubscribe"]}}});
+        expect((await showRetention()).request?.style).toBe("bottomsheet"); // Android
+        setRetention({segments: {expired: {offers: ["resubscribe"]}}, style: "fullscreen"});
+        expect((await showRetention()).request?.style).toBe("fullscreen");
+        expect((await showRetention({style: "bottomsheet"})).request?.style).toBe("bottomsheet");
+    });
+
     test("pula a oferta que a loja não tem e abre com as próximas (no máximo 2)", async () => {
         const result = await showRetention({offers: [{name: "discount_50", type: "discount", android_offer_tag: "retention-50"}, "resubscribe", "lifetime", {type: "subscription", product_id: "yearly"}]});
         expect(result.reason).toBeNull();

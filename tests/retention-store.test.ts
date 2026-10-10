@@ -611,6 +611,7 @@ describe("analytics (fora da pré-visualização)", () => {
         segment: "expired",
         variant: "premium_lost",
         state: "offer",
+        style: "bottomsheet",
         offers: [
             {name: "discount_50", type: "discount", price: {amount: 9.9, currency: "BRL", formatted: "R$ 9,90"}, originalPrice: {amount: 19.9, currency: "BRL"}, store: {kind: "option", product: {identifier: "premium:mensal"}}},
             {name: "lifetime", type: "lifetime", price: {amount: 99.99, currency: "USD"}},
@@ -623,7 +624,7 @@ describe("analytics (fora da pré-visualização)", () => {
         logRetentionImpression(request()); // mesmo id (host remontou)
         logRetentionImpression(request({id: 8, preview: true}));
         expect(eventsOf("retention_impression").map((event) => event.params)).toEqual([
-            {segment: "expired", variant: "premium_lost", offer_type: "discount", offer_id: "discount_50", product_id: "premium:mensal", price: 9.9, price_currency: "BRL", discount_pct: 50, secondary_offer_id: "lifetime"},
+            {segment: "expired", variant: "premium_lost", style: "bottomsheet", offer_type: "discount", offer_id: "discount_50", product_id: "premium:mensal", price: 9.9, price_currency: "BRL", discount_pct: 50, secondary_offer_id: "lifetime"},
         ]);
     });
 
@@ -631,7 +632,7 @@ describe("analytics (fora da pré-visualização)", () => {
         const req = request();
         logRetentionPurchase(req, req.offers[0], {premium: true, productIdentifier: "premium:mensal"});
         const params = eventsOf("retention_purchase")[0].params;
-        expect(params).toEqual({segment: "expired", offer_type: "discount", offer_id: "discount_50", product_id: "premium:mensal", price: 9.9, price_currency: "BRL", discount_pct: 50, premium: 1});
+        expect(params).toEqual({segment: "expired", style: "bottomsheet", offer_type: "discount", offer_id: "discount_50", product_id: "premium:mensal", price: 9.9, price_currency: "BRL", discount_pct: 50, premium: 1});
         expect(Object.keys(params)).not.toContain("currency");
         expect(Object.keys(params)).not.toContain("value");
     });
@@ -656,7 +657,9 @@ describe("analytics (fora da pré-visualização)", () => {
             ["purchase", "secondary", "lifetime"],
             ["confirm", null, null],
         ]);
-        expect(eventsOf("retention_close").map((event) => event.params)).toEqual([{segment: "expired", close_method: "purchased", offer_type: "discount", offer_id: "discount_50"}]);
+        expect(eventsOf("retention_close").map((event) => event.params)).toEqual([{segment: "expired", style: "bottomsheet", close_method: "purchased", offer_type: "discount", offer_id: "discount_50"}]);
+        // `style` em todo evento do modal (o `retention_offer_unavailable` sai antes de abrir, sem formato)
+        for (const name of ["retention_purchase_error", "retention_click"]) for (const event of eventsOf(name)) expect(event.params.style).toBe("bottomsheet");
         expect(eventsOf("retention_offer_unavailable").map((event) => event.params)).toEqual([
             {segment: "expired", offer_id: "discount_50", offer_type: "discount", reason: "offer_not_found"},
             {segment: "expired", offer_id: "winback", offer_type: "winback", reason: "store_error", detail: "iOS 18"},

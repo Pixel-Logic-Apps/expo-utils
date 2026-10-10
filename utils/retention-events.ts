@@ -4,7 +4,7 @@
 //
 // Com compra de verdade, quem abre é o `showRetention` (utils/retention-show.ts): lê o customerInfo,
 // confere as ofertas na loja (utils/retention-store.ts) e chama `RetentionEvents.show({segment, offers,
-// variant, productIdentifier, expirationDate, managementURL})` com elas já conferidas e com preço. Sem
+// variant, productIdentifier, expirationDate, managementURL, style})` com elas já conferidas e com preço. Sem
 // `segment`/`offers` é o pedido da fase 1 (trial cancelado + "Reativar").
 // Módulo-folha de propósito (só react-native, expo-localization e módulos puros): o Utils.ts importa
 // daqui o item do menu de dev — por isso o `showRetention`, que importa o SDK, mora em outro arquivo.
@@ -21,9 +21,19 @@ import {
     type RetentionOfferInput,
 } from "./retention-offers";
 import {retentionVariantFromConfig, type RetentionVariant} from "./retention-texts";
-import type {RemoteConfigUtilsType, RetentionSegment} from "./types";
+import type {RemoteConfigUtilsType, RetentionSegment, RetentionStyle} from "./types";
 
 export type {RetentionVariant};
+
+const RETENTION_STYLES: readonly RetentionStyle[] = ["bottomsheet", "fullscreen"];
+const isRetentionStyle = (value: unknown): value is RetentionStyle => RETENTION_STYLES.includes(value as RetentionStyle);
+
+/**
+ * Formato do modal: o do pedido → `retention.style` do Remote Config → o padrão da plataforma (`fullscreen`, o
+ * pageSheet, no iOS; `bottomsheet` no Android). Valor desconhecido (e o `sheet` da fase 1) cai no próximo.
+ */
+export const resolveRetentionStyle = (requested?: unknown, remote?: unknown, os: string = Platform.OS): RetentionStyle =>
+    isRetentionStyle(requested) ? requested : isRetentionStyle(remote) ? remote : os === "ios" ? "fullscreen" : "bottomsheet";
 
 export interface RetentionShowPayload {
     /** Situação da pessoa na assinatura. Padrão: `trial_cancelled` (fase 1). */
@@ -51,6 +61,11 @@ export interface RetentionShowPayload {
     imageUrl?: string;
     /** Sem bullets no Remote Config, mostra os da lib. */
     defaultBullets?: boolean;
+    /**
+     * Formato do modal (`bottomsheet` ou `fullscreen`). Sem ele, sai do `retention.style` do Remote Config e, sem
+     * esse, do padrão da plataforma: `fullscreen` no iOS, `bottomsheet` no Android.
+     */
+    style?: RetentionStyle;
 }
 
 export interface RetentionRequest extends RetentionShowPayload {
@@ -59,6 +74,7 @@ export interface RetentionRequest extends RetentionShowPayload {
     segment: RetentionSegment;
     offers: RetentionOffer[];
     state: RetentionModalState;
+    style: RetentionStyle;
 }
 
 /**
@@ -98,6 +114,7 @@ export class RetentionEvents {
             offers: Array.isArray(payload.offers) && payload.offers.length > 0 ? payload.offers : [RESUBSCRIBE_OFFER],
             state: payload.state === "lifetime_notice" ? "lifetime_notice" : "offer",
             variant: payload.variant ?? retentionVariantFromConfig(remoteConfig()),
+            style: resolveRetentionStyle(payload.style, remoteConfig()?.retention?.style),
             id: ++sequence,
         };
         DeviceEventEmitter.emit(SHOW_EVENT, current);
@@ -164,6 +181,8 @@ export interface RetentionPreviewOptions {
     offers?: RetentionOfferInput[];
     /** `lifetime_notice` abre direto no aviso pós-compra do vitalício. */
     state?: RetentionModalState;
+    /** Formato do modal. Padrão: o do Remote Config (`retention.style`) e, sem ele, o da plataforma. */
+    style?: RetentionStyle;
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -214,5 +233,6 @@ export function showRetentionPreview(options: RetentionPreviewOptions = {}): Ret
         locale: options.locale,
         imageUrl: options.imageUrl,
         defaultBullets: options.bullets === true,
+        style: options.style,
     });
 }

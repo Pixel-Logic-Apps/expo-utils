@@ -99,6 +99,7 @@ Lido nas fontes oficiais em 06/10/2026 (lista no fim).
 - Os mesmos campos da Apple: imagem opcional, título, texto e bullets opcionais (ícone + texto).
 - Uma linha que só existe no app, com a data de fim: "Seu teste vai até 12 de outubro". A Apple não personaliza; o app pode.
 - iOS: `Modal` com `presentationStyle="pageSheet"`, a folha nativa do sistema, com a mesma cara da tela de assinaturas. Android: bottom sheet, como o do review e o do promo.
+  (10/10/2026: esse é o padrão; `retention.style` escolhe `bottomsheet` ou `fullscreen` nas duas plataformas.)
 - Sem imagem no Remote Config, usa o ícone do app (`extra.expoUtilsAppIcon`).
 - Árabe da direita para a esquerda.
 

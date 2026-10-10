@@ -1301,7 +1301,10 @@ ofertas na loja, abre o modal e **compra de verdade** (desconto, vitalício, ass
 abre o resgate do código. Ainda **não existe** a detecção que abre sozinha (volta ao primeiro plano, `max_shows`,
 intervalo): em produção o modal só abre quando o app chama `showRetention()`.
 
-- **iOS:** folha nativa (`pageSheet`). **Android:** bottom sheet. Árabe da direita para a esquerda, só no modal.
+- **Formato**, igual nas duas plataformas (`retention.style` no Remote Config ou `style` na chamada):
+  `bottomsheet` = folha embaixo, da altura do conteúdo (toque fora, arrastar para baixo ou voltar fecham);
+  `fullscreen` = folha da altura da tela, com o conteúdo no meio e os botões no rodapé (no iOS é a folha nativa
+  `pageSheet`). Sem nada: `fullscreen` no iOS e `bottomsheet` no Android. Árabe da direita para a esquerda, só no modal.
 - **Segmentos:** `trial_cancelled`, `cancelled`, `billing_issue` (ilustração de cartão com alerta), `expired`,
   `trial_expired` e `free`. Linha da data: fim do teste (`trial_cancelled`) ou do período pago (`cancelled`).
 - **Ofertas:** a 1ª da lista é o botão principal (com o cartão dela acima, quando tem); a 2ª vira um cartão tocável
@@ -1333,6 +1336,8 @@ const {request, reason, skipped} = await showRetention();
 await showRetention({offers: ["resubscribe", "lifetime"]});
 // Teste: segmento forçado (abre mesmo com Premium) e produto anterior trocado
 await showRetention({segment: "expired", offers: ["resubscribe", "lifetime"], productIdentifier: "monthly"});
+// Formato só desta abertura (sem ele: retention.style do Remote Config e, sem esse, o padrão da plataforma)
+await showRetention({style: "bottomsheet"});
 ```
 
 - Não abre (`reason`): `disabled` (`retention.enabled: false`), `rc_unavailable`, `not_retention_segment` (pagante,
@@ -1355,6 +1360,7 @@ showRetentionPreview({variant: "premium_kept", locale: "ar"});  // Premium até 
 showRetentionPreview({segment: "billing_issue", offers: ["resubscribe", "lifetime_deal"]});
 showRetentionPreview({segment: "expired", offers: ["discount_50", {type: "lifetime", compare_product_id: "lifetime"}], locale: "en"});
 showRetentionPreview({segment: "billing_issue", offers: ["resubscribe", "lifetime_deal"], state: "lifetime_notice"}); // aviso pós-compra
+showRetentionPreview({style: "bottomsheet"});                   // bottom sheet também no iOS (fullscreen: a folha cheia no Android)
 ```
 
 Dados falsos (R$ 19,90/mês; 50% por 3 meses = R$ 9,90; vitalício R$ 59,90 contra R$ 99,90; USD fora do português) e
@@ -1372,6 +1378,7 @@ dele, na ordem; segmento sem lista não vê nada. Nomes de campo em inglês.
 {
     "retention": {
         "enabled": true,
+        "style": "bottomsheet",
         "segments": {
             "trial_cancelled": {"offers": ["discount_50", "resubscribe"], "max_shows": 2, "min_interval_hours": 12, "reminder_hours_before_end": 24},
             "billing_issue": {"offers": ["resubscribe", "lifetime_deal"], "max_shows": 3, "min_interval_hours": 24},
@@ -1400,7 +1407,9 @@ dele, na ordem; segmento sem lista não vê nada. Nomes de campo em inglês.
   fim…"; falso ou ausente → "Os anúncios voltaram".
 - **Limites da Apple** (testados nas 12 línguas, com `{app}` de 20 caracteres e preços reais): título e cada bullet até
   66 caracteres, texto até 144.
-- O formato da fase 1 (`style`, `max_shows`, `reminder_hours`) continua aceito. As regras de exibição
+- **`style`:** `bottomsheet` ou `fullscreen`, nas duas plataformas. Sem ele (ou com o `"sheet"` da fase 1), o padrão de
+  cada uma: `fullscreen` no iOS, `bottomsheet` no Android. Os eventos `retention_*` do modal levam o `style`.
+- O formato da fase 1 (`max_shows`, `reminder_hours`) continua aceito. As regras de exibição
   (`max_shows`, `min_interval_hours`…) só vão valer com a detecção automática; o `showRetention` não as lê.
 
 ---

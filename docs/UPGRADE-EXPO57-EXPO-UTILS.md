@@ -929,6 +929,13 @@ Pontos de atenção:
 - **Nenhuma linha nova no app.** O modal é montado pelo `ExpoUtilsLayout`, pelo `AskForReviewOverlay` e pelo
   `PromotionalContent` (só um desenha). App que não renderiza nenhum dos três: `<RetentionModalSlot />` no `_layout`.
 - Botões iguais aos do review (seção 5.4.0): glass nativo no iOS 26 e "Agora não" só texto, na cor do app.
+- **Formato (10/10/2026):** `retention.style` = `"bottomsheet"` ou `"fullscreen"`, igual nas duas plataformas
+  (`fullscreen` no iOS é a folha nativa `pageSheet`; no Android, uma folha da altura da tela). Override por chamada:
+  `style` no `showRetention`/`showRetentionPreview`/`RetentionEvents.show`. Sem a chave nada muda: `fullscreen` no iOS e
+  `bottomsheet` no Android, como antes; o `"sheet"` da fase 1 também cai nesse padrão. Tipo novo `RetentionStyle`
+  (exportado), `RetentionRequest.style` sempre preenchido, e os eventos `retention_*` do modal ganharam o parâmetro
+  `style` (`docs/ANALYTICS-EVENTS.md`). Junto: arrastar para baixo passou a fechar a folha (antes o `Modal` do RN ficava
+  com o toque e o arraste não fazia nada).
 - Ainda **não abre sozinho** (a detecção é a próxima fase), mas **compra de verdade** desde 08/10/2026: o app chama
   `showRetention({segment?, offers?, ...})`, que lê o customerInfo, confere as ofertas na loja (preço sempre da loja) e
   abre o modal; o toque compra (`purchaseRetentionOffer`) ou abre o resgate do código. Nada muda para quem não chama.
@@ -956,6 +963,7 @@ Pontos de atenção:
 ```json
 "retention": {
   "enabled": true,
+  "style": "bottomsheet",
   "segments": {"billing_issue": {"offers": ["resubscribe", "lifetime_deal"]}, "expired": {"offers": ["resubscribe"]}},
   "offers": {"lifetime_deal": {"type": "lifetime", "product_id": "lifetime_retention", "compare_product_id": "lifetime"}},
   "image_url": "https://…/retencao.png",

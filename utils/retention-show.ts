@@ -13,7 +13,7 @@ import {logRetentionOfferUnavailable} from "./retention-analytics";
 import {RetentionEvents, type RetentionRequest, type RetentionVariant} from "./retention-events";
 import {isRetentionSegment, type RetentionOfferInput} from "./retention-offers";
 import {resolveRetentionOffers, type RetentionSkippedOffer} from "./retention-store";
-import type {RetentionConfig, RetentionSegment} from "./types";
+import type {RetentionConfig, RetentionSegment, RetentionStyle} from "./types";
 import {expoUtilsWarn} from "./Utils";
 
 export interface ShowRetentionOptions {
@@ -34,6 +34,8 @@ export interface ShowRetentionOptions {
     imageUrl?: string;
     /** Sem bullets no Remote Config, mostra os da lib. */
     defaultBullets?: boolean;
+    /** Formato do modal (`bottomsheet` ou `fullscreen`) no lugar do `retention.style` do Remote Config. */
+    style?: RetentionStyle;
 }
 
 /**
@@ -105,6 +107,7 @@ export async function showRetention(options: ShowRetentionOptions = {}): Promise
             locale: options.locale,
             imageUrl: options.imageUrl,
             defaultBullets: options.defaultBullets === true,
+            style: options.style,
         });
         return {request, segment, skipped, reason: null};
     } catch (error) {
