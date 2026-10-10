@@ -28,6 +28,7 @@ import {ReviewTutorial, ReviewTutorialParams} from "./review-tutorial";
 import type {ReviewStyle} from "./types";
 import {SquircleCorners, SquircleFill} from "./squircle";
 import {RetentionModalSlot} from "./retention-modal";
+import {GLASS_SECONDARY, GlassButton} from "./glass-button";
 
 // Sistema de eventos para mostrar o popup de review
 export class AskForReviewEvents {
@@ -145,6 +146,8 @@ interface ColorProps {
     textSecondary: string;
     border: string;
     systemBackground: string;
+    /** fundo do "Agora nao"; sem ele vale o `border` (o que o botao usava antes) */
+    secondary?: string;
 }
 
 interface AskForReviewOverlayProps {
@@ -376,20 +379,20 @@ const getDefaultTranslations = () => {
     }
 }
 
-// Default colors for when colors prop is not provided
+// Default colors for when colors prop is not provided.
+// primary: o azul dos botoes do Liquid Glass (iOS 26), medido na referencia do redesenho; antes era o #007AFF.
 const DEFAULT_COLORS: ColorProps = {
-    primary: '#007AFF',
+    primary: '#1582EC',
     text: '#000000',
     textSecondary: '#666666',
     border: '#E0E0E0',
-    systemBackground: '#FFFFFF'
+    systemBackground: '#FFFFFF',
+    secondary: GLASS_SECONDARY.light,
 };
 
 /** Raio do card por layout (o nome `cardRadius` ja e do Animated.Value da entrada). */
 /** Raio da midia (imagem ou tutorial) dentro do card. */
 const MEDIA_RADIUS = 24;
-/** Raio dos botoes. Era 12. */
-const BUTTON_RADIUS = 20;
 
 /** Barras do sistema que o card precisa respeitar: em cima a status bar/notch, embaixo a barra de navegacao/gestos. */
 type SystemBars = {top: number; bottom: number};
@@ -412,8 +415,11 @@ const FALLBACK_BARS: SystemBars =
  */
 const FORMSHEET_FRACTION = 0.5;
 
-/** Botoes empilhados: sem flexGrow (senao esticam na vertical) e ocupando a largura toda. */
-const STACKED_BUTTON = {flexGrow: 0, alignSelf: "stretch" as const};
+/**
+ * Botoes empilhados: sem flexGrow (senao esticam na vertical) e ocupando a largura toda. O flexBasis
+ * volta a "auto" porque o 0 do estilo base (larguras iguais na linha) zeraria a altura na coluna.
+ */
+const STACKED_BUTTON = {flexGrow: 0, flexBasis: "auto" as const, alignSelf: "stretch" as const};
 
 interface VariantSpec {
     justify: "flex-end" | "center";
@@ -428,10 +434,14 @@ interface VariantSpec {
     mediaAlign: "center" | "top";
     /** aplicado no titulo e na mensagem (o card do formsheet nao tem padding proprio) */
     textStyle: object;
+    /** aplicado no bloco titulo + mensagem (o fullscreen empurra o bloco com marginTop auto) */
+    textBlockStyle: object;
     actionsStyle: object;
     buttonStyle: object;
     /** true = o X substitui o "Agora Nao": so o botao primario e renderizado */
     singleButton: boolean;
+    /** true = "Agora Nao" so com o texto, sem fundo nem borda (empilhado embaixo do principal); false = capsula cinza */
+    secondaryText: boolean;
     /** true = card colado nas laterais (sem padding no container) */
     noSidePadding: boolean;
     /** true = o card ocupa a tela toda, entao os wrappers precisam esticar */
@@ -470,9 +480,11 @@ const buildVariants = (winHeight: number, bars: SystemBars): Record<ReviewStyle,
         cardStyle: {},
         mediaStyle: {height: 200},
         textStyle: {},
+        textBlockStyle: {},
         actionsStyle: {},
         buttonStyle: {},
         singleButton: false,
+        secondaryText: false,
         noSidePadding: false,
         fillsScreen: false,
         closeTop: 0,
@@ -504,9 +516,11 @@ const buildVariants = (winHeight: number, bars: SystemBars): Record<ReviewStyle,
         mediaStyle: {flex: 1, height: undefined, borderRadius: 0, marginBottom: 12},
         // o card nao tem padding, entao o respiro lateral vem daqui
         textStyle: {paddingHorizontal: 20},
+        textBlockStyle: {},
         actionsStyle: {paddingHorizontal: 20},
         buttonStyle: {},
         singleButton: true,
+        secondaryText: false,
         noSidePadding: true,
         fillsScreen: false,
         closeTop: 8,
@@ -528,10 +542,12 @@ const buildVariants = (winHeight: number, bars: SystemBars): Record<ReviewStyle,
         cardStyle: {marginBottom: 0},
         mediaStyle: {height: 200},
         textStyle: {},
+        textBlockStyle: {},
         // column-reverse: o primario (declarado por ultimo) fica em cima
         actionsStyle: {flexDirection: "column-reverse"},
         buttonStyle: STACKED_BUTTON,
         singleButton: false,
+        secondaryText: true,
         noSidePadding: false,
         fillsScreen: false,
         closeTop: 0,
@@ -560,12 +576,16 @@ const buildVariants = (winHeight: number, bars: SystemBars): Record<ReviewStyle,
             paddingTop: bars.top + 56,
             paddingBottom: bars.bottom + 24,
         },
+        // imagem no topo e o texto no meio do espaco ate o botao: marginTop auto no bloco E nos botoes, a sobra divide
+        // em duas (o texto logo acima do botao tambem foi testado e ficou de fora)
         mediaStyle: {height: 240},
         textStyle: {},
-        // marginTop auto consome o espaco livre e joga os botoes pro rodape
+        textBlockStyle: {marginTop: "auto"},
+        // o marginTop auto tambem joga os botoes pro rodape
         actionsStyle: {flexDirection: "column-reverse", marginTop: "auto"},
         buttonStyle: STACKED_BUTTON,
         singleButton: true,
+        secondaryText: false,
         noSidePadding: true,
         fillsScreen: true,
         closeTop: bars.top + 8,
@@ -866,41 +886,33 @@ const AskForReviewOverlay: React.FC<AskForReviewOverlayProps> = ({
                             )}
                             </View>
 
-                            <Text style={[styles.title, layout.textStyle, {color: displayColors.text}]}>{displayTitle}</Text>
-
-                            <Text style={[styles.body, layout.textStyle, {color: displayColors.textSecondary}]}>{displayMessage}</Text>
+                            <View style={layout.textBlockStyle}>
+                                <Text style={[styles.title, layout.textStyle, {color: displayColors.text}]}>{displayTitle}</Text>
+                                <Text style={[styles.body, layout.textStyle, {color: displayColors.textSecondary}]}>{displayMessage}</Text>
+                            </View>
 
                             <View style={[styles.actionsRow, layout.actionsStyle]}>
+                                {/* 1 linha que encolhe (numberOfLines padrao): o texto de 17 nao cabe nas linguas
+                                    longas (fr/ms com o "(3s)", el, tr) e capsula com 2 linhas fica torta */}
                                 {!layout.singleButton && (
-                                    <TouchableOpacity
+                                    <GlassButton
+                                        label={isNotNowDisabled && remainingTime > 0 ? `${displayNotNow} (${remainingTime}s)` : displayNotNow}
                                         onPress={() => handleLater("button")}
                                         disabled={isNotNowDisabled}
-                                        style={[styles.secondaryBtn, layout.buttonStyle]}>
-                                        <SquircleFill
-                                            radius={BUTTON_RADIUS}
-                                            color={displayColors.border}
-                                            opacity={isNotNowDisabled ? 0.31 : 1}
-                                        />
-                                        <Text style={[
-                                            styles.secondaryText,
-                                            {
-                                                color: isNotNowDisabled
-                                                    ? displayColors.text + '60' // Lighter text when disabled
-                                                    : displayColors.text
-                                            }
-                                        ]}>
-                                            {isNotNowDisabled && remainingTime > 0
-                                                ? `${displayNotNow} (${remainingTime}s)`
-                                                : displayNotNow}
-                                        </Text>
-                                    </TouchableOpacity>
+                                        variant={layout.secondaryText ? "text" : "filled"}
+                                        color={displayColors.secondary ?? displayColors.border}
+                                        // so texto: na cor do app, como o botao de texto do iOS (borderless) e do Android
+                                        textColor={layout.secondaryText ? displayColors.primary : displayColors.text}
+                                        style={[styles.rowButton, layout.buttonStyle]}
+                                    />
                                 )}
-                                <TouchableOpacity
+                                <GlassButton
+                                    label={displayRateNow}
                                     onPress={handleRateNow}
-                                    style={[styles.primaryBtn, layout.buttonStyle]}>
-                                    <SquircleFill radius={BUTTON_RADIUS} color={displayColors.primary} />
-                                    <Text style={styles.primaryText}>{displayRateNow}</Text>
-                                </TouchableOpacity>
+                                    color={displayColors.primary}
+                                    textColor="#FFFFFF"
+                                    style={[styles.rowButton, layout.buttonStyle]}
+                                />
                             </View>
                         </Animated.View>
                     </Animated.View>
@@ -1018,7 +1030,8 @@ const styles = StyleSheet.create({
         fontSize: 20,
         fontWeight: "700",
         textAlign: "center",
-        marginBottom: 8,
+        // titulo e mensagem juntos (com 8 pareciam dois blocos)
+        marginBottom: 4,
     },
     body: {
         fontSize: 14,
@@ -1037,28 +1050,15 @@ const styles = StyleSheet.create({
         justifyContent: "space-between",
         alignItems: "center",
         gap: 12,
-        marginTop: 8,
+        // + os 12 do texto = 32 ate os botoes. Com 20 e 24 o texto parecia colado no botao de 50 (a imagem padrao tem
+        // ~60 de branco embaixo); com 40 ficou alto demais
+        marginTop: 20,
     },
-    secondaryBtn: {
-        paddingHorizontal: 12,
-        paddingVertical: 12,
-        // sem borderRadius/overflow: qualquer um dos dois recortaria o squircle num canto circular
+    /* Botoes (utils/glass-button.tsx: glass nativo no iOS 26, capsula no resto). flexBasis 0: os dois
+       da linha ficam com a mesma largura, seja qual for o texto. */
+    rowButton: {
         flexGrow: 1,
-    },
-    secondaryText: {
-        textAlign: "center",
-        fontWeight: "600",
-    },
-    primaryBtn: {
-        paddingHorizontal: 12,
-        paddingVertical: 12,
-        // sem borderRadius/overflow: qualquer um dos dois recortaria o squircle num canto circular
-        flexGrow: 1,
-    },
-    primaryText: {
-        textAlign: "center",
-        color: "#fff",
-        fontWeight: "700",
+        flexBasis: 0,
     },
 });
 

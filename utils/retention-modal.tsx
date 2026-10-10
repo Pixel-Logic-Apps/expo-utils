@@ -40,7 +40,6 @@ import {
     ScrollView,
     StyleSheet,
     Text,
-    TouchableOpacity,
     useColorScheme,
     useWindowDimensions,
     View,
@@ -59,7 +58,8 @@ import {retentionPreviewNext, type RetentionModalState, type RetentionOfferRole}
 import {purchaseRetentionOffer, RC_ERROR_CODES, redeemRetentionCode} from "./retention-store";
 import {playSubscriptionsUrl} from "./retention-texts";
 import {buildRetentionView, type RetentionCardView, type RetentionOfferView, type RetentionView} from "./retention-view";
-import {SquircleCorners, SquircleFill} from "./squircle";
+import {SquircleCorners} from "./squircle";
+import {GlassButton} from "./glass-button";
 
 // ─── Cores (as do review no claro; equivalentes do sistema no escuro) ───────────
 
@@ -68,11 +68,11 @@ const PALETTE = {
         background: "#FFFFFF",
         text: "#000000",
         textSecondary: "#666666",
-        primary: "#007AFF",
+        primary: "#1582EC",
         onPrimary: "#FFFFFF",
         handle: "#D1D1D6",
         chip: "#F2F2F7",
-        bulletFill: "rgba(0,122,255,0.12)",
+        bulletFill: "rgba(21,130,236,0.12)",
         warning: "#9A5B00",
         overlay: "rgba(0,0,0,0.5)",
         /** Selo de desconto e o "✓" do aviso pós-compra. */
@@ -105,7 +105,6 @@ const PALETTE = {
 };
 type RetentionColors = (typeof PALETTE)["light"];
 
-const BUTTON_RADIUS = 20; // mesmo raio dos botões do review
 const ICON_SIZE = 76;
 const ICON_RADIUS = 17; // ~22% do lado, a proporção do ícone do iOS
 const SHEET_RADIUS = 24; // mesmo do bottom sheet do promo
@@ -369,6 +368,7 @@ function RetentionBody({request, colors, onClose, bottomInset, fill}: BodyProps)
     const {height: windowHeight} = useWindowDimensions();
     const view = useMemo(() => buildView(request), [request]);
     const dir = directionOf(view.rtl);
+    const scheme = useColorScheme() === "dark" ? "dark" : "light";
     const [phase, setPhase] = useState<Phase>(() => initialPhase(request.state));
     const [verifying, setVerifying] = useState(false);
     const [notYet, setNotYet] = useState(false);
@@ -595,28 +595,26 @@ function RetentionBody({request, colors, onClose, bottomInset, fill}: BodyProps)
                 </View>
             </ScrollView>
 
-            <View style={[styles.footer, {paddingBottom: bottomInset}]}>
+            {/* +8 além da área segura: sem isso o último botão encostava na barra de navegação/gestos (o link de texto de
+                antes tinha 12 de folga própria) */}
+            <View style={[styles.footer, {paddingBottom: bottomInset + 8}]}>
                 {hint ? (
                     <Text style={[styles.hint, {color: hintWarning ? colors.warning : colors.textSecondary}, dir.writing]} accessibilityLiveRegion="polite">
                         {dir.mark + hint}
                     </Text>
                 ) : null}
-                <TouchableOpacity
+                {/* mesmos botões do review: glass nativo no iOS 26, cápsula no resto (utils/glass-button.tsx) */}
+                <GlassButton
+                    label={primaryLabel}
                     onPress={onPrimary}
+                    color={colors.primary}
+                    textColor={colors.onPrimary}
                     disabled={locked}
-                    activeOpacity={0.85}
-                    accessibilityRole="button"
-                    accessibilityState={{busy: primaryBusy, disabled: locked}}
-                    style={[styles.primaryButton, locked && !primaryBusy && styles.dimmed]}>
-                    <SquircleFill radius={BUTTON_RADIUS} color={colors.primary} />
-                    {primaryBusy ? (
-                        <ActivityIndicator color={colors.onPrimary} />
-                    ) : (
-                        <Text style={[styles.primaryText, {color: colors.onPrimary}]} numberOfLines={2}>
-                            {primaryLabel}
-                        </Text>
-                    )}
-                </TouchableOpacity>
+                    busy={primaryBusy}
+                    numberOfLines={2}
+                    colorScheme={scheme}
+                    rtl={view.rtl}
+                />
                 {phase === "offer" && view.secondary && (
                     <SecondaryOfferCard
                         item={view.secondary}
@@ -627,17 +625,16 @@ function RetentionBody({request, colors, onClose, bottomInset, fill}: BodyProps)
                         disabled={locked}
                     />
                 )}
-                <TouchableOpacity
+                <GlassButton
+                    label={view.dismiss}
                     onPress={() => onClose("dismiss")}
+                    variant="text"
+                    textColor={colors.primary}
                     disabled={buying !== null}
-                    hitSlop={8}
-                    accessibilityRole="button"
-                    accessibilityState={{disabled: buying !== null}}
-                    style={[styles.secondaryButton, buying !== null && styles.dimmed]}>
-                    <Text style={[styles.secondaryText, {color: colors.textSecondary}]} numberOfLines={2}>
-                        {view.dismiss}
-                    </Text>
-                </TouchableOpacity>
+                    numberOfLines={2}
+                    colorScheme={scheme}
+                    rtl={view.rtl}
+                />
             </View>
 
             {/* puxador: absoluto sobre o topo da folha (claro sobre a imagem, como no promo) */}
@@ -1143,33 +1140,17 @@ const styles = StyleSheet.create({
     footer: {
         paddingHorizontal: 24,
         paddingTop: 12,
-        gap: 4,
+        gap: 12,
     },
     hint: {
         fontSize: 13,
         lineHeight: 18,
-        textAlign: "center",
-        marginBottom: 8,
-    },
-    // sem borderRadius/overflow: qualquer um dos dois recortaria o squircle num canto circular
-    primaryButton: {
-        minHeight: 52,
-        paddingHorizontal: 16,
-        paddingVertical: 14,
-        alignItems: "center",
-        justifyContent: "center",
-    },
-    primaryText: {
-        fontSize: 16,
-        lineHeight: 20,
-        fontWeight: "700",
         textAlign: "center",
     },
     // 2ª oferta: cartão tocável com o botão pequeno no fim da linha
     secondaryCard: {
         alignItems: "center",
         gap: 12,
-        marginTop: 8,
         borderWidth: 1,
         borderRadius: 16,
         paddingHorizontal: 14,
@@ -1196,7 +1177,7 @@ const styles = StyleSheet.create({
     },
     secondaryCta: {
         maxWidth: "45%",
-        borderRadius: 14,
+        borderRadius: 999, // cápsula, como os botões
         paddingHorizontal: 12,
         paddingVertical: 8,
     },
@@ -1204,18 +1185,6 @@ const styles = StyleSheet.create({
         fontSize: 14,
         lineHeight: 18,
         fontWeight: "700",
-        textAlign: "center",
-    },
-    secondaryButton: {
-        paddingVertical: 12,
-        alignItems: "center",
-    },
-    dimmed: {
-        opacity: DIMMED,
-    },
-    secondaryText: {
-        fontSize: 15,
-        fontWeight: "600",
         textAlign: "center",
     },
 });

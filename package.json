@@ -1,6 +1,6 @@
 {
     "name": "expo-utils",
-    "version": "1.5.0",
+    "version": "1.5.1",
     "description": "CLI tool and utility library that automates 90% of the initial setup for Expo/React Native projects",
     "keywords": [
         "expo",
@@ -42,6 +42,7 @@
         "chalk": "^4.1.2"
     },
     "peerDependencies": {
+        "@expo/ui": ">=57.0.0",
         "@hot-updater/expo": ">=0.35.3",
         "@hot-updater/react-native": ">=0.35.3",
         "@microsoft/react-native-clarity": ">=4.6.3",
@@ -92,6 +93,9 @@
         "expo-asset": ">=57.0.0"
     },
     "peerDependenciesMeta": {
+        "@expo/ui": {
+            "optional": true
+        },
         "@hot-updater/expo": {
             "optional": true
         },

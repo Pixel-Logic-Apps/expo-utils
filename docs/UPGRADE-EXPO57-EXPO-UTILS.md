@@ -211,6 +211,8 @@ react-native-screens             4.25.2
 react-native-safe-area-context   5.7.0
 react-native-webview             13.16.1
 react-native-web                 0.21.2
+@expo/ui                         ~57.0.19  # já vem com o expo-router 57 (dependência dele); declare mesmo assim
+                                           # (pnpm não içaria). Os botões do review/retenção usam o glass nativo.
 @expo/vector-icons               15.x
 @react-navigation/*              versões modernas alinhadas (meclivros: bottom-tabs 7.18.x etc.)
 ```
@@ -775,8 +777,26 @@ entrada acompanha o layout: `bottomsheet` e `formsheet` deslizam de baixo, `cent
 nas laterais) e o `fullscreen` não arredonda nada. O slot de mídia vai a 240 no `fullscreen`,
 fica em 200 no `bottomsheet`/`centered` e no `formsheet` usa `flex: 1` — fica com o que sobrar
 depois do cabeçalho, do texto e do botão, então a proporção se mantém em qualquer aparelho.
-**Cantos em squircle, sem dependência.** Card (`bottomsheet` 40, `centered` 28), botões (20) e
-mídia (24) usam superelipse em vez do arco circular do `borderRadius` — `utils/squircle.tsx`, um
+**Botões: glass nativo no iOS 26, cápsula no resto (`utils/glass-button.tsx`, 1.5.1).** No iOS 26+ o review e o
+modal de retenção usam o botão Liquid Glass do SwiftUI pelo `@expo/ui` (`glassProminent` com tint: a cor do app
+no principal, cinza `#E9E9EB` — o `secondarySystemFill` que o iOS desenha no `bordered` — no "Agora não"). O
+`glass` puro ficou de fora: sobre o card branco ele sai `#FDFDFD`, igual ao fundo, e o botão some (medido no
+simulador). Android, iOS < 26 (o `@expo/ui` troca `glassProminent` por um botão sem fundo) e binário sem o módulo
+nativo `ExpoUI` (JS novo por OTA num binário antigo): cápsula em RN com os números medidos no nativo — 50 de
+altura, texto 17 **regular** (o peso do rótulo nativo), ponta em meio círculo pelo `borderRadius`. O módulo
+nativo já está em todo binário SDK 57 com expo-router, então **não precisa de rebuild**. "Agora não" **só texto**
+(`variant="text"`: sem fundo nem borda, na cor do app, 44 de altura; no iOS 26 um botão SwiftUI `plain`) no
+`centered` do review e no modal de retenção; nos outros layouts ele é a cápsula cinza. O `Host` do SwiftUI leva
+`ignoreSafeArea="all"`: sem isso o vidro ficava 17pt acima do lugar quando o card entrava deslizando por baixo da
+tela (formsheet e contagem — o SwiftUI aplicava a área segura de baixo e não desfazia).
+Espaços: título e mensagem a 4 um do outro, 32 do texto até os botões (bottomsheet, centered e formsheet — com 24
+o texto parecia colado no botão, com 40 alto demais), 12 entre os botões, 20 até o fim do card; no `fullscreen` a imagem fica no topo e o texto no meio do espaço
+até o botão do rodapé; na retenção 12 entre botão, cartão da 2ª oferta e "Agora não", e o rodapé termina na área segura + 8.
+Azul padrão `#1582EC` (antes `#007AFF`); app que passa `colors` continua com o `primary` dele, e `colors.secondary`
+(novo, opcional) troca o cinza — sem ele vale o `border`, como antes. Durante o `review_type_delay` o "Agora não"
+fica desabilitado (iOS: o desabilitado do sistema + opacidade 0.5; Android: opacidade 0.4).
+**Cantos em squircle, sem dependência.** Card (`bottomsheet` 40, `centered` 28) e mídia (24) usam
+superelipse em vez do arco circular do `borderRadius` — `utils/squircle.tsx`, um
 9-slice de `View` + `Image` com `tintColor`, PNGs embutidos em `utils/squircle-assets.ts`
 (gerados por `docs/squircle-gen.py`). Nada a instalar: não usa `react-native-svg` nem módulo
 nativo (`borderCurve: "continuous"` é só iOS; `clipToOutline` com path só clipa em Android novo).
@@ -908,6 +928,7 @@ Pontos de atenção:
   Oferta sem `product_id` = a mesma assinatura que a pessoa tinha; com `product_id` = aquele produto.
 - **Nenhuma linha nova no app.** O modal é montado pelo `ExpoUtilsLayout`, pelo `AskForReviewOverlay` e pelo
   `PromotionalContent` (só um desenha). App que não renderiza nenhum dos três: `<RetentionModalSlot />` no `_layout`.
+- Botões iguais aos do review (seção 5.4.0): glass nativo no iOS 26 e "Agora não" só texto, na cor do app.
 - Ainda **não abre sozinho** (a detecção é a próxima fase), mas **compra de verdade** desde 08/10/2026: o app chama
   `showRetention({segment?, offers?, ...})`, que lê o customerInfo, confere as ofertas na loja (preço sempre da loja) e
   abre o modal; o toque compra (`purchaseRetentionOffer`) ou abre o resgate do código. Nada muda para quem não chama.

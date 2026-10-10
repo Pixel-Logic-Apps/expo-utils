@@ -145,8 +145,10 @@ produção o modal só abre quando o app chama `showRetention`.
   módulo-folha, o `Utils.ts` importa dele o item "Simular trial cancelado" do menu de dev — por isso NÃO importa o
   SDK), `utils/retention-store.ts` (conferência na loja, compra e resgate; importa o `react-native-purchases`, sem UI),
   `utils/retention-show.ts` (`showRetention`), `utils/retention-analytics.ts` (eventos `retention_*`) e
-  `utils/retention-modal.tsx` (UI). Tudo menos o `.tsx` é testado no bun (`tests/retention-*.test.ts`; a loja mockada
-  em `tests/helpers/rc-store-mock.ts`, produtos no formato do SDK em `tests/helpers/rc-store-fixtures.ts`).
+  `utils/retention-modal.tsx` (UI). Os botões são de `utils/glass-button.tsx`, o mesmo do review: glass nativo do iOS 26
+  (SwiftUI via `@expo/ui`, que vem com o expo-router 57) e cápsula RN no Android/iOS < 26; "Agora não" só texto.
+  Tudo menos o `.tsx` é testado no bun (`tests/retention-*.test.ts`; a loja mockada em
+  `tests/helpers/rc-store-mock.ts`, produtos no formato do SDK em `tests/helpers/rc-store-fixtures.ts`).
 - **Abrir com compra**: `showRetention({segment?, offers?, productIdentifier?, variant?, locale?, imageUrl?,
   defaultBullets?})` → `{request, segment, skipped, reason}`, nunca lança. Ordem: `retention.enabled === false` desliga
   → `getCustomerInfo` → segmento (forçado ou `rc_status`; fora dos 6 de retenção não abre) → Premium ativo

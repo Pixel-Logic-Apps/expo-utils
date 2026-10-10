@@ -1886,3 +1886,142 @@ Cliente do Pixel: `expoutils_lab_pro`, produto `monthly`, TEST_STORE, vencido em
 
   Agora o formsheet fica a `bottom + 8` e o fullscreen tem `top + 56`, X em `top + 8` e `bottom + 24`. Conferido no iPhone 17 Pro e no Pixel 10a: o X fecha (`review_prompt_action later/close`) e o botão fica acima da barra.
 - **Testes e tipos:** `./tests/run.sh` com 312 pass; `bunx tsc --noEmit` do lab só com o erro antigo do `/explore`. Nada commitado.
+
+# 2026-10-09 — Remote Config em blocos: parâmetro `settings` ({utils, screens}) — lib 1.5.0 + pldev
+
+### Pedido (em ordem)
+- Reunir `utils` e `screens` ("ficou muito ruim isso", "quero tudo em settings"), mexendo também no pldev.
+- Juntar tudo de novo como era antes, sem emenda para o app. Um editor online simples, com controle de versão, fica para depois.
+- Versionar pelo próprio Remote Config ("if app.version >= 2.0.0 lê settings 2") e ter `remoteConfigUtils` e `remoteConfigScreens`
+  disponíveis separados e juntos.
+- Mockup do editor: apps NÃO agrupados (iOS e Android são itens separados, "pode acontecer de estarem em firebases diferentes"),
+  abas utils/screens, chave Formulário/JSON no canto superior direito, formulário deduzido do valor, funcionar no celular.
+- Sem arquivo de schema ("é menos um arquivo pra manutenção"): ler direto o `types.ts`.
+- O pldev escolhe o modelo pela versão do expo-utils do app "até estar pronto pra migrar de vez"; arquivo `rc-config-<plataforma>.json`.
+- "ótimo pode fazer" → implementado na lib e no pldev.
+- Depois achou o código complexo ("pq usou Record?"). Propus encolher o `settings.ts` e trocar `source: "legacy"` por um booleano;
+  resposta: **"n precisa mexer em nada"**. O código fica como está.
+- Pediu um diagrama com animação explicando tudo → página publicada (abaixo).
+
+### Decisões (preservar)
+- Um parâmetro `settings` por plataforma = `{"utils": {...}, "screens": {...}}`. Os blocos guardam exatamente o que `utils` e
+  `screens` guardam hoje: migrar é embrulhar, nada é convertido.
+- Versão pela condição: `app.id == '<id>' && app.version.>=(['<V>'])` (a API recusa `app.version >= '1.2.3'`), ACIMA das outras
+  condições do app, porque vale a 1ª condição verdadeira na ordem do template. V = 1ª versão do app que sai com a lib ≥ 1.5.0.
+- Builds abaixo de V seguem com `utils` + `screens` (cópias exatas que o pldev grava a cada push) ou com o `settings` plano antigo
+  (lib 1.0.x). `rc legacy off` apaga as cópias quando o GA4 não mostrar mais versões abaixo de V.
+- O formulário sai do `RemoteConfigUtilsType` (parser do TypeScript; tags `@section`/`@label`/`@default`/`@platform` no comentário
+  de cada campo). Sem arquivo de schema.
+- Modelo pela versão INSTALADA da lib (`node_modules/expo-utils/package.json`; o `package.json` do app pode apontar para um `.tgz`).
+- O código da lib fica como está (decisão de 09/10, depois da proposta de simplificar).
+
+### Lib — commit `a721fad` (de Bruno Martins, 09/10 05:37), `package.json` 1.5.0; o npm segue na 1.3.1
+- `utils/settings.ts` (novo, módulo-folha): `parseSettingsValue` (aceita `settings` com o bloco `utils` e/ou `screens` como
+  objeto; o `settings` plano antigo volta null), `readRemoteConfigBlocks(read)` → `{utils, screens, source: "settings" | "legacy"}`
+  e `mergeRemoteConfigBlocks` (`{...screens, ...utils}`).
+- `utils/Utils.ts`: default `settings: "{}"`; o `getRemoteConfigUtils` lê os blocos, guarda `remoteConfigScreensBlock` e
+  `remoteConfigSource` (começa em `"default"`) e devolve `{...DEFAULT, ...blocks.utils}`; o `getRemoteConfigScreens` sai da mesma
+  leitura (se ela não terminou no teto de 10 s, lê os valores ativos direto); o `setupGlobalConfigs` monta os 3 globals; o
+  `reportConfigIntegrity` recebe a origem.
+- `utils/config-integrity.ts`: o `cfg_integrity` ganhou `cfg_source` (`settings` / `legacy` / `default` = o boot seguiu com os
+  padrões). O `cfg_hash` continua sendo o MD5 do bloco utils inteiro: o mesmo hash num build antigo e num novo prova a cópia.
+- `utils/PaywallUtils.ts`: a leitura legada usa `remoteConfigUtils || remoteConfigs`.
+- `utils/types.ts`: todo campo do `RemoteConfigUtilsType` com comentário e tags; `ReviewType` (union), `appmodal`, `hash`,
+  `RemoteConfigSettingsType`; `global.remoteConfigs` tipado como utils & screens. `index.ts`/`index.d.ts` exportam
+  `RemoteConfigScreensType`, `RemoteConfigSettingsType` e `ReviewType`.
+- `tests/settings.test.ts` (15): formato novo, `settings` plano antigo ignorado, reserva em utils + screens, JSON inválido,
+  junção e tags em todo campo.
+- Docs na mesma tarefa: README, AGENTS.md, playbook `UPGRADE-EXPO57` (§5.1 e §16), `ANALYTICS-EVENTS.md` (`cfg_source`),
+  `STORE-READY-PLAYBOOK.md`, texto do `docs/index.html`, `templates/AGENTS.md` e o plano novo `docs/PLANO-SETTINGS.md` (sem IDs
+  de projeto Firebase nem app.id: o repo é público).
+
+### Globals na 1.5.0 (nenhum app precisa mudar)
+- `remoteConfigUtils` = bloco utils, com o padrão `{is_ads_enabled: !__DEV__, min_version: 1.0}` por baixo.
+- `remoteConfigScreens` = bloco screens.
+- `remoteConfigs` = `{...screens, ...utils}` (em conflito vale o utils). `global.remoteConfigs.is_ads_enabled` dá o mesmo valor do
+  `remoteConfigUtils.is_ads_enabled`, e agora também traz as chaves do screens (`global.remoteConfigs.apiUrl`).
+- Diferença para a 1.4: lá os dois nomes eram o MESMO objeto; agora são dois. Ler dá igual; escrever dentro de um não muda o
+  outro. Nem a lib nem os 12 apps de `~/Documents/projetos` escrevem dentro desses objetos (busca em 09/10). O gate da loja grava
+  `is_ads_enabled: false` nos dois.
+
+### pldev — SEM commit (detalhes em `pldev/.claude/CHATHISTORY.md`, entrada de 2026-10-09)
+- `lib/firebase-rc-editor/rc-model.js` (novo): `planPublish`, `planLegacyOff`, `findAppState`, `readAppConfig` e versões.
+  `utils-schema.js` (novo) lê o `types.ts` com o `typescript` do app; `schema-utils.js` removido.
+- Um arquivo por plataforma (`.pldev/.firebaserc/rc-config-{ios,android}.json` = `{utils, screens}`; os 4 antigos são juntados
+  sozinhos), `rc push --dry-run` (`validateOnly`), `rc legacy off`, `rc create` sem campos de enfeite, editor com o modelo no topo
+  e o formulário vindo do tipo.
+
+### Verificado × NÃO verificado
+- `./tests/run.sh` no HEAD `a721fad`: **327 pass / 0 fail em 22 arquivos** (312 de 08/10 + 15 do settings).
+- `tsc` da lib limpo contra apps com RNFB 24, 25 e 26 (o expo-eleicao tem 3 erros no próprio código, que já existiam com a 1.4.0).
+- pldev: `npm test` passa; editor dirigido com Playwright em 1280 e 390 px.
+- Sintaxe da condição conferida na API real com `PUT ?validateOnly=true`.
+- `pldev firebase rc push --dry-run --account-platform ios` de verdade numa cópia dos arquivos do Resultados: juntou os 2 arquivos,
+  viu a lib 1.5.0, perguntou o V (1.1.0), montou a condição "iOS expo resultado Settings", o template ficou com 2.841 de 1.000.000
+  caracteres e o Firebase validou. Releitura depois: versão do template inalterada, nada publicado.
+- **NÃO verificado:** nenhum app leu o `settings` de verdade. Verifiquei que não quebra; NÃO verifiquei que chega: nada foi
+  publicado e nenhum `cfg_source` apareceu no DebugView. O projeto do lab (`local-desenv`) não está nas contas do pldev.
+
+### Páginas (privadas)
+- Explicação com diagramas e animação: https://claude.ai/artifact/86MM7QRDpnAZTXji6d5qBx — antes/depois; "quem recebe o quê"
+  animado (build novo, build 1.4 das lojas, build da lib 1.0.20 com o `settings` plano, lib nova por hot-updater num binário abaixo
+  de V); boot da lib; fluxo do `rc push`; saída real do dry run (conta e IDs escondidos); transição em 5 passos. O `.html` ficou
+  no scratchpad temporário: vale a versão publicada, que se atualiza publicando no mesmo link.
+- Mockup do editor online: https://claude.ai/artifact/1vSwBmXLzw2CaXRgFfDjnK
+
+### Pendências
+- Commitar o pldev (perguntar antes). O `eas-accounts.json` de lá já estava modificado antes desta sessão.
+- O status no topo do `docs/PLANO-SETTINGS.md` ainda diz "sem commit" (a lib já está no `a721fad`).
+- Medir no destino: autorizar o `local-desenv` no pldev (`pldev firebase auth`), publicar no lab e ver o `cfg_integrity` com
+  `cfg_source = settings`.
+- `rc pull` antes do 1º `rc push` de cada app: o arquivo local do Resultados (02/10) é mais velho que o Firebase (console em 03/10).
+- Ordem sugerida: lab → um app pequeno → apps de eleição só depois do 2º turno (25/10).
+- Armadilhas: expo-urna (lib 1.0.20) e expo-urna-v2 são o MESMO app Android, e builds antigos ainda leem o `settings` plano:
+  nunca publicar `settings` com blocos sem a condição de versão. O expo-eleicao tem iOS e Android em projetos (contas) diferentes.
+  O `node_modules/expo-utils` "1.3.0" do expo-eleicao traz `app_open_enabled` e `preloadInterstitial`, que a lib principal não tem.
+- Editor online: depois (Cloudflare Pages + Worker + D1 + Access; §8 do plano).
+
+# 2026-10-10 — Botões glass nativos do iOS 26 no review e na retenção — release 1.5.1
+
+### Pedido (em ordem)
+- Botões do review no estilo e no tom de uma imagem do Liquid Glass (Cancel cinza + Accept azul, cápsulas).
+- "rode no lab pra eu ver". Depois: o cinza estava errado e a fonte tinha que ser mais leve ("descubra você"); trocar também os
+  botões do modal de retenção.
+- "de preferência use o glass button do iOS 26 27 nativo, não só tentar deixar parecido" (doc do `@expo/ui` Button).
+- Ajustar espaçamentos; "outlined" na retenção e no `centered` do review — depois esclarecido: **"outlined sem borda, só texto"**.
+- Prints de todos os componentes no iOS e no Android numa página. Rodadas de ajuste: formsheet com o botão alto e o texto colado,
+  fullscreen (escolheu imagem no topo + texto no centro entre as opções A e B), texto 24 → 40 ("muito alto") → 32, título junto
+  da mensagem.
+- "faça e suba a versão pro expo utils bumping 0.0.1".
+
+### Decisões (preservar)
+- `utils/glass-button.tsx`: iOS 26+ com o módulo `ExpoUI` → botão SwiftUI do `@expo/ui` (`glassProminent` + tint; o "Agora não"
+  só texto é `plain`). Android, iOS < 26 (o `@expo/ui` troca `glassProminent` por `.automatic`, sem fundo) e binário sem o
+  módulo → cápsula RN com os números do nativo. O `@expo/ui` é **dependência do expo-router 57**: já está linkado nos apps
+  (Podfile.lock do urna-v2/resultado), sem rebuild. Entrou como peer opcional.
+- `glass` puro sobre card branco sai #FDFDFD (= fundo) e some → secundário é `glassProminent` com tint #E9E9EB (o
+  `secondarySystemFill` medido no `bordered` nativo; escuro #39393D). Azul padrão #1582EC (o da imagem; o do sistema no iOS 26
+  mede #0088FE). Rótulo 17 **regular** (haste/altura do "l" 0,114 = RN 400; o 500 de antes dava 0,142).
+- `Host` com `ignoreSafeArea="all"`: sem isso o vidro ficava 17pt acima do lugar no formsheet e na contagem (o SwiftUI aplica a
+  área segura enquanto o card entra deslizando por baixo da tela e não desfaz).
+- Espaços medidos nos prints: título→mensagem 4; texto→botões 32 (bottomsheet/centered/formsheet); 12 entre botões; 20 até o fim
+  do card; formsheet com o botão na área segura + 8; fullscreen com imagem no topo e texto no meio (marginTop auto no bloco e nos
+  botões). Retenção: 12 entre botão, cartão e "Agora não"; rodapé = área segura + 8.
+
+### Verificado × NÃO verificado
+- iOS (simulador iPhone 17 Pro, iOS 26) e Android (emulador): prints de 12 componentes, medidas por script (alturas 49,7–50, cores,
+  vãos), pontas da cápsula RN a ≤0,12px do semicírculo (controle: squircle antigo 15,6px).
+- Android: toques via adb chegam (`review_prompt_action` later nos dois "Agora não"; o da retenção fecha o modal).
+- `./tests/run.sh` todos passando; `tsc` dos 3 arquivos contra o `node_modules` do lab.
+- **NÃO verificado:** toque nos botões nativos do iOS (o simulador roda sem o Simulator.app e não aceita toque por linha de
+  comando). Spinner de compra só no harness (`expoutilslab://botoes`), não numa compra.
+
+### Lab (`expo-utils-lab`, sem commit)
+- Deep links: `expoutilslab://review?style=&lang=pt|en|fr|ms|el|tr&delay=` e `?hide=1`; `retencao?hide=1`; tela `botoes`
+  (harness do glass nativo).
+
+### Página (privada)
+- Prints iOS × Android de todos os componentes: https://claude.ai/artifact/GsKGKrVnX8AcUUBD9khYSS
+
+### Pendências
+- npm: `latest` = 1.3.1 (1.4.0 e 1.5.0 nunca foram publicadas) e o token do `~/.npmrc` deu 401 no `npm whoami`.
