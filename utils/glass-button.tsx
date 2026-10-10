@@ -114,7 +114,10 @@ export function GlassButton({
                 ) : (
                     <Button onPress={press} modifiers={[buttonStyle("glassProminent"), controlSize("large"), tint(color), swiftDisabled(dimmed)]}>
                         {busy ? (
-                            <ProgressView modifiers={[frame({maxWidth: Infinity}), tint(textColor)]} />
+                            // `regular` no spinner: sem ele o ProgressView herdava o `large` do botão (35pt) e o botão
+                            // crescia de 50 para 67pt enquanto comprava. Regular = 20pt, o do ActivityIndicator do RN, e
+                            // o botão fica nos 50pt do texto (o small encolhia para 44). Medido no iPhone 17 Pro, iOS 26.5.
+                            <ProgressView modifiers={[controlSize("regular"), frame({maxWidth: Infinity}), tint(textColor)]} />
                         ) : (
                             // frame no TEXTO, não no botão: é o rótulo que estica a cápsula até a largura do pai
                             <Text modifiers={[frame({maxWidth: Infinity}), ...textModifiers]}>{label}</Text>
