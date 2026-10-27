@@ -729,8 +729,8 @@ o método e desenha o diálogo pelo `@expo/ui`: `Alert` do SwiftUI no iOS, `Aler
 - **Cai no Alert do RN, com os mesmos argumentos:** alerta antes de o layout montar, app sem slot e erro ao carregar ou
   desenhar o diálogo (`expo_utils_warn`; depois de um erro, o resto da sessão fica no Alert do RN). O `Alert.prompt`
   nunca passa pela lib.
-- **Binário sem o módulo nativo `ExpoUI` não é coberto:** o `glass-button.tsx` (review e retenção) importa o `@expo/ui`
-  no topo, e o `@expo/ui` lança no carregamento sem o módulo; o app cai no boot antes de o slot conferir o módulo.
+- **Binário sem o módulo nativo `ExpoUI` não é coberto:** o diálogo e o `glass-button.tsx` (review e retenção) importam
+  o `@expo/ui` no topo (regra de imports), e o `@expo/ui` lança no carregamento sem o módulo; o app cai no boot.
 - **Dependência:** nenhuma nova e sem rebuild no SDK 57 (o `@expo/ui` vem com o expo-router 57). No SDK 58 o expo-router
   deixou o `@expo/ui` opcional: o app precisa declará-lo antes de gerar o binário, porque a OTA com esta lib chega a todo
   binário da mesma versão do app.

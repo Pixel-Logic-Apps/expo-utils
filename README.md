@@ -1434,9 +1434,9 @@ publicar está no playbook, seção 4.2.2).
 - **Quando o Alert do RN desenha (com os mesmos argumentos):** alerta antes de o layout montar (boot), app sem nenhum
   slot montado e erro ao carregar ou desenhar o diálogo (vira `expo_utils_warn`; depois de um erro, o resto da sessão
   fica no Alert do RN). O `Alert.prompt` nunca passa pela lib.
-- **Binário sem o módulo nativo `ExpoUI` não é coberto:** o slot confere o módulo antes de carregar o diálogo, mas o
-  `glass-button.tsx` (botões do review e da retenção) importa o `@expo/ui` no topo, e o `@expo/ui` lança no carregamento
-  sem o módulo. O app cai no boot antes de o slot agir (já era assim antes do alerta).
+- **Binário sem o módulo nativo `ExpoUI` não é coberto:** o diálogo é importado no topo, como o `glass-button.tsx`
+  (botões do review e da retenção), e o `@expo/ui` lança no carregamento sem o módulo; o app cai no boot (já era assim
+  desde a 1.5.1, pelo glass-button).
 - **Nenhuma linha nova no app:** o `AskForReviewOverlay` monta o slot, e o `ExpoUtilsLayout` sempre renderiza o overlay.
   App sem nenhum dos dois (ex.: só com o `PromotionalContent`): `<NativeAlertSlot />` (de
   `expo-utils/utils/native-alert-slot`) no `_layout`.

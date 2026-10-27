@@ -1,23 +1,8 @@
-import React, {useEffect, useId, useSyncExternalStore, type ComponentType} from "react";
-import {requireOptionalNativeModule} from "expo";
+import React, {useEffect, useId, useSyncExternalStore} from "react";
 import {expoUtilsWarn} from "./Utils";
-import {addNativeAlertHost, failNativeAlert, nativeAlertFor, subscribeNativeAlert, type NativeAlertRequest} from "./native-alert";
-
-/**
- * O diálogo do Expo UI (native-alert-dialog.ios.tsx / .android.tsx) só carrega depois de confirmar o módulo nativo
- * ExpoUI. Exceção à regra de imports do AGENTS.md: o @expo/ui chama requireNativeModule("ExpoUI") no carregamento e
- * lança num binário sem ele (JS novo por OTA num binário antigo). É o padrão do expo-router 58 para o @expo/ui opcional
- * (build/optional-libraries/expo-ui.js). Hoje isso não salva esse binário: o glass-button.tsx importa o @expo/ui no topo
- * e o app já cai no boot por ele; só passa a valer se o glass-button também for protegido (decisão pendente do Bruno).
- */
-let NativeAlertDialog: ComponentType<{request: NativeAlertRequest}> | null = null;
-if (requireOptionalNativeModule("ExpoUI") != null) {
-    try {
-        NativeAlertDialog = require("./native-alert-dialog").default;
-    } catch (e) {
-        expoUtilsWarn("native alert:", e);
-    }
-}
+import {addNativeAlertHost, failNativeAlert, nativeAlertFor, subscribeNativeAlert} from "./native-alert";
+// .ios.tsx / .android.tsx pelo Metro; import no topo como o glass-button: o @expo/ui tem que estar no binário
+import NativeAlertDialog from "./native-alert-dialog";
 
 /** Erro ao desenhar o diálogo: em vez de derrubar o layout raiz, o pedido aberto e os seguintes vão para o Alert do RN. */
 class DialogBoundary extends React.Component<{children: React.ReactNode}, {failed: boolean}> {
@@ -40,13 +25,13 @@ class DialogBoundary extends React.Component<{children: React.ReactNode}, {faile
 /**
  * Ponto de montagem do Alert.alert nativo (utils/native-alert.ts). Quem monta é o AskForReviewOverlay, que o
  * ExpoUtilsLayout sempre renderiza (o template padrão e o lab o renderizam sem o layout); com mais de um slot montado,
- * só o 1º desenha. Sem o diálogo carregado o slot não registra host e o Alert do RN continua desenhando.
+ * só o 1º desenha.
  */
 export function NativeAlertSlot() {
     const id = useId();
     const request = useSyncExternalStore(subscribeNativeAlert, () => nativeAlertFor(id));
-    useEffect(() => (NativeAlertDialog ? addNativeAlertHost(id) : undefined), [id]);
-    return request && NativeAlertDialog ? (
+    useEffect(() => addNativeAlertHost(id), [id]);
+    return request ? (
         <DialogBoundary>
             <NativeAlertDialog request={request} />
         </DialogBoundary>

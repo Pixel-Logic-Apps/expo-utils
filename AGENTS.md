@@ -224,8 +224,8 @@ Os apps continuam chamando `Alert.alert` do react-native e a lib desenha pelo Ex
 (Material 3) no Android, por decisão do Bruno (26/10/2026). Uso e mapeamento dos botões no README e no playbook (4.2.2).
 
 - **Arquivos**: `utils/native-alert.ts` (fila, dono único, troca do `Alert.alert` e mapeamento dos botões; folha,
-  testada em `tests/native-alert.test.ts`), `utils/native-alert-slot.tsx` (`NativeAlertSlot`; carrega o diálogo só com o
-  módulo ExpoUI, a exceção da regra de imports) e `utils/native-alert-dialog.ios.tsx` / `.android.tsx`.
+  testada em `tests/native-alert.test.ts`), `utils/native-alert-slot.tsx` (`NativeAlertSlot`; importa o diálogo no topo, pela
+  regra de imports, com o tipo em `native-alert-dialog.d.ts`) e `utils/native-alert-dialog.ios.tsx` / `.android.tsx`.
 - **Fallback**: o `Alert.alert` só é trocado quando um host registra, e sem host o pedido vai para o Alert do RN com os
   mesmos argumentos. Quem monta o slot é o `AskForReviewOverlay`, que o `ExpoUtilsLayout` sempre renderiza; com mais de
   um slot, o 1º registrado desenha. Erro ao desenhar o diálogo (error boundary no slot) não derruba o layout raiz:
@@ -528,13 +528,10 @@ esconde dependencia, quebra tree-shaking e tipagem, e deixa o arquivo com duas c
   acontece dentro de funcao, entao o ciclo resolve em runtime sem problema.
 - Peer dependency opcional tambem entra no header — se o app nao instalou o pacote, o erro
   aparece no build/bundle (onde deve aparecer), nao escondido num caminho de execucao raro.
-- **Excecao unica: o dialogo do Expo UI (`utils/native-alert-slot.tsx`).** O `@expo/ui` chama
-  `requireNativeModule("ExpoUI")` no carregamento e lanca num binario sem o modulo nativo (JS novo por OTA num binario
-  antigo): o erro nao aparece no bundle, aparece no boot de quem recebeu a OTA. Por isso o slot confere
-  `requireOptionalNativeModule("ExpoUI")` e so entao faz `require("./native-alert-dialog")` em try/catch (o padrao do
-  expo-router 58 em `build/optional-libraries/expo-ui.js`). Hoje isso nao salva esse binario: o `glass-button.tsx`
-  importa o `@expo/ui` no topo e o app ja cai no boot por ele. Manter a excecao (e proteger o glass-button tambem) ou
-  trocar por import no topo, como o glass-button: decisao pendente do Bruno (27/10/2026).
+- **Sem excecao, nem para o `@expo/ui`** (decisao do Bruno, 27/10/2026): o dialogo do Alert.alert nativo
+  (`utils/native-alert-slot.tsx`) importa `./native-alert-dialog` no topo, como o `glass-button.tsx`, e o
+  `native-alert-dialog.d.ts` da o tipo (o Metro carrega o `.ios.tsx` ou o `.android.tsx`). Consequencia: o modulo
+  nativo `ExpoUI` tem que estar no binario (SDK 56/57: vem com o expo-router; SDK 58: o app declara o `@expo/ui`).
 
 ### Adding a New CLI Flag
 
