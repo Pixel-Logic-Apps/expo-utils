@@ -13,7 +13,7 @@
 ✅ **Tela de Avaliação**: Abertura automática da loja para reviews (iOS/Android)  
 ✅ **Estrutura do Projeto**: Templates pré-configurados com melhores práticas  
 ✅ **TypeScript Completo**: Tipagem completa e interfaces bem definidas  
-✅ **Compatibilidade Moderna**: Expo SDK 57, Firebase v24+/v25, React Native 0.86+
+✅ **Compatibilidade Moderna**: Expo SDK 57 e 58, Firebase v24–27, React Native 0.86+, Hot Updater v0 e v1
 
 ## 🆕 Novidades da v1.4.0
 
@@ -282,7 +282,7 @@ npx expo-utils-install --new
 | Comando                   | Descrição                                       |
 | ------------------------- | ----------------------------------------------- |
 | `npx expo-utils-install`  | Instala apenas dependências faltantes           |
-| `--config`                | Adiciona plugins padrão ao app.json (AdMob, Facebook, splash screen, expo-utils) |
+| `--config`                | Adiciona plugins padrão ao app.json (AdMob, Facebook, splash screen, `expo-navigation-bar`, expo-utils) |
 | `--firebase-placeholders` | Cria arquivos Firebase placeholder              |
 | `--layout`                | Substitui \_layout.tsx por template configurado |
 | `--srcapp`                | Move pasta app para src/app                     |
@@ -291,10 +291,11 @@ npx expo-utils-install --new
 | `--constants`             | Cria pasta constants com Strings.ts template    |
 | `--eas-config`            | Configura eas.json, EAS build cache, remove updates block |
 | `--tracking-permission`   | Adiciona permissão de rastreamento iOS          |
-| `--fix-ios-build`         | Aplica fixes de build iOS (static frameworks); deduplica arrays do `infoPlist` (ex.: `UIBackgroundModes`) |
+| `--fix-ios-build`         | `expo-build-properties` pela versão do RNFirebase do app: v24–26 → `useFrameworks: "static"` com os RNFB* no `forceStaticLinking`; v27+ → `useFrameworks: "dynamic"`, `forceStaticLinking` só com `RNGoogleMobileAds` e `react-native-fbsdk-next` e `android.kotlinVersion: "2.4.20"`. Deduplica arrays do `infoPlist` (ex.: `UIBackgroundModes`) |
 | `--expo-icon`             | Remove `ios.icon` quebrado (ex.: `./assets/expo.icon` deletado) que derruba o `actool` no prebuild; só com `icon` raiz válido de fallback. Roda também no `--new` |
 | `--gitignore`             | Atualiza .gitignore com ios/, android/, bun.lock |
-| `--hot-updater`           | Configura Hot Updater (babel, .env, deps)       |
+| `--hot-updater`           | Configura o Hot Updater **v0** (padrão; babel, .env, deps `>=0.35.3 <1`, plugin `@hot-updater/react-native`). Se o app já declara a 1.x, configura o v1 (v0 sem teto que resolveu a 1.x por acidente continua v0, com teto) |
+| `--hot-updater-v1`        | Configura o Hot Updater **v1** (1.1.3+): deps `>=1.1.3 <2`, plugin `@hot-updater/expo` no lugar do outro, chaves do v1 no `.env.hotupdater` e `hotUpdaterApiKey` no `Strings.ts` |
 | `--sort-plugins`          | Ordena os plugins do app.json (strings primeiro, depois os com config) |
 | `--pin-deps`              | Fixa todas as deps do `package.json` em versão exata (remove `^`/`~`/`>=`, usa a versão instalada). Preserva git/GitHub/`file:`/tarball. Roda também no `--new` |
 | `--policy-checks`         | Sincroniza `.claude/POLICY-CHECKS.md` (regras de review que já derrubaram build). Arquivo **gerado**: sobrescreve a cópia local. Se o `AGENTS.md` do app não citar o arquivo, adiciona um ponteiro no fim. Roda também no `--new` |
@@ -303,76 +304,33 @@ npx expo-utils-install --new
 
 ### 1. Template \_layout.tsx
 
-O `expo-utils` fornece um template completo para `_layout.tsx`:
+O `expo-utils` fornece um template completo para `_layout.tsx` (`templates/RootLayout.tsx`, copiado pelo `--layout`/`--new`). O núcleo:
 
 ```typescript
-import {SplashScreen, Stack, usePathname} from "expo-router";
-import {useEffect, useState} from "react";
-import Utils from "expo-utils/utils/Utils";
+import Utils, {initHotUpdater, expoUtilsWarn} from "expo-utils/utils/Utils";
 import {setupAppOpenListener} from "expo-utils/utils/appopen-ads";
-import AskForReviewOverlay, {AskForReviewEvents} from "expo-utils/utils/ask-for-review";
-import PromotionalContent, {usePromotional} from "expo-utils/utils/modal-promotional-content";
 import appConfig from "../../app.json";
 import appStrings from "../constants/Strings";
-import {HotUpdater} from "@hot-updater/react-native";
-import type {RemoteConfigUtilsType} from "expo-utils/utils/types";
 
-declare global {
-    var remoteConfigUtils: RemoteConfigUtilsType;
-    var remoteConfigScreens: any;
-    var isAdsEnabled: boolean;
-    var adUnits: any;
-}
-
-SplashScreen.preventAutoHideAsync().catch(() => {});
-
-function RootLayout() {
-    const [appIsReady, setAppIsReady] = useState(false);
-    const [showReviewOverlay, setShowReviewOverlay] = useState(false);
-    const pathname = usePathname();
-    const {visible: showPromo, show: showPromoModal, hide: hidePromoModal} = usePromotional(pathname);
-
-    useEffect(() => {
-        global.isAdsEnabled = !__DEV__;
-        Utils.prepare(setAppIsReady, appConfig, appStrings).then(() => {
+useEffect(() => {
+    (async () => {
+        try {
+            // OTA: v0 com a URL …/api/check-update; v1 com a raiz do Worker v1 + a chave de cliente
+            await initHotUpdater(appStrings.hotUpdaterUrl, {apiKey: appStrings.hotUpdaterApiKey});
+            await Utils.prepare(setAppIsReady, appConfig, appStrings);
             setupAppOpenListener();
             showPromoModal();
-        });
-
-        const unsubscribe = AskForReviewEvents.onShowPopup(() => {
-            setShowReviewOverlay(true);
-        });
-        return unsubscribe;
-    }, []);
-
-    if (!appIsReady) {
-        return null;
-    } else {
-        setTimeout(() => {
-            SplashScreen.hideAsync().catch(() => {});
-        }, 1000);
-    }
-
-    return (
-        <>
-            <Stack>
-                <Stack.Screen name="index" options={{headerShown: false}} />
-            </Stack>
-            <PromotionalContent visible={showPromo} onClose={hidePromoModal} />
-            <AskForReviewOverlay
-                visible={showReviewOverlay}
-                onClose={() => setShowReviewOverlay(false)}
-                delay={global.remoteConfigUtils?.review_type_delay || 0}
-            />
-        </>
-    );
-}
-
-export default HotUpdater.wrap({
-    baseURL: "https://YOUR-WORKER.workers.dev/api/check-update",
-    updateMode: "manual",
-})(RootLayout);
+        } catch (e) {
+            expoUtilsWarn("RootLayout boot:", e);
+            setAppIsReady(true);
+        }
+    })();
+    return AskForReviewEvents.onShowPopup(() => setShowReviewOverlay(true));
+}, []);
+// …e no JSX, depois das telas: <View onLayout={Utils.handleReady} /> (dispara UMP/ATT/push/atribuição)
 ```
+
+Mais simples: envolva as telas com `<ExpoUtilsLayout appConfig={appConfig} appStrings={appStrings}>`, que faz tudo isso (veja o fim do template). **Não use `HotUpdater.wrap`**: no Hot Updater v1 ele nem existe no `HotUpdater` (só na instância) e o app quebra ao abrir.
 
 ### 2. Função Utils.prepare()
 
@@ -1437,16 +1395,24 @@ Configuração no bloco `utils` do Firebase Remote Config:
 
 ### HotUpdater (Updates OTA)
 
-A URL do HotUpdater é configurada diretamente no `_layout.tsx` via `HotUpdater.wrap()`:
+O `initHotUpdater` (chamado pelo `ExpoUtilsLayout` e pelo template do `_layout`) confere o OTA com `updateStrategy: "appVersion"`, baixa e, com `shouldForceUpdate`, reinicia. Funciona com as **duas gerações** do `@hot-updater/react-native` e descobre sozinho qual está instalada (`hotUpdaterGeneration()`: `checkForUpdate` estático = v0):
+
+| | v0 (0.35/0.36, padrão do `--hot-updater`) | v1 (1.1.3+, `--hot-updater-v1`) |
+|---|---|---|
+| Servidor | Worker v0, URL terminada em `/api/check-update` | Worker v1 **novo** (D1 próprio), URL = raiz dele |
+| `Strings.ts` | `hotUpdaterUrl` | `hotUpdaterUrl` + `hotUpdaterApiKey` (a `HOT_UPDATER_API_KEY` do `hot-updater init`, vai no `x-api-key`) |
+| Plugin no `app.json` | `["@hot-updater/react-native", {"channel": "production"}]` | `["@hot-updater/expo", {"channel": "production"}]` (o `@hot-updater/react-native` 1.x não tem plugin) |
 
 ```typescript
-export default HotUpdater.wrap({
-    baseURL: "https://YOUR-WORKER.workers.dev/api/check-update",
-    updateMode: "manual",
-})(RootLayout);
+await initHotUpdater(appStrings.hotUpdaterUrl, {apiKey: appStrings.hotUpdaterApiKey});
+// v1 com instância própria do app (HotUpdater.init no módulo dela): a lib usa essa e não cria outra
+await initHotUpdater(hotUpdater);
 ```
 
-O expo-utils verifica automaticamente por updates no `prepare()` e aplica se necessário.
+- **Nunca lança** e é no-op em `__DEV__`. No v1, URL de servidor v0 (`/api/check-update`) ou chave ausente viram aviso (`expoUtilsWarn`) e o OTA **não roda** — o servidor v0 não atende binário v1, e vice-versa.
+- `getHotUpdater()`: no v0, o próprio `HotUpdater`; no v1, a instância em uso. `getRunningBundleId()`: o pacote que está **rodando** (lido no init — no v1 o `getBundleId()` passa a devolver o pacote baixado assim que o download termina, antes de reiniciar).
+- `transitionKind: "USE_BUILTIN"` (v1): o `updateBundle()` apaga os pacotes baixados na hora e o app volta ao embutido no próximo início.
+- Migrar um app para o v1 = binário novo apontando para um servidor v1 novo; o v0 continua no ar para os binários antigos (guia "Move from v0 to v1" do hot-updater.dev).
 
 ### Trendings Tracker
 
@@ -1474,7 +1440,7 @@ Configuração no bloco `utils` do Firebase Remote Config:
 
 ### Dependências Principais Incluídas
 
-**🔥 Firebase (v24+/v25 API Modular + Remote Config dual-path)**
+**🔥 Firebase (v24–27, API Modular + Remote Config dual-path)**
 
 - `@react-native-firebase/app` - Core Firebase
 - `@react-native-firebase/analytics` - Analytics e eventos
@@ -1501,7 +1467,7 @@ Configuração no bloco `utils` do Firebase Remote Config:
 - `@react-native-async-storage/async-storage` - Armazenamento local
 - `react-native-fbsdk-next` - Facebook SDK
 - `@microsoft/react-native-clarity` - Analytics Microsoft
-- `react-native-edge-to-edge` - Layout edge-to-edge
+- `expo-navigation-bar` - Contraste da barra de navegação do Android (`enforceContrast: false`; o edge-to-edge já vem do RN ≥ 0.86 — o `react-native-edge-to-edge` foi descontinuado)
 
 ### Sistema de Peer Dependencies
 
@@ -1586,6 +1552,8 @@ import type {AppStrings} from "expo-utils";
 
 const appStrings: AppStrings = {
     rckey: "appl_SuaChaveRevenueCatAqui", // ou "goog_xxx" para Android
+    hotUpdaterUrl: "https://SEU-WORKER.workers.dev/api/check-update", // v1: raiz do Worker v1
+    hotUpdaterApiKey: "", // só Hot Updater v1: a HOT_UPDATER_API_KEY do servidor
     adUnits: {
         appOpen: "ca-app-pub-xxx/xxx",
         banner: "ca-app-pub-xxx/xxx",
@@ -1608,9 +1576,12 @@ export interface AdUnits {
 }
 
 export interface AppStrings {
-    rckey?: string;       // Chave RevenueCat (appl_ ou goog_)
-    adUnits?: AdUnits;    // Unit IDs do AdMob
-    [key: string]: any;   // Campos extras opcionais
+    rckey?: string;            // Chave RevenueCat (appl_ ou goog_)
+    adUnits?: AdUnits;         // Unit IDs do AdMob
+    hotUpdaterUrl?: string;    // Servidor do Hot Updater (v0: …/api/check-update; v1: raiz do Worker v1)
+    hotUpdaterApiKey?: string; // Só Hot Updater v1: chave de cliente (x-api-key)
+    metaInstallReferrerKey?: string;
+    [key: string]: any;        // Campos extras opcionais
 }
 ```
 
@@ -1748,9 +1719,9 @@ Para suprimir warnings e/ou logs do expo-utils, adicione a configuração no seu
 - `firebaseLogLevel: "error"` - **Opt-in.** Cala o log **nativo** do Firebase SDK no iOS (ex.: `[FirebaseAnalytics][I-ACS...]`). No **prebuild** o plugin gera/mergeia `react-native.app_log_level` num `firebase.json` na raiz do projeto — você **não precisa criar esse arquivo na mão**. Valores: `"error" | "warn" | "info" | "debug"` (ou `true` = `"error"`). Preserva outras chaves do `firebase.json` e não sobrescreve um `app_log_level` definido manualmente. _Não_ silencia os logs `RNFB...[Line N]` (esses são debug-only e somem em release).
 - `analyticsAdSupport` - **Ligado por padrão** (apps ads-first). No **prebuild** injeta `$RNFirebaseAnalyticsEnableAdSupport = true` no `Podfile` iOS → linka `AdSupport.framework`, dando ao Firebase Analytics acesso ao IDFA (demografia/interesses no iOS, como no Android). ⚠️ Coleta IDFA em **produção**: precisa de ATT (expo-utils já pede) + IDFA declarado no privacy manifest/App Store. Inócuo em apps com AdMob (IDFA já coletado). **Desligue num app sem ads** com `"analyticsAdSupport": false`. Precisa `prebuild --clean` + rebuild.
 - `analyticsOnDeviceConversion` - **Ligado por padrão.** No **prebuild** injeta `$RNFirebaseAnalyticsGoogleAppMeasurementOnDeviceConversion = true` no `Podfile` iOS → adiciona o pod `GoogleAdsOnDeviceConversion` (resolve o log `[FirebaseAnalytics] Failed to initiate on-device conversion measurement... dependency does not support this feature`). Desligue com `"analyticsOnDeviceConversion": false`. _Obs.:_ feito via Podfile (não via config plugin do `@react-native-firebase/analytics`, que **não existe na v24** e quebraria o prebuild). Precisa `prebuild --clean` + rebuild.
-- `mediation` - **Ligado por padrão com 4 redes**: **AppLovin, Meta Audience Network, Unity Ads e Pangle**. O catálogo tem outras 5 disponíveis que **só entram se você pedir pelo nome** — `liftoff` (alias `vungle`), `mintegral`, `bidmachine` (alias `appodeal`), `moloco` e `bigo` —, para o build não engordar sozinho quando o catálogo crescer. No **prebuild** injeta os adapters no `android/app/build.gradle`, os repositórios Maven de Mintegral/Pangle no `android/build.gradle` e os pods no `ios/Podfile` — nada de mexer em Podfile/Gradle na mão nem plugin local no app. As versões vêm de `data/mediation_adapters.json` e são **pinadas** (o pod do Pangle 8.2.0.7+ exige `Google-Mobile-Ads-SDK ~> 13.6` e quebraria o `pod install` com o 13.5.0 do RNGMA 16.4.0). Desligue com `"mediation": false`, escolha as redes com `"mediation": ["applovin", "meta"]` ou troque versão com `"mediation": {"applovin": "13.6.3.0"}` (string vale pras duas plataformas; use `{"ios": "…", "android": "…"}` pra separar).
+- `mediation` - **Ligado por padrão com 4 redes**: **AppLovin, Meta Audience Network, Unity Ads e Pangle**. O catálogo tem outras 5 disponíveis que **só entram se você pedir pelo nome** — `liftoff` (alias `vungle`), `mintegral`, `bidmachine` (alias `appodeal`), `moloco` e `bigo` —, para o build não engordar sozinho quando o catálogo crescer. No **prebuild** injeta os adapters no `android/app/build.gradle`, os repositórios Maven de Mintegral/Pangle no `android/build.gradle` e os pods no `ios/Podfile` — nada de mexer em Podfile/Gradle na mão nem plugin local no app. As versões vêm de `data/mediation_adapters.json` (as do RNGMA 17.4.0) e são **pinadas**: cada pod exige um `Google-Mobile-Ads-SDK ~> X` e o RNGMA pina o dele (16.x: 13.5.0; 17.4.0: 13.10.0). Onde o pod novo não serve ao RNGMA 16.x (hoje o Pangle, que do 8.2.0.7 em diante exige `~> 13.6`), o plugin lê o RNGMA instalado e usa sozinho a versão antiga (`compat` no catálogo). Desligue com `"mediation": false`, escolha as redes com `"mediation": ["applovin", "meta"]` ou troque versão com `"mediation": {"applovin": "13.6.3.0"}` (string vale pras duas plataformas; use `{"ios": "…", "android": "…"}` pra separar).
 
-**SDK da rede vem junto:** no Android quase todo adapter declara o SDK da rede no POM — **menos o da Unity** ("This build does not contain the UnityAds SDK"): sem o SDK o app vai só com o adapter e a Unity fica com **0% de match** no bidding (visto num APK de produção em 06/10/2026). Desde 07/10/2026 o catálogo acrescenta `implementation("com.unity3d.ads:unity-ads:4.19.0")` logo após o adapter (`android.extraArtifacts` em `data/mediation_adapters.json`; versão = a do "built and tested with" do adapter 4.19.0.0). Trocar a versão do adapter da Unity troca a do SDK junto (`4.20.1.0` → `4.20.1`). App que já declarava o SDK numa chave própria (ex.: `"unity-sdk": {"android": {"artifact": "com.unity3d.ads:unity-ads", "version": "4.19.0"}}`) pode tirar a chave — se ficar, sai **uma** linha só e a versão do app.json vence a do catálogo. No iOS todo pod já puxa o SDK pelo CocoaPods. Conferir de novo ao subir versão: `node scripts/check-mediation-poms.js` (lê os POMs no Google Maven e os podspecs no CocoaPods; não roda nos testes).
+**SDK da rede vem junto:** no Android quase todo adapter declara o SDK da rede no POM — **menos o da Unity** ("This build does not contain the UnityAds SDK"): sem o SDK o app vai só com o adapter e a Unity fica com **0% de match** no bidding (visto num APK de produção em 06/10/2026). Desde 07/10/2026 o catálogo acrescenta `implementation("com.unity3d.ads:unity-ads:4.20.1")` logo após o adapter (`android.extraArtifacts` em `data/mediation_adapters.json`; versão = a do "built and tested with" do adapter 4.20.1.0). Trocar a versão do adapter da Unity troca a do SDK junto (`4.21.0.0` → `4.21.0`). App que já declarava o SDK numa chave própria (ex.: `"unity-sdk": {"android": {"artifact": "com.unity3d.ads:unity-ads", "version": "4.19.0"}}`) pode tirar a chave — se ficar, sai **uma** linha só e a versão do app.json vence a do catálogo. No iOS todo pod já puxa o SDK pelo CocoaPods. Conferir de novo ao subir versão: `node scripts/check-mediation-poms.js` (lê os POMs no Google Maven e os podspecs no CocoaPods, e confere a restrição `Google-Mobile-Ads-SDK` da versão escolhida para o RNGMA 16.x e para o 17.4; não roda nos testes).
 
 **Rede fora do catálogo:** defina inteira no `app.json` — não precisa mexer na lib. Vale para qualquer ad source do AdMob, e definição só de uma plataforma é aceita (injeta só nela):
 
@@ -1769,7 +1740,7 @@ Para suprimir warnings e/ou logs do expo-utils, adicione a configuração no seu
 }]
 ```
 
-Antes de fixar a versão do **pod**, confira a restrição `Google-Mobile-Ads-SDK ~> X` dele: o RNGMA 16.4.0 traz o **13.5.0**, então precisa ser um adapter da família `~> 13.3`/`~> 13.5` — foi assim que o Pangle 8.2.0.7+ (que exige `~> 13.6`) derrubaria o `pod install`. Requer `react-native-google-mobile-ads >= 16.4.0` e `prebuild --clean` + rebuild. No Android o plugin também exclui automaticamente a cópia do TikTok Business SDK que o Pangle embute quando o app tem `expo-tiktok-ads-events` (senão o build morre em `checkReleaseDuplicateClasses`). ⚠️ **Adapter no build não serve ad sozinho**: cada rede precisa de conta própria + grupo de mediação configurado na UI do AdMob; sem isso só pesa o build. **Custo medido** em app real (APK release universal): 127,5 MB sem mediation → 140,5 MB com 6 redes → 148,8 MB com 9. As 4 do default ficam em torno de **+9 MB**.
+Antes de fixar a versão do **pod**, confira a restrição `Google-Mobile-Ads-SDK ~> X` dele contra o GMA que o RNGMA do app pina (16.x: **13.5.0**; 17.0–17.2: 13.6.0; 17.4.0: **13.10.0**) — foi assim que o Pangle 8.2.0.7+ (que exige `~> 13.6`) derrubaria o `pod install` no RNGMA 16.x. Requer `react-native-google-mobile-ads >= 16.4.0` e `prebuild --clean` + rebuild. No Android o plugin também exclui automaticamente a cópia do TikTok Business SDK que o Pangle embute quando o app tem `expo-tiktok-ads-events` (senão o build morre em `checkReleaseDuplicateClasses`). ⚠️ **Adapter no build não serve ad sozinho**: cada rede precisa de conta própria + grupo de mediação configurado na UI do AdMob; sem isso só pesa o build. **Custo medido** em app real (APK release universal): 127,5 MB sem mediation → 140,5 MB com 6 redes → 148,8 MB com 9. As 4 do default ficam em torno de **+9 MB**.
 - `firebaseDisableSPM` - **Automático pela versão do RNFirebase do app** (não precisa pôr no `app.json`). Com o RNFirebase **v24–26** injeta `$RNFirebaseDisableSPM = true` no `Podfile`: do v25 em diante o Firebase iOS vem por Swift Package, e com `useFrameworks: "static"` (que o CLI configura) o `pod install` **aborta**: _"[react-native-firebase] SPM + static linkage is not supported"_. Com o RNFirebase **v27+** não injeta: o Firebase iOS 13 só existe por Swift Package (exige `useFrameworks: "dynamic"`) e a global é que faz o `pod install` falhar. `true`/`false` força um dos dois.
 - `umpDebugGeography` / `umpTestDeviceIds` - **Opt-in, só para QA.** Força o formulário de consentimento do UMP a aparecer fora da Europa: `"umpDebugGeography": "EEA"` (ou `"REGULATED_US_STATE"`, `"OTHER"`, `"DISABLED"`) + `"umpTestDeviceIds": ["<id do device no log do SDK>"]`. Em produção deixe fora do app.json.
 - `usageDescriptions` - **Ligado por padrão.** No **prebuild** injeta no `Info.plist` as purpose strings de privacidade que SDKs comuns exigem (`expo-image`/`expo-video`/`expo-file-system` e o `FBSDKShareKit` referenciam a galeria) — resolve o **ITMS-90683** ("Missing purpose string") na submissão à App Store. Adiciona `NSPhotoLibraryUsageDescription`, `NSPhotoLibraryAddUsageDescription` e `NSCameraUsageDescription` **só se você ainda não definiu** (preserva o que está no `app.json` `ios.infoPlist`). Texto base em **inglês**; a tradução por idioma vem do `--languages` (via `expo.locales` → `InfoPlist.strings`). Desligue tudo com `"usageDescriptions": false`, ou por chave: `"usageDescriptions": { "NSCameraUsageDescription": false }` (ou passe uma string pra trocar o texto). **Android não tem equivalente** — o ITMS-90683 é só do iOS.
@@ -1799,9 +1770,9 @@ Se você chamar múltiplas permissões em sequência rápida, o diálogo ATT pod
 
 O Facebook SDK **DEVE** ser inicializado antes do RevenueCat para que `getAnonymousID()` funcione corretamente. O expo-utils já gerencia essa ordem automaticamente.
 
-## 🔄 Compatibilidade Firebase v24+ / v25
+## 🔄 Compatibilidade Firebase v24–27
 
-Compatível com a **API modular** do React Native Firebase v24+ e com a API de instância do **v25** (Remote Config sem `setConfigSettings`/`setDefaults` modulares):
+Compatível com a **API modular** do React Native Firebase v24+ e com a API de instância do **v25** (Remote Config sem `setConfigSettings`/`setDefaults` modulares). No **v27** (SDK 58) o Firebase iOS 13 só vem por Swift Package: frameworks **dinâmicos** no iOS e Kotlin ≥ 2.4.0 no Android — o `--fix-ios-build` e o plugin (`$RNFirebaseDisableSPM`) escolhem a configuração pela versão instalada no app:
 
 ✅ Não usa métodos deprecated  
 ✅ Imports modulares otimizados  

@@ -41,6 +41,39 @@ Não pule passos. Se o app-alvo for outro, mantenha a mesma **ordem** e o mesmo 
 - Premium via **`PremiumUtils`**
 - TypeScript limpo (`npx tsc --noEmit` exit 0 no app)
 
+### 0.1 Expo SDK 58 (expo-utils 1.5.1)
+
+A lib 1.5.1 serve os dois SDKs: app no **SDK 57** segue como está (RNFB 24–26, Hot Updater v0, stack iOS estático) e o
+**SDK 58** muda o que está abaixo. **Combinação testada** em 27/10/2026 no Eleições 1.6.0 (SDK 58, RNFB 27.1.0, RNGMA
+17.4.0): Release no iOS (Xcode 27.1, simulador) e no Android (`assembleRelease` com R8), com exatamente a coluna da
+direita.
+
+| Tema | SDK 57 (como antes) | SDK 58 |
+|---|---|---|
+| Versões | expo 57, RN 0.86, React 19.2.3 | expo **58.0.19**, RN **0.88.0**, React **19.3.0**, `@types/react ~19.3.0`, TypeScript **~6.0.3** |
+| Firebase | RNFB 24–26 | RNFB **27.1.0** (Firebase iOS 13 só por Swift Package; Android BoM 35) |
+| iOS (`expo-build-properties`) | `useFrameworks: "static"` + RNFB* no `forceStaticLinking`; o plugin da lib põe `$RNFirebaseDisableSPM` | `useFrameworks: "dynamic"`, `forceStaticLinking: ["RNGoogleMobileAds", "react-native-fbsdk-next"]`; **sem** `$RNFirebaseDisableSPM` (o plugin não põe com RNFB 27) |
+| Android (`expo-build-properties`) | — | `kotlinVersion: "2.4.20"` (o BoM 35 exige ≥ 2.4.0; **não** 2.4.21, ver 11) |
+| Edge-to-edge | `react-native-edge-to-edge` (pode ficar) | sai (descontinuado; o RN ≥ 0.86 já desenha edge-to-edge): `["expo-navigation-bar", {"enforceContrast": false}]` |
+| `@expo/ui` e `expo-device` | o `@expo/ui` vem com o expo-router | **dependência direta obrigatória**: a lib importa os dois e o expo-router 58 não traz mais o `@expo/ui` |
+| AdMob | RNGMA 16.4+ (no 16.x o Pangle fica no `compat`, seção 3.3) | RNGMA **17.4.0** (o catálogo da mediação segue ele) |
+| Hot Updater | v0 (0.35/0.36) | v0 ou **v1 1.1.3** com servidor novo (seção 2.4) |
+| Plugin local `withPodsDeploymentTarget` | — | **não precisa** (o expo-modules-autolinking ≥ 57.0.5 corrigiu o expo#47537): apague se o app tiver |
+| `experiments.buildCacheProvider` | `"eas"` | igual (o depreciado é o `experiments.remoteBuildCache`) |
+
+Passo a passo para um app que já está no SDK 57 com a lib:
+
+1. `npx expo install expo@^58.0.19` e depois `npx expo install --fix` (alinha os pacotes do Expo ao SDK);
+   `react`/`react-dom` 19.3.0, `@types/react ~19.3.0`, `typescript ~6.0.3`.
+2. Todos os `@react-native-firebase/*` em **27.1.0**; `react-native-google-mobile-ads` **17.4.0**;
+   `react-native-purchases` 10.15.1; `@microsoft/react-native-clarity` 4.9.2.
+3. `npx expo-utils-install` (instala `@expo/ui`, `expo-device` e `expo-navigation-bar` se faltarem, na versão do SDK)
+   e `npx expo-utils-install --fix-ios-build --config` (o `--fix-ios-build` escreve o bloco do RNFB 27 lendo a versão
+   instalada; o `--config` acrescenta o `expo-navigation-bar`).
+4. Tirar o `react-native-edge-to-edge` do `package.json` e o plugin dele do `app.json` (o CLI não remove).
+5. Hot Updater: ficar no v0 ou migrar para o v1 (seção 2.4).
+6. `npx tsc --noEmit`, `npx expo-doctor`, `npx expo prebuild --clean` e build **Release** nas duas plataformas.
+
 ---
 
 ## 1. Análise obrigatória ANTES de editar código
@@ -101,10 +134,12 @@ cat ../expo-utils/package.json | head -100
 | expo | >=57.0.4 |
 | react | >=19.2.3 |
 | react-native | >=0.86.0 |
-| @react-native-firebase/* | >=24 (ideal **25.1.0** como meclivros) |
-| @hot-updater/* / hot-updater | >=0.35.3 |
-| react-native-purchases | >=10.4.2 |
-| react-native-google-mobile-ads | >=16.4.0 |
+| @react-native-firebase/* | >=24 (SDK 57: 24–26, ideal **25.1.0** como meclivros; SDK 58: **27.1.0**) |
+| @hot-updater/* / hot-updater | `>=0.35.3 <1 \|\| >=1.1.3 <2` (v0 por padrão; v1 só com servidor v1 — ver 2.4) |
+| react-native-purchases | >=10.4.2 (SDK 58: 10.15.1) |
+| react-native-google-mobile-ads | >=16.4.0 (SDK 58: **17.4.0**, o do catálogo da mediação) |
+| @expo/ui, expo-device | >=57 — **obrigatórios** como dependência direta (a lib importa os dois; o expo-router 58 não traz o `@expo/ui`) |
+| expo-navigation-bar | >=57, opcional (substitui o `react-native-edge-to-edge`) |
 | react-native-reanimated | 4.x → **exige** `react-native-worklets` |
 | eas-build-cache-provider | >=20.0.0 |
 | expo-device, expo-video, expo-tiktok-ads-events | peers opcionais mas recomendados |
@@ -174,24 +209,70 @@ Opções (preferência nesta ordem):
 @react-native-firebase/remote-config  25.1.0
 ```
 
+**SDK 58: todos em 27.1.0.** O Firebase iOS 13 só vem por Swift Package: frameworks dinâmicos no iOS e Kotlin 2.4.20
+no Android (seção 3.3). O `--fix-ios-build` escolhe a configuração pela versão instalada.
+
 ### 2.4 Hot Updater
 
+**Duas gerações que não se falam** (guia "Move from v0 to v1" do hot-updater.dev): binário v0 só fala com servidor
+v0, binário v1 só com servidor v1. A lib atende as duas com o mesmo `initHotUpdater`, que descobre a geração pela API
+instalada (`checkForUpdate` estático = v0). Os peers aceitam as duas (`>=0.35.3 <1 || >=1.1.3 <2`).
+
+**v0 — padrão do `expo-utils-install --hot-updater` (todo app no ar hoje):**
+
 ```text
-@hot-updater/react-native   0.35.3
-@hot-updater/expo           0.35.3   (devDependency)
-@hot-updater/cloudflare     0.35.3   (devDependency)
-hot-updater                 0.35.3   (devDependency)
+@hot-updater/react-native   0.36.19   (faixa >=0.35.3 <1)
+@hot-updater/expo           0.36.19   (devDependency)
+@hot-updater/cloudflare     0.36.19   (devDependency)
+hot-updater                 0.36.19   (devDependency)
 ```
+
+- Plugin `["@hot-updater/react-native", {"channel": "production"}]`; `hotUpdaterUrl` = `https://<worker-v0>/api/check-update`.
+- Em binário novo, prefira a **0.36.19** (último da v0) e evite 0.36.14–0.36.17 (rollback falso depois de push com o
+  app fechado, gronxb/hot-updater#1468, corrigido na 0.36.18). `npm view @hot-updater/react-native dist-tags`: a v0
+  fica na tag `v0`.
+- **Nunca** deixe spec sem teto (`>=0.35.3`): o `latest` do npm é a 1.x desde 20/10/2026 e um install novo pegaria o
+  v1 com o servidor v0. O CLI escreve `>=0.35.3 <1` e trava um spec v0 sem teto que encontrar.
+
+**v1 — `expo-utils-install --hot-updater-v1` (ou o `--hot-updater` num app que já declara a 1.x); só em binário NOVO:**
+
+```text
+@hot-updater/react-native   1.1.3   (faixa >=1.1.3 <2)
+@hot-updater/expo           1.1.3   (devDependency: plugin do Expo + adaptador de build)
+@hot-updater/cloudflare     1.1.3   (devDependency)
+hot-updater                 1.1.3   (devDependency)
+```
+
+1. **Servidor novo**: `npx hot-updater init` com **D1 e Worker novos** (o init do v1 recusa recursos do v0). O v0
+   continua no ar para os binários antigos. Guarde a URL do Worker v1 e a `HOT_UPDATER_API_KEY`.
+2. `.env.hotupdater` com as chaves do v1 (`templates/.env.hotupdater.v1.template`): `ACCOUNT_ID`, `API_TOKEN`,
+   `R2_BUCKET_NAME`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_PRIVATE`, `WORKER_NAME`, `D1_DATABASE_ID`,
+   `D1_DATABASE_NAME` (todas com o prefixo `HOT_UPDATER_CLOUDFLARE_`) e `HOT_UPDATER_API_KEY`. O CLI acrescenta as que
+   faltam sem mexer nas existentes — troque as do D1/Worker do v0 pelas novas (ou deixe vazias para o init criar).
+3. `app.json`: `["@hot-updater/expo", {"channel": "production"}]` **no lugar** do `@hot-updater/react-native` (o pacote
+   RN 1.x não tem `app.plugin.js`; os dois juntos nunca). O CLI troca e mantém as opções (`channel`, `publicKeyPath`).
+4. `Strings.ts`: `hotUpdaterUrl` = raiz do Worker v1, **sem** `/api/check-update`, e `hotUpdaterApiKey` = a
+   `HOT_UPDATER_API_KEY` (o CLI insere a chave e copia o valor do `.env.hotupdater` quando ele existe). Tirar o
+   `/api/check-update` da URL do v0 não serve: é outro servidor.
+5. `hot-updater.config.ts`: sem `compressStrategy`; `r2Storage({credentials: {accessKeyId, secretAccessKey}})`;
+   `plugins: [apiKeys(), insights(), remoteConfig()]` de `hot-updater/plugins` (o init gera o modelo).
+6. Boot: nada muda no `ExpoUtilsLayout` (`initHotUpdater(appStrings.hotUpdaterUrl, {apiKey: appStrings.hotUpdaterApiKey})`).
+   App com instância própria (`export const hotUpdater = HotUpdater.init({...})` num módulo, como o Eleições):
+   `initHotUpdater(hotUpdater)` — a lib usa a do app e não cria outra. No v1, URL de v0 ou chave ausente viram o aviso
+   `initHotUpdater: … OTA desligado.` e nada roda.
+7. Conferir: `npx hot-updater doctor --server-base-url <url v1>`, build Release, OTA num canal de teste e rollback.
+   `getRunningBundleId()` (export da lib) é o pacote que está rodando; no v1 o `getBundleId()` da instância já aponta
+   para o baixado antes de reiniciar.
 
 ### 2.5 Ads / IAP / tracking / utils peers
 
 ```text
-react-native-google-mobile-ads   16.4.0
-react-native-purchases           10.4.2
+react-native-google-mobile-ads   16.4.0   (SDK 58: 17.4.0)
+react-native-purchases           10.4.2   (SDK 58: 10.15.1)
 react-native-fbsdk-next          13.4.3
-react-native-edge-to-edge        1.8.1
+expo-navigation-bar              ~57/~58  (no lugar do react-native-edge-to-edge, descontinuado)
 react-native-fs                  2.20.0
-@microsoft/react-native-clarity  4.6.3
+@microsoft/react-native-clarity  4.6.3    (SDK 58: 4.9.2)
 @react-native-async-storage/async-storage  2.2.0
 @react-native-community/slider   5.2.0
 expo-tracking-transparency       ~57.0.1
@@ -213,6 +294,8 @@ react-native-webview             13.16.1
 react-native-web                 0.21.2
 @expo/ui                         ~57.0.19  # já vem com o expo-router 57 (dependência dele); declare mesmo assim
                                            # (pnpm não içaria). Os botões do review/retenção usam o glass nativo.
+                                           # SDK 58: ~58.0.23 e OBRIGATÓRIO no package.json — o expo-router 58 não
+                                           # traz mais (virou peer opcional dele) e o import da lib quebra o bundle.
 @expo/vector-icons               15.x
 @react-navigation/*              versões modernas alinhadas (meclivros: bottom-tabs 7.18.x etc.)
 ```
@@ -282,7 +365,7 @@ Detectar package manager: lockfile (`package-lock.json` → npm, `bun.lock` → 
    - `expo-tracking-transparency` 2x  
    Deixe **um** de cada.
 
-4. `android.edgeToEdgeEnabled` se o schema do Expo 57 reclamar (expo-doctor: *should NOT have additional property*). Edge-to-edge via plugin `react-native-edge-to-edge`.
+4. `android.edgeToEdgeEnabled` se o schema do Expo 57 reclamar (expo-doctor: *should NOT have additional property*). Edge-to-edge via plugin `react-native-edge-to-edge` no SDK 57; no **SDK 58** o plugin e o pacote saem (descontinuado — o RN ≥ 0.86 já desenha edge-to-edge e o tema do SDK 58 já é `Theme.AppCompat.DayNight.NoActionBar` com `edgeToEdgeEnabled=true`) e entra o `expo-navigation-bar` (abaixo).
 
 5. `newArchEnabled` se o template referência não usa (opcional; meclivros não declara).
 
@@ -314,7 +397,10 @@ Detectar package manager: lockfile (`package-lock.json` → npm, `bun.lock` → 
 "entitlements": { "aps-environment": "production" }
 ```
 
-**Único bloco `expo-build-properties`:**
+**Único bloco `expo-build-properties`** — depende da versão do RNFirebase (o `--fix-ios-build` lê a instalada e escreve
+o certo):
+
+RNFB 24–26 (SDK 57):
 
 ```json
 [
@@ -322,7 +408,6 @@ Detectar package manager: lockfile (`package-lock.json` → npm, `bun.lock` → 
   {
     "ios": {
       "useFrameworks": "static",
-      "useModularHeaders": true,
       "forceStaticLinking": [
         "RNFBApp",
         "RNFBAuth",
@@ -336,6 +421,30 @@ Detectar package manager: lockfile (`package-lock.json` → npm, `bun.lock` → 
   }
 ]
 ```
+
+RNFB 27+ (SDK 58; combinação testada no Eleições, seção 0.1):
+
+```json
+[
+  "expo-build-properties",
+  {
+    "ios": {
+      "useFrameworks": "dynamic",
+      "forceStaticLinking": ["RNGoogleMobileAds", "react-native-fbsdk-next"]
+    },
+    "android": {
+      "kotlinVersion": "2.4.20"
+    }
+  }
+]
+```
+
+- Com o RNFB 27 os pods RNFB* **não** podem estar no `forceStaticLinking` e o estático aborta o `pod install` ("SPM +
+  static linkage is not supported"). O `RNGoogleMobileAds` fica estático pela doc do RNGMA e o `react-native-fbsdk-next`
+  pela fbsdk-next#678.
+- `useModularHeaders` **sai**: não é chave do `expo-build-properties` e era ignorado em silêncio.
+- `$RNFirebaseDisableSPM` é decidido pelo plugin da lib pela versão do RNFB instalada (24–26 sim, 27+ não): **não
+  ponha `firebaseDisableSPM` no `app.json`**.
 
 **Plugin expo-utils (flags recomendadas meclivros):**
 
@@ -363,19 +472,15 @@ SDK — sem ele a Unity fica com 0% de match). App migrado que tinha a chave pr�
 `mediation` (caso do expo-bobbie-goods) pode removê-la; se ficar, o prebuild gera **uma** linha só e a
 versão do app.json vence. Conferir com `grep -n "unity" android/app/build.gradle` depois do prebuild.
 
-**edge-to-edge:**
+**barra de navegação (Android):**
 
 ```json
-[
-  "react-native-edge-to-edge",
-  {
-    "android": {
-      "parentTheme": "Default",
-      "enforceNavigationBarContrast": false
-    }
-  }
-]
+["expo-navigation-bar", {"enforceContrast": false}]
 ```
+
+No lugar do `["react-native-edge-to-edge", {"android": {"parentTheme": "Default", "enforceNavigationBarContrast": false}}]`
+de antes (o `parentTheme` não precisa de nada no SDK 58). App no SDK 57 pode manter o edge-to-edge; os dois juntos
+gravam o mesmo `enforceNavigationBarContrast=false`.
 
 **experiments:**
 
@@ -387,16 +492,18 @@ versão do app.json vence. Conferir com `grep -n "unity" android/app/build.gradl
 }
 ```
 
-**Hot updater plugin:**
+**Hot updater plugin** (um só, o da geração — seção 2.4):
 
 ```json
 ["@hot-updater/react-native", { "channel": "production" }]
 ```
 
+v1: `["@hot-updater/expo", { "channel": "production" }]` no lugar do de cima.
+
 **Ordem de plugins (padrão limpo):**
 
 1. Strings simples: `expo-router`, `expo-localization`, `expo-mail-composer`, `expo-sharing`, `expo-font`, `expo-video`, `expo-web-browser`, `@react-native-firebase/app`, `@react-native-firebase/crashlytics`
-2. Com config: splash, build-properties, image-picker/camera (se houver), tracking-transparency, google-mobile-ads, fbsdk-next, edge-to-edge, expo-utils, hot-updater
+2. Com config: splash, build-properties, image-picker/camera (se houver), tracking-transparency, google-mobile-ads, fbsdk-next, expo-navigation-bar, expo-utils, hot-updater
 
 CLI útil: `npx expo-utils-install --sort-plugins`
 
@@ -416,6 +523,7 @@ Nota: o Expo 57 pode avisar que a chave root não é do schema `expo` — ainda 
 ```bash
 npx expo-utils-install
 npx expo-utils-install --skadnetwork --sort-plugins --fix-ios-build --eas-config --hot-updater
+#   --hot-updater-v1 no lugar do --hot-updater só para binário novo com servidor v1 (seção 2.4)
 npx expo-utils-install --policy-checks   # SEMPRE (também em app já migrado)
 # Opcional: --languages  (purpose strings iOS localizadas)
 ```
@@ -447,10 +555,12 @@ export default Platform.select({ android: androidAdUnits, default: iosAdUnits })
 ```ts
 import {Platform} from "react-native";
 
-const hotUpdaterUrl = "https://SEU-WORKER.workers.dev/api/check-update";
+const hotUpdaterUrl = "https://SEU-WORKER.workers.dev/api/check-update"; // v1: raiz do Worker v1
+const hotUpdaterApiKey = "";  // só Hot Updater v1: a HOT_UPDATER_API_KEY do servidor (x-api-key)
 
 const ios = {
   hotUpdaterUrl,
+  hotUpdaterApiKey,
   rckey: "appl_…",           // RevenueCat iOS
   adUnits: {
     appOpen: "ca-app-pub-…/…",
@@ -462,6 +572,7 @@ const ios = {
 
 const android = {
   hotUpdaterUrl,
+  hotUpdaterApiKey,
   rckey: "goog_…",
   adUnits: { /* … */ },
 };
@@ -471,7 +582,7 @@ export default Platform.OS === "android" ? android : ios;
 
 **Conferir:**
 
-- [ ] `hotUpdaterUrl` aponta para o worker **deste** app
+- [ ] `hotUpdaterUrl` aponta para o worker **deste** app (v0: termina em `/api/check-update`; v1: a raiz do Worker v1 + `hotUpdaterApiKey` preenchida)
 - [ ] `rckey` iOS começa com `appl_`, Android com `goog_`
 - [ ] Ad units reais (não placeholder `…/0000` — no plant o interstitial Android estava quebrado e foi restaurado para o ID real)
 - [ ] Placeholder `YOUR_REVENUECAT` desativa RevenueCat no utils — nunca deixe em produção
@@ -517,7 +628,7 @@ export default function RootLayout() {
 
 **O que o ExpoUtilsLayout já faz (não reimplementar):**
 
-- `initHotUpdater(appStrings.hotUpdaterUrl)`
+- `initHotUpdater(appStrings.hotUpdaterUrl, {apiKey: appStrings.hotUpdaterApiKey})` (v0 e v1; seção 2.4)
 - `Utils.prepare` (Remote Config, RevenueCat, globals)
 - App-open ads listener
 - Promo modal
@@ -612,8 +723,8 @@ Preset: `babel-preset-expo`.
 
 ### 4.4 `hot-updater.config.ts`
 
-Já no formato `@hot-updater/cloudflare` + `expo()` + `updateStrategy: "appVersion"` → só garantir deps 0.35.x.  
-Não misturar API do hot-updater 0.20.
+Já no formato `@hot-updater/cloudflare` + `expo()` + `updateStrategy: "appVersion"` → só garantir deps 0.35.x/0.36.x.  
+Não misturar API do hot-updater 0.20. No v1 o arquivo muda (sem `compressStrategy`, credenciais do R2, `plugins`): seção 2.4.
 
 ---
 
@@ -784,7 +895,8 @@ no principal, cinza `#E9E9EB` — o `secondarySystemFill` que o iOS desenha no `
 simulador). Android, iOS < 26 (o `@expo/ui` troca `glassProminent` por um botão sem fundo) e binário sem o módulo
 nativo `ExpoUI` (JS novo por OTA num binário antigo): cápsula em RN com os números medidos no nativo — 50 de
 altura, texto 17 **regular** (o peso do rótulo nativo), ponta em meio círculo pelo `borderRadius`. O módulo
-nativo já está em todo binário SDK 57 com expo-router, então **não precisa de rebuild**. "Agora não" **só texto**
+nativo já está em todo binário SDK 57 com expo-router, então **não precisa de rebuild**; no SDK 58 o `@expo/ui` tem que
+estar no `package.json` do app (o expo-router 58 não traz mais). "Agora não" **só texto**
 (`variant="text"`: sem fundo nem borda, na cor do app, 44 de altura; no iOS 26 um botão SwiftUI `plain`) no
 `centered` do review e no modal de retenção; nos outros layouts ele é a cápsula cinza. O `Host` do SwiftUI leva
 `ignoreSafeArea="all"`: sem isso o vidro ficava 17pt acima do lugar quando o card entrava deslizando por baixo da
@@ -1086,7 +1198,9 @@ Não use mais:
 HotUpdater.wrap({ source: getUpdateSource(url, { updateStrategy: "appVersion" }) })(RootLayout)
 ```
 
-Use URL em `appStrings.hotUpdaterUrl` + `initHotUpdater` dentro do `ExpoUtilsLayout`.
+Use URL em `appStrings.hotUpdaterUrl` + `initHotUpdater` dentro do `ExpoUtilsLayout`. No v1 o `HotUpdater` só tem
+`init` (wrap, checkForUpdate, getBundleId e reload ficam na instância): `HotUpdater.wrap(...)` estático quebra o app ao
+abrir. A lib já trata as duas gerações (seção 2.4).
 
 ---
 
@@ -1123,7 +1237,7 @@ Use URL em `appStrings.hotUpdaterUrl` + `initHotUpdater` dentro do `ExpoUtilsLay
 4.  Reescrever package.json (core + peers + product packages)
 5.  npm pack expo-utils 1.2.5 + npm install
 6.  npx expo install --fix
-7.  Reescrever app.json (SKAd out, plugins limpos, forceStaticLinking, flags utils)
+7.  Reescrever app.json (SKAd out, plugins limpos, expo-build-properties pela versão do RNFB, flags utils)
 8.  Strings.ts → AppStrings
 9.  _layout.tsx → ExpoUtilsLayout + Stack existente
 10. babel → @hot-updater/expo/babel-plugin
@@ -1155,9 +1269,11 @@ Use URL em `appStrings.hotUpdaterUrl` + `initHotUpdater` dentro do `ExpoUtilsLay
 ### 10.2 app.json
 
 - [ ] Zero `SKAdNetworkItems` no app.json
-- [ ] Um único `expo-build-properties` com `forceStaticLinking` RNFB*
-- [ ] Plugin `expo-utils` com flags
-- [ ] Plugin `@hot-updater/react-native`
+- [ ] Um único `expo-build-properties`: RNFB 24–26 → `static` + `forceStaticLinking` RNFB*; RNFB 27 → `dynamic` +
+      `forceStaticLinking` RNGoogleMobileAds/react-native-fbsdk-next + `android.kotlinVersion: "2.4.20"`; sem `useModularHeaders`
+- [ ] Plugin `expo-utils` com flags (sem `firebaseDisableSPM`)
+- [ ] Um plugin do Hot Updater só: `@hot-updater/react-native` (v0) **ou** `@hot-updater/expo` (v1)
+- [ ] SDK 58: `expo-navigation-bar` no lugar do `react-native-edge-to-edge`; `@expo/ui` e `expo-device` no `package.json`
 - [ ] Sem bloco `updates` se Hot Updater
 - [ ] `UIBackgroundModes` inclui `remote-notification`
 - [ ] AdMob / Facebook IDs do **produto**
@@ -1228,6 +1344,14 @@ Use URL em `appStrings.hotUpdaterUrl` + `initHotUpdater` dentro do `ExpoUtilsLay
 | 32 | Compra vitalícia / PREPAID / promocional (até 06/10/2026) | quem comprou "remover anúncios" continuava vendo anúncio | `PremiumUtils` exigia `willRenew`, que o RC zera nesses casos; corrigido na lib (`isPremiumEntitlement`; com `is_opted_out_trial_enabled: true` o vitalício entra pelo entitlement ativo, porque `activeSubscriptions` não lista compra) — sem workaround no app. App que tem o contorno local (ex.: `src/lib/premium.ts` no Bobbie Goods) pode apagá-lo ao subir a lib |
 | 33 | Link-in-bio com a 1ª abertura offline (até 06/10/2026) | install perdido para sempre e `install_attribution` com `matched: 0` igual a sem-match | flag só com resposta do servidor + `install_attribution_error` + nova tentativa na próxima abertura |
 | 34 | Integração Meta do RevenueCat + `autoLogAppEventsEnabled: true` | compra possivelmente contada 2x na Meta | configuração: conferir no Events Manager e manter uma fonte só (integração do RC **ou** log automático do SDK) |
+| 35 | RNFB 27 com `useFrameworks: "static"` (ou RNFB* no `forceStaticLinking`) | `pod install` aborta: "[react-native-firebase] SPM + static linkage is not supported" | `--fix-ios-build` (lê o RNFB instalado): `dynamic` + `forceStaticLinking` RNGoogleMobileAds/react-native-fbsdk-next |
+| 36 | `$RNFirebaseDisableSPM = true` / `disableSPM` com RNFB 27 | `pod install` falha ("no longer distributed through CocoaPods") | o plugin da lib só põe a global com RNFB 24–26; não usar `firebaseDisableSPM` no app.json |
+| 37 | `android.kotlinVersion: "2.4.21"` | Gradle não resolve `io.github.expo.pika:pika-compiler:1.1.0-2.4.21` (os compiler plugins do Expo só vão até a 2.4.20 no Maven Central) | `"2.4.20"` (o RNFB 27 exige ≥ 2.4.0) |
+| 38 | SDK 58 sem `@expo/ui` (ou `expo-device`) no `package.json` | bundle quebra no import da lib (o expo-router 58 não traz mais o `@expo/ui`) | `npx expo-utils-install` (instala os peers que faltam) ou `npx expo install @expo/ui expo-device` |
+| 39 | Hot Updater 1.x num app com servidor/URL do v0 | v1 não fala com o servidor v0: OTA desligado (aviso `initHotUpdater: … OTA desligado.`); `HotUpdater.wrap`/`checkForUpdate` estáticos não existem | servidor v1 novo + `hotUpdaterUrl` (raiz do Worker v1) + `hotUpdaterApiKey`; ou ficar no v0 com `>=0.35.3 <1` (seção 2.4) |
+| 40 | Pangle 8.3 (catálogo do RNGMA 17.4) num app no RNGMA 16.x | `pod install` quebra: o pod exige `Google-Mobile-Ads-SDK ~> 13.6` e o RNGMA 16 pina o 13.5.0 | automático: o plugin lê o RNGMA instalado e usa o `compat` (Pangle 8.2.0.3.0/8.2.0.4.0); ou subir o RNGMA para 17.4.0 |
+| 41 | Plugin local `withPodsDeploymentTarget` mantido no SDK 58 | sobra de um bug já corrigido (expo#47537, expo-modules-autolinking ≥ 57.0.5) | apagar o plugin e a entrada no app.json (o Eleições compilou sem ele) |
+| 42 | `tsconfig.json` do app com `baseUrl` / `moduleResolution: "node"` no TypeScript 6 (SDK 58) | `tsc` falha com TS5101/TS5107 ("deprecated and will stop functioning in TypeScript 7.0") | `extends: "expo/tsconfig.base"` (já usa `bundler`) e `paths` sem `baseUrl`; ou `"ignoreDeprecations": "6.0"` |
 
 ---
 
