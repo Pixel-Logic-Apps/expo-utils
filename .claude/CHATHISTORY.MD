@@ -2025,3 +2025,402 @@ Cliente do Pixel: `expoutils_lab_pro`, produto `monthly`, TEST_STORE, vencido em
 
 ### Pendências
 - npm: `latest` = 1.3.1 (1.4.0 e 1.5.0 nunca foram publicadas) e o token do `~/.npmrc` deu 401 no `npm whoami`.
+
+# 2026-10-20 — Startup quase zero, splash animado e a SDK 58 (análise, sem código)
+
+### Pedido (em ordem)
+- "análise do expo-utils e dos projetos e avaliar alguma forma de diminuir o startup pra próximo de nulo e alguma forma de
+  criar um splash screen mais bacana animado mas sem esforço ... praticamente zerar o tempo de carregamento".
+- Legenda com quadradinhos nas barras da página (o que é o azul, o amarelo, o vermelho e o verde).
+- "e a SDK 58 não ajuda nada?" → depois: pôr a SDK 58 no relatório e a animação da 1ª abertura sem cache e sem OTA; depois
+  também a 1ª abertura sem cache COM OTA e o seletor de cenário no centro.
+- "o remote config demora, não tem o que fazer mesmo?" → pediu (sim) as saídas no plano e na página.
+- "se eu usar OTA, não precisa de remote config?" (respondido: o RC continua; ver abaixo).
+- Salvar tudo aqui para encerrar e ter acesso depois.
+
+### Medido (release do expo-utils-lab, emulador Pixel_10a API 37, n=10 intercalado)
+- 1º frame: **4.621 → 625 ms** tirando (a) o `setTimeout(3000)` do `Utils.handleReady` (3.012 ms, sem motivo registrado; entrou
+  em `0bf2d78`), (b) o `await initHotUpdater` e (c) o Remote Config pela rede em toda abertura (~990 ms). Piso que sobra: ~0,45 s
+  de nativo + JS. AOT completo não mudou nada.
+- 1ª abertura sem cache e sem OTA: 5.567 ms hoje (nativo 477, JS 345, RC 1.581 com o Firebase Installation, espera 3.005).
+- expo-resultado (logcat de QA já no repo dele): TTID 5,9–6,5 s; num cold start a 1ª janela foi o intersticial e a home ficou
+  livre ~19,6 s depois do processo.
+- Workers do hot updater (curl do Mac): check 335–638 ms; os 10 pares app×plataforma com bundle publicado são `-f`; zips de
+  2,3–27 MB. RC por REST: fetch ~0,47 s + Firebase Installation ~0,53 s no 1º install.
+- SDK 58 × 57 (templates padrão, release): 414 × 420 ms, sem diferença detectável (IC95 −105 a +161 ms); o R8 da 58 deixa o DEX
+  com 9,8 MB (45 MB sem R8) e deu −39 ms, sem significância.
+
+### Conclusões (preservar)
+- Quase todo o tempo é espera artificial e rede dentro da lib, não nativo. "Zerar" de verdade não existe (piso ~0,45 s no
+  emulador); a tela útil de quem não é premium é dominada por intersticial/paywall no cold start (decisão do dono).
+- Ordem do plano (seção 4): medir antes (Android vitals + evento `boot_timing`, lab como bancada válida) → tirar SÓ os 3000 ms
+  e consertar o app-open junto → mudanças baratas (configure do RevenueCat antes do RC, `cfg_integrity` sem await, guard do
+  `YOUR-WORKER`, telemetria do OTA) → RC do cache + veredito de ads → OTA fora do caminho → splash adaptativo → consentimento
+  sem os +2 s → bundle/nativo baratos.
+- Os +2000 ms ficam por enquanto: separavam por acaso os prompts da home dos da lib (ATT some no iOS com outro prompt
+  pendente; o 2º pedido de permissão é cancelado no Android).
+- RC: `fetchAndActivate` destacado como ÚLTIMA chamada nativa; nunca `fetchConfig` (TypeError no RNFB 24, medido) nem
+  `ensureInitialized` (trava a thread `v_native` no Android); modo cache só com `fetchTimeMillis > 0` + valor remoto + marca
+  {versão, build, bundle OTA}; kill switch de ads na mesma sessão. 1ª abertura: embutir no build a config que os apps já
+  guardam (`rc-config-*.json`) como padrão, anúncios esperando a resposta do servidor (estimado −1,5 s).
+- OTA: hot-updater nativo 0.36.14–0.36.17 tem rollback falso por push headless (gronxb/hot-updater#1468, corrigido na 0.36.18):
+  eleicao, bobbie e lab só com binário ≥0.36.19. Nunca recarregar com a UI na tela; o `-f` vira "baixar já".
+- Splash: overlay em JS com os recursos que o expo-splash-screen já gera (`splashscreen_logo` / `SplashScreenLogo`,
+  `PlatformColor`), sem dependência nova; pula a animação quando a home fica pronta em ≤250 ms do onLoad; opt-in por app.
+  Correções exigidas: status bar no Android 12+, `setOptions` dos layouts, fade da janela no Android 11, One UI 4, logos maiores
+  que o círculo de 192 dp (bobbie, fakeit).
+- Não fazer agora: tree shaking + `inlineRequires` (expo#41620), Baseline Profile, tirar os providers do FB/Meta AN, bootsplash/
+  Lottie/Rive. Fazer barato: stub do SDK web do RevenueCat no Metro (−28% do bundle, medido), Firestore/Auth fora dos peers.
+- SDK 58 não ajuda no startup; migrar exige RNFB 27 no iOS (SPM + frameworks dinâmicos, o contrário do que a lib configura),
+  `@expo/ui` explícito, reanimated/worklets/screens/AdMob novos. Só depois de 26/10, a partir da 58.0.16, com a lib adaptada.
+- OTA não substitui o Remote Config: o RC desliga ads na mesma sessão, o `min_version` chega em binários antigos que o OTA não
+  alcança, uma mudança pesa KB (não MB) e não arrisca crash.
+- Calendário: nada de boot novo nos apps eleitorais antes de 26/10 (2º turno em 25/10).
+
+### Achados fora do boot
+- App-open no Android depois de diálogo do sistema e de intersticial (RN manda `background` no `onHostPause`): 9 de 10 no
+  logcat do resultado; 3× `show()` com o app em 2º plano.
+- `banner-ad`/`safe-banner-ad` sem o ramo `isAdsEnabled === false`; UMP com erro pula o `mobileAds().initialize()` (no lab e no
+  resultado: "no form(s) configured"); teto do RC usa o DEFAULT (ads ligados) em vez do cache.
+- Worker do OTA do bobbie responde 400 (OTA morto); bobbie baixa ~35 MB por cold start.
+- expo-eleicao: `TEST_PAYWALL_VARIANT` sem guarda de `__DEV__` (o override vence o RC em produção); SDK do Facebook com
+  `OAuthException 190` no logcat.
+- RevenueCat Test Store em release fecha o app ("Wrong API Key… The app will close now"): para medir release no lab, chave
+  `goog_` ou `DangerousSettings.forceAllowTestStoreInReleaseBuilds()`.
+- Xcode 27 sem `ios.enableSceneSupport`: segundo a doc, app não abre direito no iOS 27; nenhum app tem; a SDK 57.0.23+ já
+  suporta. Não testado.
+
+### Verificado × NÃO verificado
+- Medido: tudo da seção "Medido" acima (Android, emulador), mais o TypeError do `fetchConfig` contra o RNFB 24.1.1 real.
+- Lido no fonte, sem reprodução: rollback falso em headless; cancelamento do fetch do RC no iOS (RNFB ≤ 26.0); `onLoad` do
+  Fresco com o desenho bloqueado; cor das barras no Android 12+; ATT `notDetermined` com outro prompt pendente.
+- NÃO medido: iOS, aparelho real, 4G, tela útil dos apps reais, cadeia UMP → ATT → push sem os +2 s, o overlay (não existe).
+- Lab: a medição usou mudanças temporárias (instrumentação, ablação, patch do RevenueCat), todas desfeitas e conferidas com
+  `cmp`/`sha256`; o `git status` do lab ficou igual.
+
+### Arquivos e links
+- Plano: `docs/PLANO-STARTUP-ZERO.md` (sem commit). Decisões pendentes na seção 8.
+- Página (privada): https://claude.ai/artifact/JE14uherTfLHPDZqPrxspJ — hoje × proposto (seletor central: dia a dia, 1ª
+  abertura sem OTA, 1ª abertura com OTA; opções do proposto para o RC e o OTA), as 4 animações com os ícones reais, gráfico,
+  SDK 58, plano e tabela por app.
+- Evidências fora do scratchpad: `~/appdata/startup-zero-2026-10-20/` (`LEIAME.md` explica cada pasta; fonte da página em
+  `evidencias/artifact/`, rebuild com `python3 build.py`).
+- Sessão: `7b20219f-c66a-41cd-97e5-a42a14f3a047` (`claude --resume` dentro do repo).
+
+### Pendências
+- Decisões do dono (seção 8 do plano): os 3 s eram marca? kill switch na mesma sessão? 1º install sem resposta do RC: ads off?
+  o `-f` deixa de recarregar? 1ª abertura: esperar o OTA ou rodar o JS da loja? binário com hot-updater ≥0.36.19 no eleicao e
+  no bobbie? App Open continua? intersticial e paywall no cold start? splash opt-in e qual preset? `imageWidth` de fakeit e
+  bobbie? A/B nos parâmetros do RC? worker de OTA e formulário do UMP só para o lab?
+- Nada desta sessão foi commitado (plano, esta entrada).
+
+# 2026-10-21 — Startup: pesquisa da próxima versão (Hot Updater 1.1, Firebase/RNFB 27, Expo 58, libs novas, Firebase em JS)
+
+### Pedido (em ordem)
+- Pesquisar se saiu lib nova que encurta o loading, se o Hot Updater 1.1 faz algo a respeito e se o Firebase tem outra
+  saída para ficar mais rápido; continuar a pesquisa de 20/10 e atualizar a página.
+- Enquadramento do dono: é para a PRÓXIMA versão da lib, que sobe para o próximo Expo com todas as libs atualizadas e "tudo o
+  mais otimizado possível"; "não é para resolver nada nesse momento com OTA".
+- À parte: compensa trocar o Firebase nativo pelo SDK JavaScript (bundle, build, carregamento, startup)?
+- Explicar o "brownfield" do Hot Updater com desenhos e prints, só no que interessa ao Hot Updater.
+- "pode travar" o Hot Updater abaixo da 1.0 até a próxima versão.
+
+### Achados (preservar)
+- Próximo SDK = **58** (58.0.16, RN 0.88); não existe 59 nem canary; RN 0.89 só nightly.
+- Nenhuma lib nova chega perto das 3 esperas da lib (−4 s no lab). Ganhos de fora: centenas de ms no iOS, dezenas no Android.
+- **Expo 58 no iOS:** registro de módulos sem buscas de protocolo do Swift (`expo-modules-core` ≥58.0.19 #51455/#51456,
+  `@expo/ui` ≥58.0.18 #51459). Terceiro mediu 403/787/482 ms (sem/com `@expo/ui`/com conserto; simulador; expo#51042). Só no
+  58. "A 58 não ajuda" vale só para o Android.
+- **Hot Updater 1.1:** sozinho não acelera (escolha do bundle igual à 0.36; o SDK não checa sozinho); check 301 → 50 ms com
+  cache quente (autor); 1ª OTA −19% com Brotli (medido no bundle do lab) + reaproveita assets; servidor v1 por app; API nova
+  (instância; `checkForUpdate` estático some); plugin em `@hot-updater/expo`; Remote Config próprio (08/10; leitura síncrona,
+  sem país/idioma/A/B, limite 60.000 caracteres). O bundle do OTA já é HBC (`compileHermes` no adaptador do Expo).
+- **Brownfield** (1.1.0): API nativa para app nativo com RN embutido (XCFramework/AAR) que checa antes de o RN subir. Nada
+  muda nos apps greenfield.
+- **RNFB 27 como piso:** somem o TypeError do `fetchConfig` (consertado na 25.0.0) e o cancelamento por leitura no iOS
+  (26.3.0, não 26.0); fica `ensureInitialized` proibido; o setter de `settings` ainda cancela. Desenho novo do RC: boot com
+  config embutida + `activate`, fetch depois do 1º frame decide os ads, depois `onConfigUpdate`. Tempo real não avisa "está
+  em dia"; `downloadDefaults` só traz o valor padrão; Performance Monitoring para antes do JS.
+- **Risco do iOS:** RNFB 27 aborta com linkagem estática (SPM + dinâmico obrigatório); lab tem 13 frameworks dinâmicos,
+  estimativa 24–51 (+30 a +230 ms, não medido); `react-native-fbsdk-next` 13.4.3 não linka em dinâmico (#678). Ficar no
+  26.4 estático congela o Firebase iOS na 12.19.0 (CocoaPods só leitura em 02/12/2026).
+- **Firebase em JS:** não compensa. Só o RC roda (com 3 polyfills); bundle +176 KB JS / +241 KB HBC; perde Analytics,
+  Crashlytics, push/tópicos, ILRD, conversões, `$firebaseAppInstanceId`. Init nativo Android 24,5 ms (mediana, n=62).
+  Valem: tirar Firestore/Auth (−3,0 a −3,2 MB de DEX; −14 pods) e `analyticsOnDeviceConversion` por app (2,51 MB no iOS).
+- Outras libs: manter o stub do RevenueCat (10.15.0 ainda avalia 966 KB); expo-router 58.0.18+ (layouts sob demanda);
+  medição com `react-native-performance` 7, release-profiler, Rozenite, EAS Observe (piloto); talvez nitro-fetch, MMKV,
+  Baseline Profiles; não: Hermes V1 (já roda), Static Hermes, Re.Pack, Rock, async routes nativo, tree shaking, bootsplash.
+- RNGMA 17.2.0 trouxe `useAppOpenAdManager` com supressão depois de outro anúncio de tela cheia (AO-2): avaliar no 4.1.
+
+### Feito
+- **Trava do Hot Updater (com ok do dono, SEM commit):** `package.json` (peers `@hot-updater/expo`, `@hot-updater/react-native`,
+  `hot-updater` e a devDependency) e `bin/install.js` (`--hot-updater`) em `>=0.35.3 <1`; playbook (1.3 e 2.4) e AGENTS.md
+  (`--hot-updater`). Motivo: o `latest` virou 1.1.1 em 20/10 e app novo resolvia a 1.x (sem plugin no pacote, sem
+  `checkForUpdate` estático, servidor v0 não atende). Faixa resolve 0.36.19; `./tests/run.sh` passou.
+- Plano: seção 13 nova (resumo, Hot Updater, Firebase, Expo 58 e libs, Firebase em JS, ordem, decisões 11–14) e correções nas
+  seções 0, 4.3, 4.4, 7 e 11.
+- Páginas: startup atualizada (seção "Próxima versão", passo novo "Spike do iOS"); página do brownfield.
+
+### Verificado × NÃO verificado
+- Lido no fonte/notas: tudo acima marcado como consertado/versão; conferidos por mim: expo#51042, changelogs do
+  `expo-modules-core` 58.0.23 e `@expo/ui` 58.0.21, fbsdk-next#678, `firebase_spm.rb` do RNFB 27, os 13 frameworks do lab,
+  `dist-tags` do hot-updater, plugin de RC do Hot Updater (`getStorageItem` síncrono), `compileHermes`, RNGMA 17.2.0.
+- Medido hoje: Brotli no bundle do lab (−19,4%); bundles do SDK JS × RNFB (projeto Expo 57 isolado + hermesc); DEX dos APKs
+  locais; init do Firebase no logcat de 20/10; CDN ~0,12 s (curl).
+- NÃO medido: nada em aparelho; o ganho do iOS do 58; o custo dos frameworks dinâmicos; o check do Hot Updater v1 com cache
+  frio; o Remote Config do Hot Updater.
+
+### Arquivos e links
+- Plano: `docs/PLANO-STARTUP-ZERO.md` (sem commit), seção 13.
+- Página do startup (privada, nova URL; a de 20/10 não abriu nesta conta): https://claude.ai/artifact/RQ9BrGD8MnwnhRNm7t642J
+- Página do brownfield (privada): https://claude.ai/artifact/86BsSaV799M1yqCyywLn2V
+- Relatórios: `~/appdata/startup-zero-2026-10-20/evidencias/pesquisa-2026-10-21/{hot-updater,firebase,libs,firebase-js}/`;
+  fonte das páginas em `evidencias/artifact/` e `evidencias/brownfield/` (`python3 build.py`).
+
+### Pendências
+- Commit da trava do Hot Updater (o dono não pediu ainda) e, se quiser que valha para quem instala do GitHub, push.
+- Decisões das seções 8 e 13.7: RNFB 27 × 26.4 estático (depois do spike do iOS), RC do Hot Updater, servidores v1 do OTA,
+  piloto do EAS Observe.
+
+### Adendo de 21/10/2026: regra do Remote Config fresco e o remote próprio
+- **Regra do dono (imprescindível):** o app só aparece com todo o Remote Config da abertura carregado da rede; nada pode
+  aparecer e sumir (anúncio que liga e desliga, botão que aparece e some). O "cache primeiro" e o boot com a config
+  embutida saíram do plano (4.3 reescrita). Falha/teto: última config boa (ou a embutida) e anúncios desligados; config
+  congelada na sessão. Bug a corrigir: no teto de 10 s a lib liga os anúncios pelo `DEFAULT`.
+- Com a regra, o proposto no lab fica em **~1,6 s** com o Firebase (soma das fases medidas; antes se falava em 0,6 s, que
+  supunha o RC do cache).
+- Pergunta: um remote próprio deixaria mais rápido? **Sim (estimado).** Medido do Mac, conexão nova, n=12: arquivo no site
+  do dono na Cloudflare 154 ms × Firebase 393 ms só a ida e volta (fetch real ~470 ms, 20/10) e +0,53 s de Installation na
+  1ª abertura. No app: ~1,0 s hoje × ~0,3 s estimado → abertura ~0,9 s, ~0,6 s com a busca saindo do nativo
+  (nitro-fetch `prefetchOnAppStart` ou módulo próprio). O Remote Config do Hot Updater 1.x já é esse remote pronto.
+  Criptografia não pesa; assinar é o que impede mexer na resposta. Seção 13.8 do plano.
+- Página do startup republicada (mesmo link) com a simulação buscando o RC na rede e o seletor Firebase × próprio.
+- Pendências novas: teto da espera; kill switch no meio da sessão; decisão 15 (remote próprio); medir no lab (a) Firebase,
+  (b) JSON estático na Cloudflare a partir do import, (c) com busca no nativo.
+
+# 2026-10-21 (2) — Volta do 2º plano: teste real Android + iOS, o "fantasma" e o conserto ("aplica ao sair")
+
+Continuação do dia, já descendo do plano para o TESTE REAL do comportamento de voltar do 2º plano (plano
+`docs/PLANO-STARTUP-ZERO.md`, seção 4.3). Tudo no `expo-utils-lab` (NUNCA em app de produção). NADA commitado; nada
+na lib ainda — a feature "volta do 2º plano" é protótipo de lab. É pra PENSAR em implementar depois.
+
+### Pedido (em ordem, palavras do dono)
+- Trade-offs de "saiu / voltou / atualizou": quais comportamentos dá pra escolher, benefícios e malefícios. (Expliquei
+  mal na 1ª vez; refiz como 5 comportamentos de volta.)
+- "1 e 2 são as melhores opções" (off e apply) → depois: "N sei se tem necessidade, talvez isso poderia ser
+  parametrização" (em vez de decidir agora).
+- "Como ficaria essa cortina?" / "Faz um vídeo com e sem cortina simulando pra eu ver se vai quebrar demais, pensei numa
+  variante de skeleton."
+- "Quero um teste real" → "Faz com iOS tb" → "Testa com remote config tb pra comparação".
+- "N consigo ver o vídeo aqui no celt" → passei a mandar os arquivos por SendUserFile (regra global).
+- "Não dá pra já mudar em background mesmo? E quando ele voltar já tá alterado?" (o modo "aplica ao sair").
+- "Quando gravar vídeo grava só na vertical pra eu ver no celular."
+- "Usa um remote config qualquer... coloca no Cloudflare... Faz um mock, cara. Não precisa mandar nada pro servidor."
+  (não publicar no Firebase de verdade) → depois: "coloca um arquivo lá no servidor do remote config próprio... pega de
+  lá direto" (usar o Cloudflare de verdade).
+- "Verifica se no Android não tem alguma forma de desabilitar esse efeito de fantasma."
+- "Faz o ajuste. Coloca esse setRecentsScreenshotEnabled(false). Já era pra ter feito."
+- "Cara, quando for fazer teste, faz em release."
+- "Vamos focar só na versão sem skeleton e sem cortina. Só do sem nada mesmo, sem efeito." (= só o "aplica ao sair")
+- "Grava um vídeo só, Android, Cloudflare, sair e voltar rápido. Sem fantasma, sem capa, sem splash. Depois o iOS."
+- Vídeos: "um abaixo do outro com legenda" (depois: "não é pra juntar os 3 num vídeo só"); "um pouquinho mais lento,
+  ficou rápido pra caralho"; "ficou com lag do Android"; sobre o raw: "por que ficou essa merda de splash e lento?".
+- No fim: "ficou ótimo. Salva tudo no chat history pra começar a pensar em implementar. Nenhuma informação pode ser
+  perdida."
+
+### Comportamentos da volta (o que dá pra escolher) — preservar
+Parâmetro proposto `resume_config` (um por app, no Remote Config):
+- `off` — não busca nada ao voltar; só muda quando o app fecha e abre. É a lib de hoje.
+- `apply` — ao voltar, busca e, se mudou, troca na frente da pessoa (sem cortina).
+- `curtain` — ao voltar depois de N min, cobre com o splash, busca, aplica, remonta e sai.
+- `curtain_on_change` — busca em toda volta sem cobrir; só quando MUDOU, a cortina cobre, troca e sai.
+- `on_leave` / "aplica ao sair" — busca e aplica ESCONDIDO quando a pessoa SAI; na volta confere de novo e só usa a
+  cortina se mudou depois da saída.
+Companheiros propostos: `resume_config_after_min`, `resume_curtain_max_ms`, `resume_ads_off`, `boot_config_timeout_ms`.
+**Decisão do dono (evoluiu nesta sessão):** começou em "1 e 2" (off/apply), virou "parametrizar", e no fim FOCOU só no
+"aplica ao sair" (`on_leave`/`background`), SEM cortina e SEM skeleton. Os modos curtain/skeleton ficam de reserva,
+parametrizáveis, mas fora do foco agora.
+
+### Infra de teste criada (tudo em `~/appdata/startup-zero-2026-10-20/evidencias/volta-real/`)
+- **Cloudflare DE VERDADE:** Worker `volta-lab` (`https://volta-lab.bruno-vmartins2.workers.dev/volta-config.json`),
+  criado nesta sessão a pedido do dono, SEPARADO dos sites dele (conta Cloudflare `541509ac6e9a327338e9bd3359282bba`,
+  subdomínio `bruno-vmartins2`). Só serve um JSON estático (`cf/public/volta-config.json`), sem código. Cabeçalhos
+  `cache-control: public, max-age=0, must-revalidate` + ETag (304). Medido do Mac, conexão nova: 0,15–0,16 s (borda GRU).
+  **Troca de config no teste NÃO é deploy** (~19 s): v1/v2/v3 estão enviadas como VERSÕES (`cf/versions.txt`) e
+  `cf/cf_switch.sh <v>` aponta 100% do tráfego pra uma delas por chamada à API (1,5–2,5 s até a borda servir o novo).
+  **O Worker continua no ar, sem custo. Apagar quando o dono mandar.**
+- **Firebase SIMULADO (mock):** o dono mandou NÃO publicar no Firebase de verdade ("Faz um mock"). `server.py` serve o
+  mesmo JSON com atraso configurável: `PORT=8788 DELAY_MS=1000` imita o 1 s que o `fetchAndActivate` levou no lab
+  (precisa de `adb reverse tcp:8788 tcp:8788`). Por que não o Firebase real: NENHUMA conta do pldev (`eas-accounts.json`)
+  abre o projeto `local-desenv` do lab (todas deram HTTP 403), e o Claude in Chrome estava desconectado. A 3ª fonte
+  `firebase-sdk` (o parâmetro real `lab_volta_demo` do Remote Config) existe no harness mas não foi usada (sem credencial;
+  `rc_publish.mjs` não rodou).
+- **iOS destravado:** o dono rodou `sudo xcodebuild -runFirstLaunch` no Mac (o Xcode 27.1 tinha vindo com os pacotes de
+  sistema do 27.0; `simctl` ficava "Unable to discover any Simulator runtimes"). Simulador dedicado só pro teste:
+  **`iPhone 17 Pro (lab volta)`**, UDID `CA8BD194-7224-45C2-8112-E59ADF52F735` (em `ios-udid.txt`), iOS 26.5.
+- **Scripts:** `run_android.sh`/`run_android_bg.sh` (4 modos + background, cena 1 e 2), `run_android_leave.sh` (só a cena
+  boa do "aplica ao sair", `NO_SNAPSHOT=0|1`), `run_android_fast.sh` (volta rápida, `GAP`), `run_mock_batch.sh`;
+  `run_ios*.sh` idem (release: launch arg em vez de `simctl openurl`, que pede toque); `make_leave_video.sh` (clipe +
+  câmera lenta no fim), `compose_vertical.sh` (grade 2×2). `set_config` escolhe `cloudflare` (cf_switch) | `firebase`
+  (mock 8788) | `firebase-sdk` (RC real).
+
+### Mudanças no lab (SEM commit; o lab não é versionado)
+- `src/lab-volta/resume.tsx` — provider `ResumeRoot`: modos `off|apply|curtain|skeleton|background`; fontes
+  `cloudflare|firebase|firebase-sdk`; `st.current.touched` pra o deep link / launch arg vencer o modo salvo no
+  AsyncStorage (efeito do filho roda antes do pai no React — sem o guard, o modo da rodada anterior sobrescrevia); cortina
+  = fade 150 ms → commit → remonta (`setRootKey`) → o expo-router volta sozinho pra rota (NÃO usar `router.replace`, abre
+  2ª cópia); skeleton cobre conteúdo + banner; `onBackground` aplica escondido na saída sem timers (Android pausa timers
+  em 2º plano).
+- `src/app/volta.tsx` — tela "Datas" estilo Título: chips de modo e fonte, `config.title`, botão "★ Seja Premium"
+  (→ /paywall), `BannerAd` de teste real do AdMob; deep link `expoutilslab://volta?modo=…&fonte=…`.
+- `src/lab-volta/ios-launch.ts` — NOVO: lê `Settings.get("labVoltaModo"/"labVoltaFonte")` e manda `router.replace` pra
+  /volta. É assim que o release do iOS (sem Metro, sem `openurl`) abre direto na tela.
+- `src/app/_layout.tsx` e `src/app/index.tsx` — montam o `ResumeRoot` e, no iOS com launch arg, roteiam pra /volta e só
+  escondem o splash (sem ATT/push no teste).
+- `android/app/src/main/java/com/pixellogic/expoutilslab/MainActivity.kt` — **o conserto do fantasma**:
+  `if (Build.VERSION.SDK_INT >= 33) setRecentsScreenshotEnabled(false)` no `onCreate`, agora LIGADO POR PADRÃO
+  (o extra `labNoSnapshot=false` do deep link religa, pra gravar o "com fantasma"). Na LIB isso vira um config plugin
+  `withMainActivity`.
+- `src/constants/Strings.ts` — a chave da Test Store do RevenueCat (`test_ROtutJeZoDJOVpIgPCEdoeaKKyL`) FECHA o app em
+  release ("Wrong API Key… The app will close now"). Pros builds de release eu esvaziei a chave (o teste da volta não usa
+  RevenueCat) e RESTAUREI depois. O SDK nativo tem `DangerousSettings.forceAllowTestStoreInReleaseBuilds()`, mas o
+  `react-native-purchases` 10.10.1 NÃO expõe isso no JS (só `autoSyncPurchases`/`customEntitlementComputation`).
+
+### Achados (preservar — base pra implementar)
+- **O "fantasma" (Android):** no "aplica ao sair", ao VOLTAR o Android mostra por ~0,2 s a FOTO que tirou da tela ao SAIR
+  (a tela ANTIGA, com anúncio e Premium) antes de a tela nova aparecer — mesmo o app já tendo trocado a config escondido.
+  **Conserto: `Activity.setRecentsScreenshotEnabled(false)` (API 33+).** Medido em release: com ela OFF a tela antiga NÃO
+  pisca; entra um QUADRO BRANCO (o fundo da janela) por ~0,15 s e já vem a nova. Dá pra pintar esse branco com a cor do
+  splash (vira um flash da marca) — mexe no tema nativo; o dono pode querer. Antes da API 33 só havia `FLAG_SECURE`, que
+  tira a foto mas bloqueia screenshot no app TODO — não serve.
+- **iOS NÃO tem o fantasma:** no iOS o "aplica ao sair" é limpo de fábrica — ao voltar, o app desliza já mostrando a
+  config nova (v2), sem foto antiga. NÃO precisa de ajuste. (Testado via `simctl launch` = caminho de tocar no ícone; o
+  caminho de arrastar no seletor de apps não foi testado.)
+- **Volta RÁPIDA:** o "aplicar escondido" só funciona se a BUSCA da saída terminar ANTES de a pessoa voltar. Se voltar
+  antes (rede lenta / Firebase ~1 s), a busca termina com o app já ATIVO e a troca acontece NA FRENTE da pessoa
+  (`estado=active` no log). Com o Cloudflare (~0,1 s) a janela é de ~0,1 s → na prática nunca pega. Mais um ponto a favor
+  do remote rápido. Mitigação possível (fora do foco agora, porque tira a cortina): na volta, se a busca da saída ainda
+  está em curso (`busy`), cobrir com a cortina até terminar.
+- **Cold start na volta (NÃO é o normal):** se o Android MATA o processo em 2º plano, a volta é abertura do ZERO (splash
+  3 s do `handleReady` + boot inteiro), não retomada. Peguei isso por acidente logo depois de REINSTALAR o APK (a 1ª
+  abertura do build novo mostrou o pedido de permissão de notificação e o processo reiniciou). Na retomada QUENTE (processo
+  vivo) não tem splash nenhum. Lição pro teste: conceder `POST_NOTIFICATIONS` por `adb`, aquecer o app e só então medir.
+- **Tempos (release Android, Cloudflare de verdade):** 1ª busca 375 ms (a frio, DNS+TLS); quentes 67–204 ms. Firebase
+  mock ~1 s sempre. iOS release: Cloudflare 93–209 ms; Firebase mock ~1 s.
+- Achados de harness: o modo salvo no AsyncStorage sobrescrevia o launch arg (consertado com `touched`); o skeleton tinha
+  que cobrir o banner; `router.replace` depois de remontar abre 2ª cópia da tela.
+
+### Vídeos entregues (todos em `~/Downloads/claude/`, enviados por SendUserFile; regra: vertical, pro celular)
+- Android e iOS dos 4 modos (dev) e depois o foco em "aplica ao sair".
+- `android-cloudflare-sair-voltar-rapido.mp4` — versão final boa: retomada QUENTE, release, velocidade normal, sem
+  splash, sem fantasma (quadro branco rápido). **O dono aprovou ("ficou ótimo").**
+- `ios-cloudflare-sair-voltar-rapido.mp4` — iOS release, 2× mais lento e suavizado (interpolação `minterpolate` blend
+  60 fps), volta limpa já em v2.
+- `android-cloudflare-raw-emulador.mp4` — o MP4 cru do emulador (comparação); mostrou o lag do emulador e, numa tomada,
+  o cold-start com splash (bug da regravação, já explicado).
+- Lições de edição: câmera lenta sem interpolação PULA (parece lag); `minterpolate=mci` DEFORMA na troca app→tela inicial;
+  `minterpolate=blend` faz crossfade suave (bom). O "lag" que o dono viu era (a) o emulador engasgando e (b) a câmera
+  lenta sem suavização — no aparelho de verdade é liso.
+
+### Verificado × NÃO verificado
+- Medido no aparelho (emulador Android Pixel + simulador iPhone 17 Pro), em DEV e em RELEASE: o fantasma e o conserto, a
+  volta rápida, a limpeza do iOS, os tempos de busca Cloudflare × mock. Logs `[lab] volta …` no Metro (dev) e no logcat
+  (release; o `console.log` sobrevive no release Android).
+- Cloudflare medido DE VERDADE (Worker no ar, borda GRU). Firebase foi SIMULADO (mock de 1 s) — o número de 1 s vem da
+  medição real do `fetchAndActivate` no lab, mas o Firebase real NÃO foi exercido nesta sessão.
+- NÃO verificado: aparelho FÍSICO (só emulador/simulador); o caminho de voltar pelo SELETOR de apps do iOS (só o de tocar
+  no ícone); o comportamento com o processo morto de propósito (só o acidental); a feature na LIB (é protótipo de lab).
+
+### Para implementar depois (o dono quer começar a pensar)
+- Levar o "aplica ao sair" pra lib (hoje é só no lab): onde mora o provider, como o app marca as telas que leem a config.
+- O conserto do fantasma como **config plugin** `withMainActivity` (`setRecentsScreenshotEnabled(false)`, API 33+),
+  provavelmente opt-out; decidir se pinta o quadro branco com a cor do splash.
+- Parametrizar `resume_config` (e companheiros) no Remote Config; decidir padrões por app.
+- Fechar Cloudflare × Firebase como fonte do remote (o rápido mata a volta rápida); se Cloudflare, apagar/renomear o
+  `volta-lab` de teste e desenhar o de produção.
+- Mitigação da volta rápida (cortina só enquanto a busca da saída está em curso) — só se a cortina voltar ao escopo.
+- iOS: nada a consertar no fantasma; confirmar no caminho do seletor de apps e em aparelho físico.
+
+### Pendências de limpeza
+- O Worker `volta-lab` no Cloudflare continua PUBLICADO (sem custo). Apagar quando o dono mandar.
+- Simulador `iPhone 17 Pro (lab volta)` e os builds de release do lab (Android `app-release.apk`, iOS
+  `Release-iphonesimulator`) ficaram na máquina; a chave do RevenueCat do lab foi RESTAURADA.
+
+# 2026-10-22 — Remote Config próprio: arquitetura (dois planos, variáveis/A-B) + relatório PDF em Material 3
+
+Continuação do teste da volta (entrada 2026-10-21 (2)). O dono pediu o DESENHO de um Remote Config próprio
+"abraçando todas as possibilidades futuras" e, no fim, um relatório PDF (com ilustração, print e GIF) por
+e-mail para analisar e finalizar. Nada de código novo — é projeto/pesquisa. Salvo aqui para implementar depois.
+
+## Arquitetura do Remote Config próprio (respostas ao dono)
+
+- **Dois planos.** Plano de CONTROLE (no publish, uma vez, toda a inteligência): confere tipos/esquema do
+  payload, resolve as regras (país, cidade, versão…), monta os A/B e variantes, PRÉ-CALCULA 1 JSON por
+  segmento, publica os arquivos + dedupe por hash do conteúdo. Plano de DADOS (no runtime, a cada abertura,
+  burro e rápido): o app monta a CHAVE do segmento, pede o arquivo dessa chave à borda (cache do data center
+  mais perto), recebe o JSON pronto — nenhuma regra avaliada no app. Segmento novo → um Worker calcula na hora
+  e cacheia (compute-on-miss). "O Worker monta a URL de resposta e o JSON é gerado uma vez", como o dono pediu.
+- **A chave do segmento É a URL.** Resumo compacto e determinístico do contexto (hash) = nome do arquivo
+  estático (ex.: `/cfg/ios/58/BR/premium/homeA.json`). Fallback hierárquico cidade→país→global; saídas
+  idênticas apontam para o mesmo arquivo (dedupe). Custo de montar a chave ~0 ms (hash em memória,
+  sub-ms) MESMO com muitas variáveis — "URL complexa" não é "cálculo lento". O custo é só I/O: a ida e volta
+  (~0,15–0,4 s) e, 1x por sessão, a descoberta do país (~0,15 s).
+- **Hierarquia de regras que se sobrepõem** (país × cidade × IP): 1º prioridade explícita (número na regra);
+  2º especificidade no empate — IP/CIDR > cidade > estado > país > continente > global; 3º desempate estável
+  por ordem/ID + aviso de conflito no publish. Resolvido CAMPO A CAMPO (a cidade manda no banner, o país nos
+  anúncios, no mesmo usuário) e TUDO no publish → custo de runtime zero; o app lê valores já achatados.
+- **Variáveis abstratas e A/B** (pergunta final do dono: "fez uma compra", "marcou o checkbox", propriedade
+  custom, A/B 50% como no Firebase). Duas famílias: (a) o que o SERVIDOR sabe (país, idioma, plataforma,
+  versão, o que você sincronizou pro backend) → vira a URL; (b) o que SÓ O APARELHO sabe (comprou? checkbox?
+  propriedade custom, balde do A/B) → vem como REGRINHA dentro do arquivo e o app resolve local, com um
+  avaliador minúsculo, em sub-ms, ANTES do 1º quadro (não fere a regra do "nada aparece e some"). A/B 50% =
+  `variante = hash(idEstável + "exp") % 100 < 50 ? "A" : "B"` — determinístico, mesmo usuário sempre no mesmo
+  lado, offline; idEstável = App User ID do RevenueCat ou um install id gravado 1x (= "percentual estável por
+  instalação", que o pixel-config já tem). Híbrido: poucas e baratas (premium, comprou) DOBRAM na chave
+  (build pré-calcula variantes, 100% estático); muitas/arbitrárias ficam como regra local (sem explodir o nº
+  de arquivos). Caso extremo (controle total no servidor, modo rico tipo Firebase) = POST ao Worker com o
+  contexto — mais lento, por pedido, reservado só pro que exige. 95% de A/B + propriedade custom resolve com
+  regra local no arquivo estático.
+- **Por que o D1 engargala** (pergunta do dono): só é consultado em leitura por pedido; cada banco D1 atende
+  UMA consulta por vez (~1.000/s com consultas de 1 ms) e devolve "overloaded" quando a fila enche — é o
+  desenho dos servidores v0 do Hot Updater (335–638 ms medidos em 20/10). Por isso a resposta é pré-montada no
+  publish e servida como ARQUIVO estático, não montada por pedido lendo banco.
+- **Protocolo mais rápido (Tom/socket)?** Ajuda pouco: o custo é a ida e volta FÍSICA (DNS+TCP+TLS+distância),
+  não o protocolo nem o tamanho. O que ajuda: keep-alive, HTTP/3 (QUIC)+TLS 1.3 0-RTT, borda perto, e começar
+  a busca no NATIVO antes do bundle. Socket cru não muda a física.
+- **Escala (1 milhão/dia, ~3 mi pedidos/dia, ~35/s; push blast = alguns mil/s por minutos):** arquivo estático
+  na borda = grátis e ilimitado; Worker com lógica por pedido ~US$29/mês; +KV +~US$40/mês; +D1 engargala. O
+  risco não é carga, é QUEDA (Cloudflare caiu global em 18/11/2025) → endereço de reserva em outro provedor
+  (o próprio Firebase pode ser a reserva, pldev publica nos dois).
+- País de graça na borda (`request.cf.country`); língua/versão o app manda na URL; a escolha por
+  `app.id`/`app.version` do `settings` vira o nome do arquivo.
+
+## Relatório entregue (PDF Material 3 + GIFs + e-mail)
+
+- O dono pediu o relatório no estilo do **Material Design 3** (https://m3.material.io/) — "siga todos os
+  guidelines: tipografia, fundo, cor, elementos, animação". Aplicado: papéis de cor M3 (esquema claro de
+  dynamic color com semente teal — primary/secondary/tertiary/error + cor custom "warning"), containers tonais
+  nos callouts, escala tipográfica Roboto (Display/Headline/Title/Body/Label), shape (cards 12dp, chips 8dp,
+  badge circular, mídia 26dp), elevação M3 e cards filled/elevated/outlined. Diagramas SVG recoloridos para os
+  papéis M3. Animação: PDF não anima — a "motion" vai nos GIFs do e-mail. (O site m3.material.io é SPA; o
+  WebFetch só traz o título, então apliquei as specs canônicas do M3 que já conheço.)
+- **PDF:** 13 páginas, ~2,1 MB, autossuficiente (Roboto embutido como woff2 base64 + prints embutidos). Capa +
+  12 seções: resumo, abertura (gráfico), Firebase×próprio (tabela+medições), volta "aplica ao sair", o fantasma
+  e o conserto (3 prints: v1 / fantasma / v2), iOS + volta rápida, dois planos, chave=URL, hierarquia,
+  variáveis/A-B, escala/custo, verificado×a-medir + pendências. Renderizado com Chrome headless
+  `--print-to-pdf` a partir de HTML+SVG (fonte em `~/appdata/.../report/`, ver abaixo).
+- **GIFs (Android, release, câmera lenta ~2,5x, 360px, Roboto n/a):** `fantasma-com-android.gif` (a v1 "Como ler
+  estas datas" + Seja Premium + anúncio pisca ~0,15 s na volta, depois vira v2) e `fantasma-sem-android.gif`
+  (com o conserto: volta já na v2, só um clareado rápido, nunca a v1). Gerados dos clipes crus
+  `android-leave-comfoto.mp4`/`-semfoto.mp4` (volta em ~t=11,5 s / ~t=9,0 s). Verificado quadro a quadro.
+- **E-mail:** enviado por Resend (HTTP 200, id 01a161d4-…) para bruno.vmartins2@gmail.com, de
+  `onboarding@resend.dev` (a chave do pixel-analytics sumiu; li do `gpt-notification-system/report.php`). Corpo
+  HTML M3 com os 2 GIFs inline (cid) + PDF e GIFs anexos. SendUserFile também entregou PDF + 2 GIFs ao celular.
+- **Arquivos na máquina:** `~/Downloads/claude/volta-2plano-remote-config-proprio.pdf`,
+  `~/Downloads/claude/fantasma-com-android.gif`, `fantasma-sem-android.gif`. Fonte do relatório (HTML, SVGs,
+  `build_m3.py`, `send_email.py`, assets, fonts.css) no scratchpad da sessão (regerável; não copiada pro repo).
+
+## Pendências (iguais, reafirmadas)
+- Worker `volta-lab` do Cloudflare ainda PUBLICADO — apagar quando o dono mandar.
+- Builds de release e simulador iOS do lab ficam na máquina; chave do RevenueCat do lab RESTAURADA.
+- Nada commitado nem publicado em produção. É projeto para implementar na próxima versão (Expo 58).
