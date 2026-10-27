@@ -3,10 +3,9 @@ import {Alert} from "react-native";
 /**
  * Alert.alert pelo Expo UI: o alerta do SwiftUI no iOS e o AlertDialog do Material 3 no Android
  * (native-alert-dialog.ios.tsx / .android.tsx). Os apps continuam chamando o Alert.alert do react-native: quando um
- * host monta (NativeAlertSlot, que o ExpoUtilsLayout e o AskForReviewOverlay já montam), a lib troca o método e os
- * pedidos entram numa fila que o host desenha um de cada vez. Sem host montado (módulo ExpoUI ausente, boot antes do
- * layout) ou depois de um erro do diálogo, vão para o Alert do RN com os mesmos argumentos. O Alert.prompt não passa
- * por aqui.
+ * host monta (NativeAlertSlot, que o AskForReviewOverlay já monta), a lib troca o método e os pedidos entram numa fila
+ * que o host desenha um de cada vez. Sem host montado (boot antes do layout, app sem slot) ou depois de um erro do
+ * diálogo, vão para o Alert do RN com os mesmos argumentos. O Alert.prompt não passa por aqui.
  *
  * Arquivo-folha, sem UI: a fila, o dono único e o mapeamento dos botões são testados no bun (tests/native-alert.test.ts).
  */
@@ -108,11 +107,12 @@ export function failNativeAlert() {
 
 /**
  * Android: os 2 slots do AlertDialog. O RN corta em 3 botões (neutral, negative, positive); aqui o último vai no
- * Confirm e os anteriores no Dismiss, na ordem. Sem botões, um "OK", como o RN.
+ * Confirm e os anteriores no Dismiss, na ordem. Sem botões, um "OK", e o último sem texto vira "OK", como o RN.
  */
 export function composeAlertButtons(buttons: NativeAlertButton[]) {
     const list: NativeAlertButton[] = buttons.length ? buttons.slice(0, 3) : [{text: "OK"}];
-    return {dismiss: list.slice(0, -1), confirm: list[list.length - 1]};
+    const confirm = list[list.length - 1];
+    return {dismiss: list.slice(0, -1), confirm: confirm.text ? confirm : {...confirm, text: "OK"}};
 }
 
 /** iOS: o role do Button do SwiftUI pelo style do RN. O UIAlertController aceita uma ação cancel só; como no RN, vale a última. */

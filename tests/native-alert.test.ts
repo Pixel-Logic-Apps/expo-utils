@@ -161,6 +161,15 @@ describe("mapeamento dos botões", () => {
         expect(composeAlertButtons([a, b, c, d])).toEqual({dismiss: [a, b], confirm: c});
     });
 
+    test("Android: o último sem texto vira OK e continua chamando o onPress dele, como o RN", () => {
+        const semTexto = {onPress: () => {}};
+        const {dismiss, confirm} = composeAlertButtons([a, semTexto]);
+        expect(dismiss).toEqual([a]);
+        expect(confirm.text).toBe("OK");
+        expect(confirm.onPress).toBe(semTexto.onPress);
+        expect(composeAlertButtons([{text: ""}]).confirm.text).toBe("OK");
+    });
+
     test("iOS: style vira role; com dois cancel, só o último fica cancel (o UIAlertController aceita um)", () => {
         expect(swiftAlertRoles([b, a, c])).toEqual(["cancel", undefined, "destructive"]);
         expect(swiftAlertRoles([b, c, b])).toEqual([undefined, "destructive", "cancel"]);

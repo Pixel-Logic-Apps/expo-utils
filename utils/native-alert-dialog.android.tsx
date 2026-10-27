@@ -47,7 +47,9 @@ export default function NativeAlertDialog({request}: {request: NativeAlertReques
                     </AlertDialog.Text>
                 )}
                 <AlertDialog.ConfirmButton>{renderButton(confirm, 0)}</AlertDialog.ConfirmButton>
-                {dismiss.length > 0 && <AlertDialog.DismissButton>{dismiss.map(renderButton)}</AlertDialog.DismissButton>}
+                {/* o M3 põe os botões num FlowRow de direção invertida, com o confirm como 1º item, e cada botão do slot é
+                    um item: invertidos, ficam na ordem do RN (o 1º mais à esquerda; empilhados, o confirm em cima) */}
+                {dismiss.length > 0 && <AlertDialog.DismissButton>{dismiss.map(renderButton).reverse()}</AlertDialog.DismissButton>}
             </AlertDialog>
         </Host>
     );

@@ -1418,7 +1418,8 @@ O app continua chamando `Alert.alert(título, mensagem?, botões?, opções?)` d
 publicar está no playbook, seção 4.2.2).
 
 - **Um diálogo de cada vez.** Alertas seguidos entram numa fila, e um alerta aberto dentro do `onPress` de outro aparece
-  depois dele (no Android o RN abria o 2º por cima do 1º). Cada botão chama o `onPress` uma vez só.
+  depois dele (no Android o RN abria o 2º por cima do 1º; no iOS o próximo espera meio segundo depois de o anterior
+  fechar). Cada botão chama o `onPress` uma vez só.
 - **Botões no Android:** sem botões, um "OK"; 1 botão vai no Confirm; 2, o 1º no Dismiss e o 2º no Confirm; 3, os dois
   primeiros no Dismiss e o 3º no Confirm (mais de 3 são cortados, como no RN). `destructive` sai na cor de erro do
   Material 3; `cancel` não muda nada, como no RN. A mensagem longa rola.
@@ -1428,15 +1429,19 @@ publicar está no playbook, seção 4.2.2).
 - **`cancelable` e `onDismiss`:** só no Android, como no RN. O padrão é `false` (só fecha por botão); com `true`, voltar e
   toque fora fecham e chamam o `onDismiss`. No iOS o alerta não fecha tocando fora. `userInterfaceStyle` e `isPreferred`
   são ignorados nesse caminho (nenhum app usa).
-- **Quando o Alert do RN desenha (com os mesmos argumentos):** binário sem o módulo nativo `ExpoUI` (JS novo por OTA num
-  binário antigo), alerta antes de o layout montar (boot), app sem nenhum slot montado e erro ao carregar ou desenhar o
-  diálogo (vira `expo_utils_warn`; depois de um erro, o resto da sessão fica no Alert do RN). O `Alert.prompt` nunca
-  passa pela lib.
-- **Nenhuma linha nova no app:** o `ExpoUtilsLayout` e o `AskForReviewOverlay` já montam o slot (só um desenha). App sem
-  nenhum dos dois (ex.: só com o `PromotionalContent`): `<NativeAlertSlot />` (de `expo-utils/utils/native-alert-slot`)
-  no `_layout`.
+- **Quando o Alert do RN desenha (com os mesmos argumentos):** alerta antes de o layout montar (boot), app sem nenhum
+  slot montado e erro ao carregar ou desenhar o diálogo (vira `expo_utils_warn`; depois de um erro, o resto da sessão
+  fica no Alert do RN). O `Alert.prompt` nunca passa pela lib.
+- **Binário sem o módulo nativo `ExpoUI` não é coberto:** o slot confere o módulo antes de carregar o diálogo, mas o
+  `glass-button.tsx` (botões do review e da retenção) importa o `@expo/ui` no topo, e o `@expo/ui` lança no carregamento
+  sem o módulo. O app cai no boot antes de o slot agir (já era assim antes do alerta).
+- **Nenhuma linha nova no app:** o `AskForReviewOverlay` monta o slot, e o `ExpoUtilsLayout` sempre renderiza o overlay.
+  App sem nenhum dos dois (ex.: só com o `PromotionalContent`): `<NativeAlertSlot />` (de
+  `expo-utils/utils/native-alert-slot`) no `_layout`.
 - **Sem rebuild no SDK 57:** o `@expo/ui` vem com o expo-router 57, então o módulo nativo já está no binário. No SDK 58 o
-  expo-router deixou o `@expo/ui` opcional: declare o `@expo/ui` no app.
+  expo-router deixou o `@expo/ui` opcional: declare o `@expo/ui` no app antes de gerar o binário. A OTA com esta lib
+  chega a todo binário da mesma versão do app (o Hot Updater escolhe pela versão), e no binário sem o módulo o app cai
+  no boot.
 
 ---
 

@@ -227,21 +227,27 @@ Os apps continuam chamando `Alert.alert` do react-native e a lib desenha pelo Ex
   testada em `tests/native-alert.test.ts`), `utils/native-alert-slot.tsx` (`NativeAlertSlot`; carrega o diálogo só com o
   módulo ExpoUI, a exceção da regra de imports) e `utils/native-alert-dialog.ios.tsx` / `.android.tsx`.
 - **Fallback**: o `Alert.alert` só é trocado quando um host registra, e sem host o pedido vai para o Alert do RN com os
-  mesmos argumentos. Montam o slot o `ExpoUtilsLayout` e o `AskForReviewOverlay`; o 1º registrado desenha. Erro ao
-  desenhar o diálogo (error boundary no slot) não derruba o layout raiz: `failNativeAlert` manda o pedido aberto e os da
-  fila para o Alert do RN e o resto da sessão fica nele.
+  mesmos argumentos. Quem monta o slot é o `AskForReviewOverlay`, que o `ExpoUtilsLayout` sempre renderiza; com mais de
+  um slot, o 1º registrado desenha. Erro ao desenhar o diálogo (error boundary no slot) não derruba o layout raiz:
+  `failNativeAlert` manda o pedido aberto e os da fila para o Alert do RN e o resto da sessão fica nele. Binário sem o
+  módulo ExpoUI não é coberto hoje: o `glass-button.tsx` importa o `@expo/ui` no topo e o app cai no boot antes (ver
+  "Imports").
 - **iOS**: o alerta precisa de um `Alert.Trigger` (texto vazio num Host de 1 pt); montado = aberto. O SwiftUI roda a
   ação do botão e só depois fecha ("All actions in an alert dismiss the alert after the action runs", doc da Apple):
-  o `onPress` roda o callback e o `onIsPresentedChange(false)`, que chega depois, tira o pedido da fila. Sem botão do
-  app, só chega o `onIsPresentedChange` (o "OK" do sistema). O Android tira da fila no próprio `onClick`.
+  o `onPress` roda o callback e o `onIsPresentedChange(false)`, que chega depois, tira o pedido da fila com meio segundo
+  de atraso. O atraso é remendo: o false chega no começo da saída, o @expo/ui não avisa o fim, e o próximo alerta
+  montado antes disso o UIKit recusa ("already presenting") e a fila trava. Sem botão do app, só chega o
+  `onIsPresentedChange` (o "OK" do sistema). O Android tira da fila no próprio `onClick`.
 - **Android**: o `Text` do @expo/ui parte do `TextStyle.Default` e não herda a tipografia do slot do AlertDialog, então
   título `headlineSmall`, texto `bodyMedium` e botão `labelLarge` vão explícitos (os `DialogTokens` do material3). O Host
   é o pai imediato do AlertDialog. O `onDismissRequest` só chega com `cancelable` (o Compose filtra pelas
-  `DialogProperties`).
+  `DialogProperties`). Os botões do Dismiss vão invertidos: o M3 os põe num FlowRow de direção invertida, com o confirm
+  como 1º item, e cada botão do slot é um item; assim 3 botões ficam na ordem do RN.
 - **Não verificado no aparelho (27/10/2026).** No iOS o alerta é apresentado pelo Host na raiz, não numa janela própria
   como o do RN: com algo já apresentado por cima da raiz (`Modal` do RN, rota `modal`/`fullScreenModal`, intersticial ou
-  app open, formulário do UMP) ou logo depois de outro alerta, o UIKit pode recusar a apresentação ("already
-  presenting"). Aí nenhum evento volta e a fila fica parada até o app fechar. Testar esses casos antes de publicar.
+  app open, formulário do UMP), o UIKit pode recusar a apresentação ("already presenting") ou, numa tela cheia, o Host
+  sai da janela e o alerta não aparece. Aí nenhum evento volta e a fila fica parada. O atraso de meio segundo entre
+  alertas seguidos também não foi visto no aparelho. Testar esses casos antes de publicar.
 
 
 # Checksum MD5 do Remote Config
@@ -526,7 +532,9 @@ esconde dependencia, quebra tree-shaking e tipagem, e deixa o arquivo com duas c
   `requireNativeModule("ExpoUI")` no carregamento e lanca num binario sem o modulo nativo (JS novo por OTA num binario
   antigo): o erro nao aparece no bundle, aparece no boot de quem recebeu a OTA. Por isso o slot confere
   `requireOptionalNativeModule("ExpoUI")` e so entao faz `require("./native-alert-dialog")` em try/catch (o padrao do
-  expo-router 58 em `build/optional-libraries/expo-ui.js`). Nao troque por import no topo.
+  expo-router 58 em `build/optional-libraries/expo-ui.js`). Hoje isso nao salva esse binario: o `glass-button.tsx`
+  importa o `@expo/ui` no topo e o app ja cai no boot por ele. Manter a excecao (e proteger o glass-button tambem) ou
+  trocar por import no topo, como o glass-button: decisao pendente do Bruno (27/10/2026).
 
 ### Adding a New CLI Flag
 

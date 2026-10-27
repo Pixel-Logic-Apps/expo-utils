@@ -714,20 +714,24 @@ Exports novos do pacote (`index.ts` **e** `index.d.ts`): `logUtilsEvent`, `setUt
 o método e desenha o diálogo pelo `@expo/ui`: `Alert` do SwiftUI no iOS, `AlertDialog` do Material 3 no Android
 (`utils/native-alert.ts`, `utils/native-alert-slot.tsx`, `utils/native-alert-dialog.ios.tsx` / `.android.tsx`).
 
-- **Quem monta:** o `ExpoUtilsLayout` e o `AskForReviewOverlay` (o template `RootLayout.tsx` e o lab renderizam o overlay
-  sem o `ExpoUtilsLayout`); só um desenha. App sem nenhum dos dois (ex.: só com o `PromotionalContent`, como o
+- **Quem monta:** o `AskForReviewOverlay`, que o `ExpoUtilsLayout` sempre renderiza (o template `RootLayout.tsx` e o lab
+  renderizam o overlay sem o `ExpoUtilsLayout`). App sem nenhum dos dois (ex.: só com o `PromotionalContent`, como o
   expo-eleicao): `<NativeAlertSlot />` no `_layout`, senão continua no Alert do RN.
 - **Comportamento novo:** um diálogo de cada vez (fila). Alerta chamado dentro do `onPress` de outro aparece depois dele;
-  no Android o RN abria o 2º por cima do 1º. Cada botão chama o `onPress` uma vez só.
+  no Android o RN abria o 2º por cima do 1º. No iOS o próximo espera meio segundo depois de o anterior fechar. Cada
+  botão chama o `onPress` uma vez só.
 - **Igual ao RN:** `cancelable` padrão `false` (só fecha por botão); `cancelable: true` + `onDismiss` só no Android; no
   máximo 3 botões no Android (o último no Confirm, os anteriores no Dismiss, na ordem); sem botões, um "OK" (no iOS, o
   do sistema, traduzido). `destructive` na cor de erro do Material 3 no Android e com `role` destrutivo no iOS; no iOS a
   Apple pode reordenar os botões pelo role. Ignorados nesse caminho: `userInterfaceStyle` e `isPreferred`.
-- **Cai no Alert do RN, com os mesmos argumentos:** binário sem o módulo nativo `ExpoUI` (JS novo por OTA num binário
-  antigo), alerta antes de o layout montar, app sem slot e erro ao carregar ou desenhar o diálogo (`expo_utils_warn`;
-  depois de um erro, o resto da sessão fica no Alert do RN). O `Alert.prompt` nunca passa pela lib.
+- **Cai no Alert do RN, com os mesmos argumentos:** alerta antes de o layout montar, app sem slot e erro ao carregar ou
+  desenhar o diálogo (`expo_utils_warn`; depois de um erro, o resto da sessão fica no Alert do RN). O `Alert.prompt`
+  nunca passa pela lib.
+- **Binário sem o módulo nativo `ExpoUI` não é coberto:** o `glass-button.tsx` (review e retenção) importa o `@expo/ui`
+  no topo, e o `@expo/ui` lança no carregamento sem o módulo; o app cai no boot antes de o slot conferir o módulo.
 - **Dependência:** nenhuma nova e sem rebuild no SDK 57 (o `@expo/ui` vem com o expo-router 57). No SDK 58 o expo-router
-  deixou o `@expo/ui` opcional: o app precisa declará-lo.
+  deixou o `@expo/ui` opcional: o app precisa declará-lo antes de gerar o binário, porque a OTA com esta lib chega a todo
+  binário da mesma versão do app.
 - **Export novo** (`index.ts` / `index.d.ts`): `NativeAlertSlot`.
 - **Ainda não visto no aparelho.** Conferir antes de soltar (seção 10.3), principalmente no iOS, onde o alerta sai de
   um Host na raiz do app e não de uma janela própria como o do RN: alerta com um `Modal` ou uma tela `modal` /
@@ -1345,7 +1349,8 @@ abrir. A lib já trata as duas gerações (seção 2.4).
       push para o tópico e vendo chegar
 - [ ] `Alert.alert` do app abre o diálogo do Expo UI (iOS: alerta do SwiftUI; Android: Material 3) e cada botão roda o
       `onPress` (seção 4.2.2). No iOS, conferir também com um `Modal` ou tela `fullScreenModal` aberta, com um
-      intersticial na tela e com um alerta aberto dentro do `onPress` de outro
+      intersticial na tela e com um alerta aberto dentro do `onPress` de outro. No Android, 3 botões na ordem do RN
+      (o 1º à esquerda, o último à direita)
 
 ### 10.4 Expo doctor
 
