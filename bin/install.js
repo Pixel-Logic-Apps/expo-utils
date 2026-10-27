@@ -144,7 +144,8 @@ function detectHotUpdaterGeneration(args, projectPkg) {
 // forceStaticLinking, que fica com o RNGoogleMobileAds (doc do RNGMA) e o react-native-fbsdk-next
 // (fbsdk-next#678). O Firebase Android BoM 35 exige Kotlin >= 2.4.0: 2.4.20, porque os compiler plugins do
 // Expo (pika-compiler, expo-modules-v2-compiler-plugin) só estão no Maven Central até a 2.4.20.
-// Combinação testada em 27/10/2026 no Eleições (SDK 58, RNFB 27.1.0, RNGMA 17.4.0): Release no iOS e no Android.
+// Combinação testada em 27/10/2026 no Eleições (SDK 58, RNFB 27.1.0, RNGMA 17.4.0): Release no iOS e no Android (com o
+// R8 do SDK 58, o Android só abre com as regras do plugin: androidR8KeepRules, 1.5.2).
 // RNFB 24–26 (apps no SDK 57): o stack estático de sempre.
 const RNFB_STATIC_PODS = ["RNFBApp", "RNFBAuth", "RNFBFirestore", "RNFBMessaging", "RNFBCrashlytics", "RNFBAnalytics", "RNFBRemoteConfig"];
 const RNFB_SPM_FORCE_STATIC = ["RNGoogleMobileAds", "react-native-fbsdk-next"];

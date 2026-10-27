@@ -22,11 +22,20 @@ const MEDIATION_ADAPTERS = require("./data/mediation_adapters.json");
 
 const DEVMENU_TAG = "skip-devmenu-onboarding";
 const KOTLIN_ADS_FIX_TAG = "expo-utils-android-kotlin-ads-fix";
+const R8_KEEP_RULES_TAG = "expo-utils-r8-keep-rules";
 const MEDIATION_TAG = "expo-utils-admob-mediation";
 const MEDIATION_REPOS_TAG = "expo-utils-admob-mediation-repos";
 const FIREBASE_LOG_LEVELS = ["error", "warn", "info", "debug"];
 const ANDROID_GRADLE_JVMARGS = "-Xmx4096m -XX:MaxMetaspaceSize=1024m";
 const KOTLIN_SKIP_METADATA_FLAG = "-Xskip-metadata-version-check";
+// Room e WorkManager: as regras que o androidx já corrigiu (e4765e38e e 973b8b339, jun/2024), sem o
+// `{ void <init>(); }` no Room < 2.7 e no WorkManager < 2.10. Glance: a regra dele ainda não tem o construtor
+// (androidx main, mar/2026). Ver withAndroidR8KeepRules.
+const R8_KEEP_RULES = [
+    "-keep class * extends androidx.room.RoomDatabase { void <init>(); }",
+    "-keep class * extends androidx.work.InputMerger { void <init>(); }",
+    "-keep public class * extends androidx.glance.appwidget.action.ActionCallback { void <init>(); }",
+];
 
 // Purpose strings (NS*UsageDescription) que SDKs comuns referenciam mesmo quando o app NÃO
 // usa a feature: ExpoImage / ExpoVideo / ExpoFileSystem e o FBSDKShareKit acessam a Photo
@@ -300,6 +309,39 @@ function withAndroidGradleHeap(config) {
         }
         return cfg;
     });
+}
+
+/**
+ * O SDK 58 liga o R8 no Release, e o AGP 9 liga o `android.r8.strictFullModeForKeepRules`: `-keep class A`
+ * não mantém mais o construtor vazio. O play-services-ads traz o WorkManager (2.7+) e, com ele, o Room; antes do
+ * WorkManager 2.10 e do Room 2.7 as regras deles ainda são assim, e o R8 tira os construtores que eles chamam
+ * por reflexão: o app fecha ao abrir ("Failed to create an instance of ... WorkDatabase", no
+ * InitializationProvider) e os jobs do WorkManager falham ao criar o InputMerger. O Glance (widgets, ex.:
+ * voltra) cria os ActionCallback do mesmo jeito (RunCallbackAction) e os botões do widget param de responder.
+ *
+ * Acrescenta ao `android/app/proguard-rules.pro` essas regras com o construtor, num bloco marcado. Regra de
+ * biblioteca que o app não tem não casa com nada. Idempotente: o cabeçalho tem o hash do conteúdo. Com o R8
+ * desligado, o arquivo não é usado.
+ */
+function withAndroidR8KeepRules(config) {
+    return withDangerousMod(config, [
+        "android",
+        (cfg) => {
+            const file = path.join(cfg.modRequest.platformProjectRoot, "app", "proguard-rules.pro");
+            try {
+                const src = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
+                const rules = R8_KEEP_RULES.join("\n");
+                const header = createGeneratedHeaderComment(rules, R8_KEEP_RULES_TAG, "#");
+                if (src.includes(header)) return cfg;
+                const base = removeContents({src, tag: R8_KEEP_RULES_TAG}).contents.replace(/\n*$/, "");
+                const block = `${header}\n${rules}\n# @generated end ${R8_KEEP_RULES_TAG}\n`;
+                fs.writeFileSync(file, base ? `${base}\n\n${block}` : block);
+            } catch (e) {
+                console.warn(`[expo-utils] R8: não consegui escrever as regras no proguard-rules.pro: ${e.message}`);
+            }
+            return cfg;
+        },
+    ]);
 }
 
 /**
@@ -660,6 +702,11 @@ function withIosMediationPods(config, networks) {
  * do Expo) e sobe o heap do Gradle daemon pra 4G. Evita plugin local nos apps.
  * Desligue com `{ androidKotlinAdsFix: false }`.
  *
+ * `options.androidR8KeepRules` LIGADO por padrão: no PREBUILD Android acrescenta ao
+ * `proguard-rules.pro` as regras do Room, do WorkManager e do Glance com o construtor vazio, que o R8 do
+ * AGP 9 (SDK 58, R8 ligado no Release) passou a exigir; sem elas o app fecha ao abrir.
+ * Desligue com `{ androidR8KeepRules: false }`.
+ *
  * `options.mediation` LIGADO por padrão com as redes padrão do catálogo (AppLovin, Meta, Unity,
  * Pangle): no PREBUILD injeta os adapters (+ o SDK da Unity, que o POM do adapter não traz) no
  * `app/build.gradle`, os repositórios Maven das redes fora do Maven Central/Google Maven no
@@ -764,6 +811,9 @@ function withExpoUtils(config, options = {}) {
     }
     if (options?.androidKotlinAdsFix !== false) {
         result = withAndroidGradleHeap(withAndroidKotlinMetadataSkip(result));
+    }
+    if (options?.androidR8KeepRules !== false) {
+        result = withAndroidR8KeepRules(result);
     }
     if (options?.appIcon !== false) {
         result = withAppIconDataUri(result);

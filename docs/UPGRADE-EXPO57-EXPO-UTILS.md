@@ -41,12 +41,13 @@ Não pule passos. Se o app-alvo for outro, mantenha a mesma **ordem** e o mesmo 
 - Premium via **`PremiumUtils`**
 - TypeScript limpo (`npx tsc --noEmit` exit 0 no app)
 
-### 0.1 Expo SDK 58 (expo-utils 1.5.1)
+### 0.1 Expo SDK 58 (expo-utils 1.5.2)
 
-A lib 1.5.1 serve os dois SDKs: app no **SDK 57** segue como está (RNFB 24–26, Hot Updater v0, stack iOS estático) e o
+A lib 1.5.2 serve os dois SDKs: app no **SDK 57** segue como está (RNFB 24–26, Hot Updater v0, stack iOS estático) e o
 **SDK 58** muda o que está abaixo. **Combinação testada** em 27/10/2026 no Eleições 1.6.0 (SDK 58, RNFB 27.1.0, RNGMA
-17.4.0): Release no iOS (Xcode 27.1, simulador) e no Android (`assembleRelease` com R8), com exatamente a coluna da
-direita.
+17.4.0): Release no iOS (Xcode 27.1, simulador) e no Android (`assembleRelease` com R8, instalado e aberto no emulador),
+com exatamente a coluna da direita. No Android, o Release só abre com a lib **1.5.2** ou mais nova (linha "R8"
+abaixo); com a 1.5.1 ele compila e fecha ao abrir.
 
 | Tema | SDK 57 (como antes) | SDK 58 |
 |---|---|---|
@@ -54,6 +55,7 @@ direita.
 | Firebase | RNFB 24–26 | RNFB **27.1.0** (Firebase iOS 13 só por Swift Package; Android BoM 35) |
 | iOS (`expo-build-properties`) | `useFrameworks: "static"` + RNFB* no `forceStaticLinking`; o plugin da lib põe `$RNFirebaseDisableSPM` | `useFrameworks: "dynamic"`, `forceStaticLinking: ["RNGoogleMobileAds", "react-native-fbsdk-next"]`; **sem** `$RNFirebaseDisableSPM` (o plugin não põe com RNFB 27) |
 | Android (`expo-build-properties`) | — | `kotlinVersion: "2.4.20"` (o BoM 35 exige ≥ 2.4.0; **não** 2.4.21, ver 11) |
+| R8 (Release Android) | desligado no template | **ligado** no template (`android.enableMinifyInReleaseBuilds=true`), e o AGP 9 não mantém mais o construtor vazio por `-keep class A`: o plugin da lib (**1.5.2+**, `androidR8KeepRules`) põe as regras do Room, do WorkManager e do Glance. **Não** desligar o R8 no app (ver 43) |
 | Edge-to-edge | `react-native-edge-to-edge` (pode ficar) | sai (descontinuado; o RN ≥ 0.86 já desenha edge-to-edge): `["expo-navigation-bar", {"enforceContrast": false}]` |
 | `@expo/ui` e `expo-device` | o `@expo/ui` vem com o expo-router | **dependência direta obrigatória**: a lib importa os dois e o expo-router 58 não traz mais o `@expo/ui` |
 | AdMob | RNGMA 16.4+ (no 16.x o Pangle fica no `compat`, seção 3.3) | RNGMA **17.4.0** (o catálogo da mediação segue ele) |
@@ -1407,6 +1409,7 @@ abrir. A lib já trata as duas gerações (seção 2.4).
 | 40 | Pangle 8.3 (catálogo do RNGMA 17.4) num app no RNGMA 16.x | `pod install` quebra: o pod exige `Google-Mobile-Ads-SDK ~> 13.6` e o RNGMA 16 pina o 13.5.0 | automático: o plugin lê o RNGMA instalado e usa o `compat` (Pangle 8.2.0.3.0/8.2.0.4.0); ou subir o RNGMA para 17.4.0 |
 | 41 | Plugin local `withPodsDeploymentTarget` mantido no SDK 58 | sobra de um bug já corrigido (expo#47537, expo-modules-autolinking ≥ 57.0.5) | apagar o plugin e a entrada no app.json (o Eleições compilou sem ele) |
 | 42 | `tsconfig.json` do app com `baseUrl` / `moduleResolution: "node"` no TypeScript 6 (SDK 58) | `tsc` falha com TS5101/TS5107 ("deprecated and will stop functioning in TypeScript 7.0") | `extends: "expo/tsconfig.base"` (já usa `bundler`) e `paths` sem `baseUrl`; ou `"ignoreDeprecations": "6.0"` |
+| 43 | SDK 58 (R8 ligado) com a lib 1.5.1, ou com `androidR8KeepRules: false` | Release Android fecha ao abrir: "Failed to create an instance of class androidx.work.impl.WorkDatabase.canonicalName" (no `InitializationProvider`); os jobs do WorkManager e os botões de widget do Glance também falham | lib 1.5.2+ e prebuild: o `android/app/proguard-rules.pro` tem o bloco `expo-utils-r8-keep-rules` com as 3 regras `{ void <init>(); }` |
 
 ---
 

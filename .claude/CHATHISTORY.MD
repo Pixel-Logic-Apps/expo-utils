@@ -2567,3 +2567,29 @@ O Bruno quer a 1.5.1 com tudo na main ("sem ser outro branch") e, depois de ver 
 - Regra de imports × proteção do @expo/ui: o alerta carrega o @expo/ui com `require` protegido, mas o glass-button já importa no topo desde a 1.5.1 (binário sem o ExpoUI cai no boot). Seguir a regra (import no topo) ou proteger os dois.
 - Cor do alerta no Android: hoje segue o papel de parede (Material You); a proposta é a cor de cada app (`seedColor` no Host, vinda do app).
 - Tag `v1.5.1` e push só depois do OK do Bruno.
+
+## 2026-10-27 — 1.5.2: regras do R8 no plugin (o Release Android do SDK 58 fechava ao abrir)
+
+### Pedido
+No Eleições 1.6.0 (SDK 58) o APK Release fechava ao abrir. O Bruno pediu para resolver o R8 de verdade ("tem que funcionar"), sem desligá-lo, e para atualizar a expo-utils junto, não só o app.
+
+### Causa
+- O SDK 58 liga o R8 no Release, e o AGP 9 (9.2.1 no RN 0.88) liga o `android.r8.strictFullModeForKeepRules`: `-keep class A` não mantém mais o construtor vazio.
+- O play-services-ads traz o WorkManager (2.7+; 2.9.1 no Eleições) com o Room 2.5.0, cujas regras ainda não têm `{ void <init>(); }`. O R8 tirou o `WorkDatabase_Impl.<init>()` (crash no InitializationProvider: "Failed to create an instance of class androidx.work.impl.WorkDatabase.canonicalName") e os construtores dos dois InputMerger (todo job do WorkManager falharia).
+- O Glance (widgets do voltra) cria os ActionCallback por reflexão (`RunCallbackAction`), e a regra dele também não tem o construtor (androidx main, mar/2026).
+- O androidx corrigiu Room e WorkManager em jun/2024 (commits e4765e38e e 973b8b339).
+
+### Como foi achado
+Dois builds Release com R8 no Eleições, com `-Pandroid.r8.strictFullModeForKeepRules=false` e sem ele (nada editado em `android/`), e a diferença do `usage.txt` (o que o R8 removeu só no modo estrito). Só esses construtores eram usados por reflexão; o resto eram construtores que ninguém chama (marcadores do Facebook SDK, utilitários estáticos do Fresco/SoLoader/Hermes, construtores sem uso do OkHttp e do expo-modules-core).
+
+### O que foi feito
+- `app.plugin.js`: opção `androidR8KeepRules` (ligada por padrão). No prebuild acrescenta ao `android/app/proguard-rules.pro` o bloco `expo-utils-r8-keep-rules` com as 3 regras; idempotente (hash no cabeçalho).
+- `tests/plugin-r8-keep-rules.test.ts`: 5 testes com o `generateCode` real.
+- Docs: AGENTS.md (seção "Android R8 keep rules" e a "combinação testada" corrigida: com a 1.5.1 o Release Android compilava e fechava ao abrir), README (opção), playbook do upgrade (seção 0.1 aponta a 1.5.2, linha "R8" na tabela, armadilha 43) e comentário do instalador. Versão 1.5.2.
+
+### Validação
+- `tests/run.sh`: 436 pass, 0 fail.
+- Eleições (SDK 58, AGP 9.2.1) com o plugin novo no prebuild: o APK Release com R8 abre no emulador; o WorkManager inicia; Início, Resultados, Notícias e Candidatos funcionam; o widget do voltra entra na tela inicial (SessionWorker do Glance rodando no WorkManager); o DiagnosticsWorker terminou em SUCCESS; nenhum "Trouble instantiating" no logcat.
+
+### Versão
+A tag `v1.5.1` não foi movida (o commit 2b5692e do Eleições a usa); a correção sai na `v1.5.2`.
