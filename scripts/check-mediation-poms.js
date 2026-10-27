@@ -124,6 +124,13 @@ async function main() {
                 row.pomSdk = sdks.length ? sdks.map((d) => `${d.group}:${d.name}:${d.version}${d.scope ? ` (${d.scope})` : ""}`).join(", ") : "NÃO declara";
                 row.extra = extras.length ? extras.map((e) => `${e.artifact}:${e.version}`).join(", ") : "—";
                 if (!sdks.length && !extras.length) fail("o POM não traz o SDK e o catálogo não tem extraArtifacts");
+                // android.sdk é o que a task do Gradle confere no app: tem que ser o SDK que o POM ou o extraArtifacts traz
+                const esperado = [].concat(android.sdk || []);
+                const trazidos = [...sdks.map((d) => `${d.group}:${d.name}`), ...extras.map((e) => e.artifact)];
+                if (!esperado.length) fail("sem android.sdk no catálogo (o build do app não confere o SDK)");
+                else if (!esperado.some((coord) => trazidos.includes(coord))) {
+                    fail(`android.sdk (${esperado.join(" ou ")}) não é o que o POM/extraArtifacts traz (${trazidos.join(", ")})`);
+                }
                 for (const extra of extras) {
                     if (sdks.some((d) => `${d.group}:${d.name}` === extra.artifact)) {
                         fail(`${extra.artifact} já vem no POM — tirar de extraArtifacts (duas fontes da versão)`);
@@ -153,6 +160,13 @@ async function main() {
                 if (!lineSpec.deps) {
                     fail(`podspec ${version} não baixou (${lineSpec.status})`);
                     continue;
+                }
+                // ios.sdkPod é o que o post_install do app confere: tem que cobrir o SDK do pod escolhido para esta linha
+                const sdkPods = [].concat(ios.sdkPod || []);
+                const sdkDaLinha = Object.keys(lineSpec.deps).filter((name) => name !== "Google-Mobile-Ads-SDK").map((name) => name.split("/")[0]);
+                if (!sdkPods.length) fail("sem ios.sdkPod no catálogo (o pod install do app não confere o SDK)");
+                else if (!sdkDaLinha.some((name) => sdkPods.includes(name))) {
+                    fail(`${line.label}: ios.sdkPod (${sdkPods.join(" ou ")}) não cobre o SDK do pod ${version} (${sdkDaLinha.join(", ")})`);
                 }
                 const requirement = lineSpec.deps["Google-Mobile-Ads-SDK"];
                 const ok = satisfiesPodRequirement(line.ios, requirement);

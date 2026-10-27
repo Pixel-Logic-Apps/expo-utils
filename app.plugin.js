@@ -25,6 +25,7 @@ const KOTLIN_ADS_FIX_TAG = "expo-utils-android-kotlin-ads-fix";
 const R8_KEEP_RULES_TAG = "expo-utils-r8-keep-rules";
 const MEDIATION_TAG = "expo-utils-admob-mediation";
 const MEDIATION_REPOS_TAG = "expo-utils-admob-mediation-repos";
+const MEDIATION_SDK_CHECK_TAG = "expo-utils-admob-mediation-sdk-check";
 const FIREBASE_LOG_LEVELS = ["error", "warn", "info", "debug"];
 const ANDROID_GRADLE_JVMARGS = "-Xmx4096m -XX:MaxMetaspaceSize=1024m";
 const KOTLIN_SKIP_METADATA_FLAG = "-Xskip-metadata-version-check";
@@ -670,6 +671,141 @@ function withIosMediationPods(config, networks) {
 }
 
 /**
+ * O SDK de cada rede da mediação, conferido no build do app. O adapter sozinho não serve anúncio: em 06/10/2026 a Unity
+ * foi para a loja só com o adapter (o POM dele não traz o SDK) e ficou com 0% de match no bidding e no waterfall. O
+ * catálogo diz qual SDK cada rede precisa (`android.sdk`, `ios.sdkPod`; lista = alternativas); aqui isso vira uma
+ * checagem que PARA o build se faltar. Rede definida no app.json sem esses campos não é conferida (avisa).
+ */
+function mediationSdkExpectations(networks) {
+    const lista = (value) => (Array.isArray(value) ? value : [value]).filter((v) => typeof v === "string" && v);
+    const android = [];
+    const ios = [];
+    for (const n of networks) {
+        if (n.android) {
+            const coords = lista(n.android.sdk);
+            if (coords.length) android.push({label: n.label, coords});
+            else console.warn(`[expo-utils] mediation: "${n.label}" sem android.sdk — o build não confere o SDK dessa rede.`);
+        }
+        if (n.ios) {
+            const pods = lista(n.ios.sdkPod);
+            if (pods.length) ios.push({label: n.label, pods});
+            else console.warn(`[expo-utils] mediation: "${n.label}" sem ios.sdkPod — o pod install não confere o SDK dessa rede.`);
+        }
+    }
+    return {android, ios};
+}
+
+const groovyString = (s) => `"${String(s).replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\$/g, "\\$")}"`;
+const rubyString = (s) => `'${String(s).replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`;
+
+/**
+ * Android: task `expoUtilsConferirSdksDaMediacao<Variante>` antes de cada variante Release (`pre<Variante>Build`). Ela
+ * percorre o grafo resolvido do `<variante>RuntimeClasspath` e falha se alguma rede ligada não tiver o SDK. O provider
+ * da resolução é montado na configuração (compatível com o configuration cache) e só é lido na execução.
+ */
+function androidMediationSdkCheck(expected) {
+    return [
+        "// Cada rede da mediação tem que levar o SDK dela no Release: o adapter sozinho não serve anúncio. Gerado pela",
+        "// expo-utils a partir de data/mediation_adapters.json; se faltar algum SDK, o build para aqui.",
+        "def expoUtilsSdksDaMediacao = [",
+        ...expected.map((e) => `    [${groovyString(e.label)}, [${e.coords.map(groovyString).join(", ")}]],`),
+        "]",
+        "androidComponents {",
+        '    onVariants(selector().withBuildType("release")) { variant ->',
+        "        def nomeVariante = variant.name",
+        "        def sufixo = nomeVariante.substring(0, 1).toUpperCase() + nomeVariante.substring(1)",
+        '        def raiz = project.configurations.named(nomeVariante + "RuntimeClasspath").flatMap { it.incoming.resolutionResult.rootComponent }',
+        "        def esperados = expoUtilsSdksDaMediacao",
+        '        def conferir = project.tasks.register("expoUtilsConferirSdksDaMediacao" + sufixo) {',
+        '            group = "verification"',
+        '            description = "Confere se cada rede da mediação leva o SDK dela no " + nomeVariante',
+        "            doLast {",
+        "                def achados = [] as Set",
+        "                def vistos = [] as Set",
+        "                def pendentes = [raiz.get()]",
+        "                while (!pendentes.isEmpty()) {",
+        "                    def componente = pendentes.remove(pendentes.size() - 1)",
+        "                    if (!vistos.add(componente.id.displayName)) continue",
+        "                    def modulo = componente.moduleVersion",
+        '                    if (modulo != null) achados.add(modulo.group + ":" + modulo.name)',
+        "                    componente.dependencies.each { dependencia ->",
+        "                        if (dependencia instanceof org.gradle.api.artifacts.result.ResolvedDependencyResult) pendentes.add(dependencia.selected)",
+        "                    }",
+        "                }",
+        "                def faltando = esperados.findAll { rede -> !rede[1].any { achados.contains(it) } }",
+        "                if (!faltando.isEmpty()) {",
+        '                    throw new GradleException("[expo-utils] Mediação sem o SDK da rede no " + nomeVariante + ": " +',
+        '                        faltando.collect { rede -> rede[0] + " (" + rede[1].join(" ou ") + ")" }.join(", ") +',
+        '                        ". O adapter sozinho não serve anúncio: confira android.sdk e extraArtifacts no catálogo da expo-utils.")',
+        "                }",
+        "            }",
+        "        }",
+        '        project.tasks.matching { it.name == "pre" + sufixo + "Build" }.configureEach { dependsOn(conferir) }',
+        "    }",
+        "}",
+    ].join("\n");
+}
+
+/** iOS: trecho do post_install do Podfile que confere os pods instalados e para o pod install se faltar SDK. */
+function iosMediationSdkCheck(expected) {
+    return [
+        "    # Cada rede da mediação tem que trazer o SDK dela: o adapter sozinho não serve anúncio. Gerado pela expo-utils",
+        "    # a partir de data/mediation_adapters.json; se faltar algum SDK, o pod install para aqui.",
+        "    expo_utils_sdks_da_mediacao = [",
+        ...expected.map((e) => `      [${rubyString(e.label)}, [${e.pods.map(rubyString).join(", ")}]],`),
+        "    ]",
+        "    expo_utils_pods_instalados = installer.pod_targets.map(&:pod_name)",
+        "    expo_utils_sem_sdk = expo_utils_sdks_da_mediacao.reject { |_, pods| pods.any? { |pod| expo_utils_pods_instalados.include?(pod) } }",
+        "    unless expo_utils_sem_sdk.empty?",
+        '      raise "[expo-utils] Mediação sem o SDK da rede: #{expo_utils_sem_sdk.map { |rede, pods| "#{rede} (#{pods.join(\' ou \')})" }.join(\', \')}. " \\',
+        '        "O adapter sozinho não serve anúncio: confira ios.sdkPod no catálogo da expo-utils."',
+        "    end",
+    ].join("\n");
+}
+
+/** Escreve (ou tira, com lista vazia) a conferência no fim do `android/app/build.gradle`. */
+function withAndroidMediationSdkCheck(config, expected) {
+    return withAppBuildGradle(config, (cfg) => {
+        if (cfg.modResults.language !== "groovy") return cfg;
+        let contents = removeContents({src: cfg.modResults.contents, tag: MEDIATION_SDK_CHECK_TAG}).contents;
+        if (expected.length) {
+            const body = androidMediationSdkCheck(expected);
+            const header = createGeneratedHeaderComment(body, MEDIATION_SDK_CHECK_TAG, "//");
+            contents = `${contents.replace(/\s+$/, "")}\n\n${header}\n${body}\n// @generated end ${MEDIATION_SDK_CHECK_TAG}\n`;
+        }
+        cfg.modResults.contents = contents;
+        return cfg;
+    });
+}
+
+/** Escreve (ou tira, com lista vazia) a conferência no começo do `post_install` do Podfile. */
+function withIosMediationSdkCheck(config, expected) {
+    return withDangerousMod(config, [
+        "ios",
+        (cfg) => {
+            const podfile = path.join(cfg.modRequest.platformProjectRoot, "Podfile");
+            try {
+                const src = fs.readFileSync(podfile, "utf8");
+                const contents = expected.length
+                    ? mergeContents({
+                          src,
+                          newSrc: iosMediationSdkCheck(expected),
+                          anchor: /post_install do \|installer\|/,
+                          offset: 1,
+                          comment: "#",
+                          tag: MEDIATION_SDK_CHECK_TAG,
+                      }).contents
+                    : removeContents({src, tag: MEDIATION_SDK_CHECK_TAG}).contents;
+                if (contents !== src) fs.writeFileSync(podfile, contents);
+            } catch (e) {
+                console.warn(`[expo-utils] mediation: não consegui escrever a conferência dos SDKs no Podfile: ${e.message}`);
+            }
+            return cfg;
+        },
+    ]);
+}
+
+/**
  * Config plugin do expo-utils.
  *
  * `options.disableWarnings`/`disableLogs` são lidos em RUNTIME do app.json
@@ -714,6 +850,10 @@ function withIosMediationPods(config, networks) {
  * Desligue com `{ mediation: false }`, ou escolha as redes: `{ mediation: ["applovin", "meta"] }`.
  * ⚠️ Adapter só serve ad depois de configurar a fonte na UI do AdMob (grupo de mediação +
  * ad unit mapeado); sem isso só pesa o build.
+ *
+ * `options.mediationSdkCheck` LIGADO junto com a mediação: o build confere se cada rede ligada leva o SDK dela (task
+ * do Gradle antes do Release; post_install no Podfile) e para com erro se faltar. Desligue com
+ * `{ mediationSdkCheck: false }`.
  */
 /**
  * Embute o ícone do app (96px, data URI) em `extra.expoUtilsAppIcon`, lido em runtime pelo
@@ -818,6 +958,7 @@ function withExpoUtils(config, options = {}) {
     if (options?.appIcon !== false) {
         result = withAppIconDataUri(result);
     }
+    let sdksDaMediacao = {android: [], ios: []};
     if (options?.mediation !== false) {
         const networks = resolveMediationNetworks(options?.mediation, {rngmaMajor: installedRngmaMajor(config)});
         if (networks.length) {
@@ -825,14 +966,24 @@ function withExpoUtils(config, options = {}) {
                 withAndroidMediationRepos(withAndroidMediationAdapters(result, networks), networks),
                 networks,
             );
+            if (options?.mediationSdkCheck !== false) sdksDaMediacao = mediationSdkExpectations(networks);
         }
     }
+    // Sempre roda: com a lista vazia (mediação ou conferência desligada) tira o bloco de um prebuild anterior.
+    result = withIosMediationSdkCheck(withAndroidMediationSdkCheck(result, sdksDaMediacao.android), sdksDaMediacao.ios);
     return result;
 }
 
 const plugin = createRunOncePlugin(withExpoUtils, pkg.name, pkg.version);
 // Funções puras da mediação e as leituras de versão do app, expostas só para os testes
 // (tests/mediation-catalog.test.ts, tests/plugin-versions.test.ts) — não é API pública.
-plugin.mediationInternals = {resolveMediationNetworks, androidMediationDependencies, installedRngmaMajor};
+plugin.mediationInternals = {
+    resolveMediationNetworks,
+    androidMediationDependencies,
+    installedRngmaMajor,
+    mediationSdkExpectations,
+    androidMediationSdkCheck,
+    iosMediationSdkCheck,
+};
 plugin.firebaseInternals = {rnfbUsesCocoaPods};
 module.exports = plugin;

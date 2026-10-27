@@ -2593,3 +2593,21 @@ Dois builds Release com R8 no Eleições, com `-Pandroid.r8.strictFullModeForKee
 
 ### Versão
 A tag `v1.5.1` não foi movida (o commit 2b5692e do Eleições a usa); a correção sai na `v1.5.2`.
+
+## 2026-10-27 — 1.5.3: o build confere o SDK de cada rede da mediação
+
+### Pedido
+O Bruno lembrou o problema de antes: o adapter entrava sem o SDK da rede e a mediação/waterfall não funcionava (a Unity com 0% de match em 06/10/2026). "O Expo Utils, toda vez que ele instalar nos projetos, ele já tem que funcionar também, já tem que colocar SDK junto lá."
+
+### O que foi feito
+- Catálogo (`data/mediation_adapters.json`): `android.sdk` (group:module) e `ios.sdkPod` em todas as 9 redes; Pangle aceita `Ads-Global` (8.3) e `Ads-Global-Beta` (8.2 do compat, apps no RNGMA 16.x).
+- Plugin: com a mediação ligada (`mediationSdkCheck`, padrão ligado) o build confere o SDK de cada rede. Android: task `expoUtilsConferirSdksDaMediacao<Variante>` antes do `pre<Variante>Build` (só release), lendo o grafo resolvido do RuntimeClasspath. iOS: trecho no começo do `post_install` do Podfile, olhando `installer.pod_targets`. Faltou SDK = erro "[expo-utils] Mediação sem o SDK da rede: …". Os blocos saem quando a mediação/conferência é desligada.
+- `scripts/check-mediation-poms.js` agora falha se `android.sdk`/`ios.sdkPod` não baterem com o POM/extraArtifacts e com o podspec de cada linha do RNGMA (testado com valores errados).
+- Testes: `plugin-mediation-sdk-check.test.ts` (6, o trecho do Podfile roda num Ruby de verdade) e 2 novos em `mediation-catalog.test.ts` (tabela `POD_SDK`). `tests/run.sh`: 444 pass.
+- Docs: AGENTS.md (item 4 da mediação), README (opção `mediationSdkCheck`), playbook (armadilha 44).
+
+### Validação no Eleições 1.6.0 (6 redes: AppLovin, Pangle, Liftoff, Mintegral, Unity, Meta)
+- Android: a task roda antes do `preReleaseBuild` e passa; com `android.sdk` errado o build para com a mensagem.
+- iOS: o `pod install` passa; com `ios.sdkPod` errado ele para com a mensagem (o `npx expo prebuild` local só avisa e sai com 0; no EAS para).
+- Binários: as 6 SDKs e os 6 adapters dentro do APK Release com R8 (mapping.txt) e do app do iOS (frameworks AppLovinSDK/FBAudienceNetwork e classes PAGSdk, MTGSDK, UADSMetaData e VungleAdsSDK no executável). O modo estrito do R8 não remove nada dos SDKs nem dos adapters (diferença do usage.txt contra o modo antigo).
+

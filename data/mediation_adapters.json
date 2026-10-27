@@ -10,6 +10,7 @@
         "Os SKAdNetworkIDs de todas estas redes já estão em data/skadnetwork_ids.json (injetado pelo plugin no Info.plist).",
         "Versões conferidas em 2026-10-27: sdkVersions dos pacotes oficiais 17.4.0 no npm, POM no maven.google.com e podspec no CocoaPods trunk (restrição Google-Mobile-Ads-SDK).",
         "android.extraArtifacts = artefatos que o POM do adapter NÃO traz e que o plugin acrescenta como `implementation(...)` próprio. Hoje só a Unity: o POM do adapter diz 'This build does not contain the UnityAds SDK' — sem a linha do SDK o app vai com o adapter e sem o SDK, e o bidding da Unity fica com 0% de match (visto num APK de produção em 06/10/2026). A versão do SDK é a do 'Built and tested with' do CHANGELOG do adapter (= versão do adapter sem o último número). Se o app troca a versão do adapter, o plugin troca a do SDK junto. O pacote oficial @react-native-google-mobile-ads/unity 17.4.0 também não acrescenta o SDK no Android.",
+        "android.sdk / ios.sdkPod = o SDK da rede que TEM que estar no app (coordenada Maven `group:module` e nome do pod; uma lista = alternativas, ex.: Pangle `Ads-Global` no 8.3 e `Ads-Global-Beta` no 8.2 do compat). O plugin confere no build: uma task do Gradle antes do Release e o post_install do Podfile param com erro se alguma rede ligada ficar sem o SDK (o adapter sozinho não serve anúncio). scripts/check-mediation-poms.js confere que esses campos batem com o POM/extraArtifacts e com o podspec.",
         "Ao subir versão ou adicionar rede: `node scripts/check-mediation-poms.js` (POM, podspec e a restrição Google-Mobile-Ads-SDK contra o pin do RNGMA) e atualizar a tabela de tests/mediation-catalog.test.ts."
     ],
     "networks": {
@@ -18,11 +19,13 @@
             "aliases": [],
             "android": {
                 "artifact": "com.google.ads.mediation:applovin",
-                "version": "13.6.4.2"
+                "version": "13.6.4.2",
+                "sdk": "com.applovin:applovin-sdk"
             },
             "ios": {
                 "pod": "GoogleMobileAdsMediationAppLovin",
-                "version": "13.6.4.0"
+                "version": "13.6.4.0",
+                "sdkPod": "AppLovinSDK"
             }
         },
         "meta": {
@@ -32,11 +35,13 @@
             ],
             "android": {
                 "artifact": "com.google.ads.mediation:facebook",
-                "version": "6.22.0.1"
+                "version": "6.22.0.1",
+                "sdk": "com.facebook.android:audience-network-sdk"
             },
             "ios": {
                 "pod": "GoogleMobileAdsMediationFacebook",
-                "version": "6.22.0.0"
+                "version": "6.22.0.0",
+                "sdkPod": "FBAudienceNetwork"
             }
         },
         "unity": {
@@ -47,6 +52,7 @@
             "android": {
                 "artifact": "com.google.ads.mediation:unity",
                 "version": "4.20.1.0",
+                "sdk": "com.unity3d.ads:unity-ads",
                 "extraArtifacts": [
                     {
                         "artifact": "com.unity3d.ads:unity-ads",
@@ -57,7 +63,8 @@
             },
             "ios": {
                 "pod": "GoogleMobileAdsMediationUnity",
-                "version": "4.20.1.0"
+                "version": "4.20.1.0",
+                "sdkPod": "UnityAds"
             }
         },
         "liftoff": {
@@ -68,11 +75,13 @@
             "default": false,
             "android": {
                 "artifact": "com.google.ads.mediation:vungle",
-                "version": "7.7.8.1"
+                "version": "7.7.8.1",
+                "sdk": "com.vungle:vungle-ads"
             },
             "ios": {
                 "pod": "GoogleMobileAdsMediationVungle",
-                "version": "7.7.7.0"
+                "version": "7.7.7.0",
+                "sdkPod": "VungleAds"
             }
         },
         "mintegral": {
@@ -82,11 +91,13 @@
             "android": {
                 "artifact": "com.google.ads.mediation:mintegral",
                 "version": "17.1.81.1",
+                "sdk": "com.mbridge.msdk.oversea:mbridge_android_sdk",
                 "mavenRepo": "https://dl-maven-android.mintegral.com/repository/mbridge_android_sdk_oversea"
             },
             "ios": {
                 "pod": "GoogleMobileAdsMediationMintegral",
-                "version": "8.1.7.0"
+                "version": "8.1.7.0",
+                "sdkPod": "MintegralAdSDK"
             }
         },
         "bidmachine": {
@@ -98,11 +109,13 @@
             "android": {
                 "artifact": "com.google.ads.mediation:bidmachine",
                 "version": "3.8.0.1",
+                "sdk": "io.bidmachine:ads",
                 "mavenRepo": "https://artifactory.bidmachine.io/bidmachine"
             },
             "ios": {
                 "pod": "GoogleMobileAdsMediationBidMachine",
-                "version": "3.8.2.0"
+                "version": "3.8.2.0",
+                "sdkPod": "BidMachine"
             }
         },
         "moloco": {
@@ -111,11 +124,13 @@
             "default": false,
             "android": {
                 "artifact": "com.google.ads.mediation:moloco",
-                "version": "4.12.0.1"
+                "version": "4.12.0.1",
+                "sdk": "com.moloco.sdk:moloco-sdk"
             },
             "ios": {
                 "pod": "GoogleMobileAdsMediationMoloco",
-                "version": "4.10.0.0"
+                "version": "4.10.0.0",
+                "sdkPod": "MolocoSDKiOS"
             }
         },
         "bigo": {
@@ -126,11 +141,13 @@
             "default": false,
             "android": {
                 "artifact": "com.google.ads.mediation:bigo",
-                "version": "6.0.0.1"
+                "version": "6.0.0.1",
+                "sdk": "com.bigossp:bigo-ads"
             },
             "ios": {
                 "pod": "GoogleMobileAdsMediationBigo",
-                "version": "6.1.0.0"
+                "version": "6.1.0.0",
+                "sdkPod": "BigoADS"
             }
         },
         "pangle": {
@@ -139,6 +156,7 @@
             "android": {
                 "artifact": "com.google.ads.mediation:pangle",
                 "version": "8.3.0.4.0",
+                "sdk": "com.pangle.global:pag-sdk",
                 "mavenRepo": "https://artifact.bytedance.com/repository/pangle",
                 "excludeWhenPackage": {
                     "expo-tiktok-ads-events": [
@@ -152,7 +170,11 @@
             },
             "ios": {
                 "pod": "GoogleMobileAdsMediationPangle",
-                "version": "8.3.0.8.0"
+                "version": "8.3.0.8.0",
+                "sdkPod": [
+                    "Ads-Global",
+                    "Ads-Global-Beta"
+                ]
             },
             "compat": [
                 {

@@ -58,6 +58,20 @@ const POD_GMA: Record<string, string> = {
     "GoogleMobileAdsMediationPangle 8.3.0.8.0": "~> 13.6",
     "GoogleMobileAdsMediationPangle 8.2.0.3.0": "~> 13.3",
 };
+// SDK que o podspec de cada pod do catálogo puxa (mesma execução do script). Entra no `ios.sdkPod`, que o post_install
+// do app confere; o Pangle do compat (8.2.0.3.0, RNGMA 16.x) puxa o Ads-Global-Beta, o 8.3 puxa o Ads-Global.
+const POD_SDK: Record<string, string> = {
+    "GoogleMobileAdsMediationAppLovin 13.6.4.0": "AppLovinSDK",
+    "GoogleMobileAdsMediationFacebook 6.22.0.0": "FBAudienceNetwork",
+    "GoogleMobileAdsMediationUnity 4.20.1.0": "UnityAds",
+    "GoogleMobileAdsMediationVungle 7.7.7.0": "VungleAds",
+    "GoogleMobileAdsMediationMintegral 8.1.7.0": "MintegralAdSDK",
+    "GoogleMobileAdsMediationBidMachine 3.8.2.0": "BidMachine",
+    "GoogleMobileAdsMediationMoloco 4.10.0.0": "MolocoSDKiOS",
+    "GoogleMobileAdsMediationBigo 6.1.0.0": "BigoADS",
+    "GoogleMobileAdsMediationPangle 8.3.0.8.0": "Ads-Global",
+    "GoogleMobileAdsMediationPangle 8.2.0.3.0": "Ads-Global-Beta",
+};
 const RNGMA_GMA_IOS: Record<number, string> = {16: "13.5.0", 17: "13.10.0"};
 // "~> 13.3" = >= 13.3 e < 14 (só a forma que os pods do catálogo usam)
 const acceptsGma = (requirement: string, gma: string) => {
@@ -77,6 +91,28 @@ describe("catálogo × POM dos adapters", () => {
         expect(Object.keys(catalog).sort()).toEqual(Object.keys(ADAPTER_POMS).sort());
         for (const [key, network] of Object.entries(catalog)) {
             expect(`${key} ${network.android.version}`).toBe(`${key} ${ADAPTER_POMS[key].adapter}`);
+        }
+    });
+
+    test("android.sdk de cada rede = o SDK do POM, ou o de extraArtifacts quando o POM não traz (o build confere ele)", () => {
+        for (const [key, pom] of Object.entries(ADAPTER_POMS)) {
+            const sdk = [catalog[key].android.sdk].flat();
+            expect(`${key}: ${sdk.join(", ")}`).toBe(`${key}: ${pom.sdk ?? pom.separateSdk}`);
+            if (pom.sdk === null) {
+                expect((catalog[key].android.extraArtifacts ?? []).map((extra: any) => extra.artifact)).toContain(pom.separateSdk);
+            }
+        }
+    });
+
+    test("ios.sdkPod de cada rede cobre o SDK que o podspec puxa, em toda linha do RNGMA (com o compat)", () => {
+        for (const [key, network] of Object.entries(catalog)) {
+            const pods = [network.ios.sdkPod].flat();
+            const versions = new Set([network.ios.version, ...(network.compat ?? []).map((c: any) => c.ios).filter(Boolean)]);
+            for (const version of versions) {
+                const sdk = POD_SDK[`${network.ios.pod} ${version}`];
+                expect(sdk, `${network.ios.pod} ${version} sem a linha em POD_SDK`).toBeDefined();
+                expect(`${key} ${version}: ${pods.includes(sdk) ? "ok" : pods.join(", ")}`).toBe(`${key} ${version}: ok`);
+            }
         }
     });
 

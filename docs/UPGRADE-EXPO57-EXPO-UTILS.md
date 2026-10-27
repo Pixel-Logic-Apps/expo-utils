@@ -1410,6 +1410,7 @@ abrir. A lib já trata as duas gerações (seção 2.4).
 | 41 | Plugin local `withPodsDeploymentTarget` mantido no SDK 58 | sobra de um bug já corrigido (expo#47537, expo-modules-autolinking ≥ 57.0.5) | apagar o plugin e a entrada no app.json (o Eleições compilou sem ele) |
 | 42 | `tsconfig.json` do app com `baseUrl` / `moduleResolution: "node"` no TypeScript 6 (SDK 58) | `tsc` falha com TS5101/TS5107 ("deprecated and will stop functioning in TypeScript 7.0") | `extends: "expo/tsconfig.base"` (já usa `bundler`) e `paths` sem `baseUrl`; ou `"ignoreDeprecations": "6.0"` |
 | 43 | SDK 58 (R8 ligado) com a lib 1.5.1, ou com `androidR8KeepRules: false` | Release Android fecha ao abrir: "Failed to create an instance of class androidx.work.impl.WorkDatabase.canonicalName" (no `InitializationProvider`); os jobs do WorkManager e os botões de widget do Glance também falham | lib 1.5.2+ e prebuild: o `android/app/proguard-rules.pro` tem o bloco `expo-utils-r8-keep-rules` com as 3 regras `{ void <init>(); }` |
+| 44 | Rede da mediação sem o SDK dela no app (só o adapter) | antes: o app ia para a loja e a rede não servia anúncio (Unity com 0% de match em 06/10/2026); desde a 1.5.3 o build para: Gradle (`expoUtilsConferirSdksDaMediacaoRelease`) ou `pod install` com "[expo-utils] Mediação sem o SDK da rede: …" | corrigir o catálogo (`android.sdk`/`extraArtifacts`, `ios.sdkPod`) e rodar `node scripts/check-mediation-poms.js`; rede definida no app.json: incluir `sdk`/`sdkPod`. Não desligar a conferência para passar o build |
 
 ---
 
