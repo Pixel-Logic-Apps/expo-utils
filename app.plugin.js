@@ -325,6 +325,10 @@ function withAndroidGradleHeap(config) {
  * Android: `android.fromApp` marca a coordenada escolhida no app.json (rede fora do catálogo ou
  * artifact/versão trocados) e `android.extraArtifacts` traz os artefatos que o POM do adapter não
  * traz (hoje o SDK da Unity), cada um com o seu `fromApp` — ver androidMediationDependencies.
+ *
+ * `rngmaMajor` (major do react-native-google-mobile-ads instalado no app): com ele, a rede que tem `compat`
+ * no catálogo usa as versões da entrada que serve àquele RNGMA (hoje o Pangle no RNGMA 16.x, cujo GMA iOS
+ * 13.5.0 não atende o pod novo). Sem ele, valem as versões principais.
  */
 // Adapter do Google = `<versão do SDK da rede>.<patch do adapter>` (unity 4.19.0.0 = "built and
 // tested with Unity Ads SDK 4.19.0"). App que troca a versão do adapter leva o SDK do catálogo junto
@@ -335,7 +339,7 @@ const followAdapterVersion = (sdkVersion, catalogAdapterVersion, adapterVersion)
         ? withoutAdapterPatch(adapterVersion)
         : sdkVersion;
 
-function resolveMediationNetworks(option) {
+function resolveMediationNetworks(option, {rngmaMajor = null} = {}) {
     const catalog = MEDIATION_ADAPTERS.networks;
     const keys = Object.keys(catalog);
 
@@ -372,7 +376,11 @@ function resolveMediationNetworks(option) {
         const id = key || normalize(name);
         if (networks.some((n) => n.key === id)) continue;
 
-        const base = key ? catalog[key] : {label: String(name)};
+        const compat =
+            key && rngmaMajor !== null ? (catalog[key].compat || []).find((entry) => rngmaMajor <= entry.maxRngmaMajor) : undefined;
+        const compatOf = (platform) =>
+            compat && compat[platform] && catalog[key][platform] ? {...catalog[key][platform], version: compat[platform]} : catalog[key][platform];
+        const base = !key ? {label: String(name)} : compat ? {...catalog[key], android: compatOf("android"), ios: compatOf("ios")} : catalog[key];
         const versionOf = (platform) => {
             if (typeof override === "string") return override;
             const value = override && override[platform];
@@ -397,8 +405,10 @@ function resolveMediationNetworks(option) {
         const android = merged("android");
         if (android) {
             const catalogAndroid = key ? catalog[key].android : undefined;
+            // fromApp compara com a versão que o catálogo escolheu para este app (a do compat, se houver)
+            const chosenAndroid = key ? base.android : undefined;
             android.fromApp =
-                !catalogAndroid || android.artifact !== catalogAndroid.artifact || android.version !== catalogAndroid.version;
+                !chosenAndroid || android.artifact !== chosenAndroid.artifact || android.version !== chosenAndroid.version;
             const extrasFromApp = !catalogAndroid || Array.isArray(customOf("android")?.extraArtifacts);
             android.extraArtifacts = (Array.isArray(android.extraArtifacts) ? android.extraArtifacts : [])
                 .filter((extra) => extra && extra.artifact && extra.version)
@@ -418,6 +428,18 @@ function resolveMediationNetworks(option) {
         networks.push({key: id, label: base.label || String(name), android, ios});
     }
     return networks;
+}
+
+/** Major do react-native-google-mobile-ads instalado no app (escolhe o `compat` do catálogo), ou null. */
+function installedRngmaMajor(config) {
+    try {
+        const root = config._internal?.projectRoot || process.cwd();
+        const rngma = require(require.resolve("react-native-google-mobile-ads/package.json", {paths: [root]}));
+        const major = parseInt(String(rngma.version), 10);
+        return Number.isNaN(major) ? null : major;
+    } catch {
+        return null;
+    }
 }
 
 /**
@@ -566,8 +588,9 @@ function withAndroidMediationRepos(config, networks) {
  * iOS: injeta os pods dos adapters DENTRO do target do app (âncora `use_expo_modules!`).
  *
  * As versões são PINADAS (data/mediation_adapters.json) de propósito: cada adapter declara
- * `Google-Mobile-Ads-SDK ~> X` e o RNGMA 16.4.0 traz o 13.5.0 — pod sem versão pode resolver
- * um adapter que exige 13.6+ e derrubar o `pod install`.
+ * `Google-Mobile-Ads-SDK ~> X` e o RNGMA pina o GMA (16.x: 13.5.0; 17.4.0: 13.10.0) — pod sem
+ * versão pode resolver um adapter que exige mais do que o app tem e derrubar o `pod install`. O
+ * `compat` do catálogo cobre o RNGMA 16.x onde a versão nova não serve (Pangle).
  */
 function withIosMediationPods(config, networks) {
     return withDangerousMod(config, [
@@ -746,7 +769,7 @@ function withExpoUtils(config, options = {}) {
         result = withAppIconDataUri(result);
     }
     if (options?.mediation !== false) {
-        const networks = resolveMediationNetworks(options?.mediation);
+        const networks = resolveMediationNetworks(options?.mediation, {rngmaMajor: installedRngmaMajor(config)});
         if (networks.length) {
             result = withIosMediationPods(
                 withAndroidMediationRepos(withAndroidMediationAdapters(result, networks), networks),
@@ -758,6 +781,8 @@ function withExpoUtils(config, options = {}) {
 }
 
 const plugin = createRunOncePlugin(withExpoUtils, pkg.name, pkg.version);
-// Funções puras da mediação, expostas só para tests/mediation-catalog.test.ts — não é API pública.
-plugin.mediationInternals = {resolveMediationNetworks, androidMediationDependencies};
+// Funções puras da mediação e as leituras de versão do app, expostas só para os testes
+// (tests/mediation-catalog.test.ts, tests/plugin-versions.test.ts) — não é API pública.
+plugin.mediationInternals = {resolveMediationNetworks, androidMediationDependencies, installedRngmaMajor};
+plugin.firebaseInternals = {rnfbUsesCocoaPods};
 module.exports = plugin;
