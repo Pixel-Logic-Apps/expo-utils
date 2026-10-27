@@ -1406,6 +1406,40 @@ dele, na ordem; segmento sem lista não vê nada. Nomes de campo em inglês.
 
 ---
 
+## 💬 Alert.alert nativo (Expo UI)
+
+O app continua chamando `Alert.alert(título, mensagem?, botões?, opções?)` do `react-native`, sem mudar nada. Com o
+`NativeAlertSlot` montado, a lib desenha o diálogo pelo Expo UI: no **iOS**, o `Alert` do SwiftUI
+(`@expo/ui/swift-ui`); no **Android**, o `AlertDialog` do Material 3 (`@expo/ui/jetpack-compose`). Código em
+`utils/native-alert.ts` (fila e mapeamento), `utils/native-alert-slot.tsx` e `utils/native-alert-dialog.ios.tsx` /
+`.android.tsx`.
+
+**Status (27/10/2026):** compila e passa nos testes da lib; ainda não foi visto no aparelho (o que conferir antes de
+publicar está no playbook, seção 4.2.2).
+
+- **Um diálogo de cada vez.** Alertas seguidos entram numa fila, e um alerta aberto dentro do `onPress` de outro aparece
+  depois dele (no Android o RN abria o 2º por cima do 1º). Cada botão chama o `onPress` uma vez só.
+- **Botões no Android:** sem botões, um "OK"; 1 botão vai no Confirm; 2, o 1º no Dismiss e o 2º no Confirm; 3, os dois
+  primeiros no Dismiss e o 3º no Confirm (mais de 3 são cortados, como no RN). `destructive` sai na cor de erro do
+  Material 3; `cancel` não muda nada, como no RN. A mensagem longa rola.
+- **Botões no iOS:** `cancel` e `destructive` viram o `role` do botão do SwiftUI, e a Apple pode reordenar os botões pelo
+  role. Sem botões, o "OK" do sistema, traduzido, como o RN. Dois `cancel` no mesmo alerta: só o último fica `cancel`
+  (o iOS aceita um só, e o RN faz o mesmo).
+- **`cancelable` e `onDismiss`:** só no Android, como no RN. O padrão é `false` (só fecha por botão); com `true`, voltar e
+  toque fora fecham e chamam o `onDismiss`. No iOS o alerta não fecha tocando fora. `userInterfaceStyle` e `isPreferred`
+  são ignorados nesse caminho (nenhum app usa).
+- **Quando o Alert do RN desenha (com os mesmos argumentos):** binário sem o módulo nativo `ExpoUI` (JS novo por OTA num
+  binário antigo), alerta antes de o layout montar (boot), app sem nenhum slot montado e erro ao carregar ou desenhar o
+  diálogo (vira `expo_utils_warn`; depois de um erro, o resto da sessão fica no Alert do RN). O `Alert.prompt` nunca
+  passa pela lib.
+- **Nenhuma linha nova no app:** o `ExpoUtilsLayout` e o `AskForReviewOverlay` já montam o slot (só um desenha). App sem
+  nenhum dos dois (ex.: só com o `PromotionalContent`): `<NativeAlertSlot />` (de `expo-utils/utils/native-alert-slot`)
+  no `_layout`.
+- **Sem rebuild no SDK 57:** o `@expo/ui` vem com o expo-router 57, então o módulo nativo já está no binário. No SDK 58 o
+  expo-router deixou o `@expo/ui` opcional: declare o `@expo/ui` no app.
+
+---
+
 ## 🔌 Integrações Opcionais
 
 ### TikTok Ads SDK

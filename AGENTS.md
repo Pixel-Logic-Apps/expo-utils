@@ -218,6 +218,32 @@ produção o modal só abre quando o app chama `showRetention`.
   ganha um RLM (`‏`) na frente.
 
 
+## Alert.alert nativo (Expo UI)
+
+Os apps continuam chamando `Alert.alert` do react-native e a lib desenha pelo Expo UI: SwiftUI no iOS, Jetpack Compose
+(Material 3) no Android, por decisão do Bruno (26/10/2026). Uso e mapeamento dos botões no README e no playbook (4.2.2).
+
+- **Arquivos**: `utils/native-alert.ts` (fila, dono único, troca do `Alert.alert` e mapeamento dos botões; folha,
+  testada em `tests/native-alert.test.ts`), `utils/native-alert-slot.tsx` (`NativeAlertSlot`; carrega o diálogo só com o
+  módulo ExpoUI, a exceção da regra de imports) e `utils/native-alert-dialog.ios.tsx` / `.android.tsx`.
+- **Fallback**: o `Alert.alert` só é trocado quando um host registra, e sem host o pedido vai para o Alert do RN com os
+  mesmos argumentos. Montam o slot o `ExpoUtilsLayout` e o `AskForReviewOverlay`; o 1º registrado desenha. Erro ao
+  desenhar o diálogo (error boundary no slot) não derruba o layout raiz: `failNativeAlert` manda o pedido aberto e os da
+  fila para o Alert do RN e o resto da sessão fica nele.
+- **iOS**: o alerta precisa de um `Alert.Trigger` (texto vazio num Host de 1 pt); montado = aberto. O SwiftUI roda a
+  ação do botão e só depois fecha ("All actions in an alert dismiss the alert after the action runs", doc da Apple):
+  o `onPress` roda o callback e o `onIsPresentedChange(false)`, que chega depois, tira o pedido da fila. Sem botão do
+  app, só chega o `onIsPresentedChange` (o "OK" do sistema). O Android tira da fila no próprio `onClick`.
+- **Android**: o `Text` do @expo/ui parte do `TextStyle.Default` e não herda a tipografia do slot do AlertDialog, então
+  título `headlineSmall`, texto `bodyMedium` e botão `labelLarge` vão explícitos (os `DialogTokens` do material3). O Host
+  é o pai imediato do AlertDialog. O `onDismissRequest` só chega com `cancelable` (o Compose filtra pelas
+  `DialogProperties`).
+- **Não verificado no aparelho (27/10/2026).** No iOS o alerta é apresentado pelo Host na raiz, não numa janela própria
+  como o do RN: com algo já apresentado por cima da raiz (`Modal` do RN, rota `modal`/`fullScreenModal`, intersticial ou
+  app open, formulário do UMP) ou logo depois de outro alerta, o UIKit pode recusar a apresentação ("already
+  presenting"). Aí nenhum evento volta e a fila fica parada até o app fechar. Testar esses casos antes de publicar.
+
+
 # Checksum MD5 do Remote Config
 
 Este documento descreve como implementar (em um app Expo que consome o `expo-utils`)
@@ -496,6 +522,11 @@ esconde dependencia, quebra tree-shaking e tipagem, e deixa o arquivo com duas c
   acontece dentro de funcao, entao o ciclo resolve em runtime sem problema.
 - Peer dependency opcional tambem entra no header — se o app nao instalou o pacote, o erro
   aparece no build/bundle (onde deve aparecer), nao escondido num caminho de execucao raro.
+- **Excecao unica: o dialogo do Expo UI (`utils/native-alert-slot.tsx`).** O `@expo/ui` chama
+  `requireNativeModule("ExpoUI")` no carregamento e lanca num binario sem o modulo nativo (JS novo por OTA num binario
+  antigo): o erro nao aparece no bundle, aparece no boot de quem recebeu a OTA. Por isso o slot confere
+  `requireOptionalNativeModule("ExpoUI")` e so entao faz `require("./native-alert-dialog")` em try/catch (o padrao do
+  expo-router 58 em `build/optional-libraries/expo-ui.js`). Nao troque por import no topo.
 
 ### Adding a New CLI Flag
 
@@ -584,7 +615,7 @@ Hard-won lessons from debugging consumer apps — they affect anyone integrating
 - **`initHotUpdater` serves Hot Updater v0 and v1** (`utils/hot-updater.ts`, re-exported by `Utils.ts`): `typeof HotUpdater.checkForUpdate === "function"` = v0 (static methods, `init` returns nothing); otherwise v1, where `HotUpdater.init({baseURL, requestHeaders: {"x-api-key"}, onError})` returns the instance and everything else lives on it. Signature `initHotUpdater(target?: string | instance, {apiKey?})`: the app's own v1 instance is reused (never a second `init`); with a URL the lib creates ONE instance per session. v1 guards: a v0 URL (`/api/check-update`) or a missing/`YOUR_…` apiKey → `expoUtilsWarn` and no OTA (the two server generations don't talk to each other). In v1 `getBundleId()` returns the DOWNLOADED bundle as soon as the download ends — `getRunningBundleId()` is the id read at init; `getHotUpdater()`/`hotUpdaterGeneration()` are exported too. The code uses `any` on purpose: the app's tsc checks the lib's `.ts` against the Hot Updater the APP has, and v0/v1 types are incompatible (removing the `any` breaks tsc on a v1 host).
 - **`JSON.stringify(error)` of an `Error` is always `"{}"`** (non-enumerable props) — use `String(error)` in debug catches.
 - **React StrictMode (dev) runs mount effects twice** — boot callbacks fire twice in dev unless guarded (module-level `bootDone` pattern in `Utils.handleReady`; ref guard for `onReady` in `ExpoUtilsLayout`; `preparePromise` no `prepare()`; `listenerRegistered` no `setupAppOpenListener`).
-- **iOS drops overlapping `alert()`s silently** (RN doesn't queue `UIAlertController`) — two back-to-back alerts show only the first, which reads as "code stopped in the middle". Use o `queueAlert(title, message)` do Utils (serializa; o push em foreground já usa) ou encadeie via callback do botão.
+- **iOS drops overlapping `alert()`s silently** (RN doesn't queue `UIAlertController`) — two back-to-back alerts show only the first, which reads as "code stopped in the middle". Use o `queueAlert(title, message)` do Utils (serializa; o push em foreground já usa) ou encadeie via callback do botão. Com o `NativeAlertSlot` montado o próprio `Alert.alert` já entra numa fila (`utils/native-alert.ts`); isto vale para o caminho do RN (sem host).
 - **Expo dev lazy bundling**: grepping Metro's `entry.bundle` for app code is a false negative — app modules aren't in the initial bundle.
 - **`PanResponder` dentro de `Modal` só recebe o arrastar se pegar o toque no INÍCIO**: o `Modal` do RN responde `true`
   no `onStartShouldSetResponder`; o toque que ninguém dentro dele pega vira dele, e daí o RN só pergunta aos ancestrais
@@ -612,7 +643,7 @@ Hard-won lessons from debugging consumer apps — they affect anyone integrating
   modulos nativos ficam em `tests/helpers/rn-mocks.ts`. `tests/` nao entra no pacote npm. Tambem: premium
   (`premium.test.ts`, fixtures do RC em `tests/helpers/rc-fixtures.ts`, compartilhadas com `rc-status.test.ts`),
   link-in-bio, referrer 1x por install, a retencao (`retention-*.test.ts`; a loja do RevenueCat mockada em
-  `tests/helpers/rc-store-mock.ts`, com o filtro de base plan do SDK Android) e o catalogo de mediacao (`mediation-catalog.test.ts`, com o
+  `tests/helpers/rc-store-mock.ts`, com o filtro de base plan do SDK Android), o Alert.alert nativo (`native-alert.test.ts`) e o catalogo de mediacao (`mediation-catalog.test.ts`, com o
   `@expo/config-plugins` mockado — o repo nao versiona node_modules), o Hot Updater v0 e v1 (`hot-updater-v0/v1.test.ts`, um
   arquivo por geracao), o instalador (`install-ios-build.test.ts`: `--fix-ios-build` por major do RNFB; `install-hot-updater.test.ts`:
   passo de dependencias, geracao, plugin, `.env`, `Strings.ts`; o `chalk` e mockado em `tests/helpers/chalk-mock.ts`) e as decisoes

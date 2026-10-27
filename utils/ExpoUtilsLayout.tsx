@@ -7,6 +7,7 @@ import {setupAppOpenListener} from "./appopen-ads";
 import AskForReviewOverlay, {AskForReviewEvents} from "./ask-for-review";
 import PromotionalContent, {usePromotional} from "./modal-promotional-content";
 import {RetentionModalSlot} from "./retention-modal";
+import {NativeAlertSlot} from "./native-alert-slot";
 import type {AppStrings} from "./types";
 
 // Mantém o splash visível até o app estar pronto (roda no import, antes do mount).
@@ -81,6 +82,8 @@ export function ExpoUtilsLayout({appConfig, appStrings, children, onReady, fcmTr
             {/* Modal de retenção (trial cancelado): abre por RetentionEvents.show(). Prioridade 0 =
                 este é o dono; os slots do review e do promo só desenham sem o ExpoUtilsLayout. */}
             <RetentionModalSlot priority={0} />
+            {/* Alert.alert pelo Expo UI (utils/native-alert.ts); o AskForReviewOverlay também monta, só um desenha. */}
+            <NativeAlertSlot />
             <View onLayout={Utils.handleReady} />
         </>
     );

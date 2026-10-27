@@ -294,7 +294,8 @@ react-native-safe-area-context   5.7.0
 react-native-webview             13.16.1
 react-native-web                 0.21.2
 @expo/ui                         ~57.0.19  # já vem com o expo-router 57 (dependência dele); declare mesmo assim
-                                           # (pnpm não içaria). Os botões do review/retenção usam o glass nativo.
+                                           # (pnpm não içaria). Os botões do review/retenção usam o glass nativo
+                                           # e o Alert.alert passa a ser desenhado por ele (seção 4.2.2).
                                            # SDK 58: ~58.0.23 e OBRIGATÓRIO no package.json — o expo-router 58 não
                                            # traz mais (virou peer opcional dele) e o import da lib quebra o bundle.
 @expo/vector-icons               15.x
@@ -637,6 +638,7 @@ export default function RootLayout() {
 - ATT pós-primeiro-frame (`Utils.handleReady`)
 - Splash control
 - Atribuição do RevenueCat em duas fases + geo por IP + telemetria (v1.4.0 — seção 4.2.1)
+- `Alert.alert` desenhado pelo Expo UI: SwiftUI no iOS, Material 3 no Android (seção 4.2.2)
 
 Props opcionais: `fcmTrackingAllowed={false}` se o app pede push só no onboarding; `onReady` callback.
 
@@ -705,6 +707,32 @@ Exports novos do pacote (`index.ts` **e** `index.d.ts`): `logUtilsEvent`, `setUt
 `setUtilsUserProperty`, `AnalyticsParams`, `setRevenueCatAttributes`, `scheduleRcSync`,
 `getContextAttributes`, `lookupGeo`, `GEO_PROVIDERS`, `GeoResult`. Catálogo de eventos:
 `docs/ANALYTICS-EVENTS.md`.
+
+### 4.2.2 `Alert.alert` nativo (Expo UI)
+
+**O app não muda nada:** continua chamando `Alert.alert` do `react-native`. Com o `NativeAlertSlot` montado, a lib troca
+o método e desenha o diálogo pelo `@expo/ui`: `Alert` do SwiftUI no iOS, `AlertDialog` do Material 3 no Android
+(`utils/native-alert.ts`, `utils/native-alert-slot.tsx`, `utils/native-alert-dialog.ios.tsx` / `.android.tsx`).
+
+- **Quem monta:** o `ExpoUtilsLayout` e o `AskForReviewOverlay` (o template `RootLayout.tsx` e o lab renderizam o overlay
+  sem o `ExpoUtilsLayout`); só um desenha. App sem nenhum dos dois (ex.: só com o `PromotionalContent`, como o
+  expo-eleicao): `<NativeAlertSlot />` no `_layout`, senão continua no Alert do RN.
+- **Comportamento novo:** um diálogo de cada vez (fila). Alerta chamado dentro do `onPress` de outro aparece depois dele;
+  no Android o RN abria o 2º por cima do 1º. Cada botão chama o `onPress` uma vez só.
+- **Igual ao RN:** `cancelable` padrão `false` (só fecha por botão); `cancelable: true` + `onDismiss` só no Android; no
+  máximo 3 botões no Android (o último no Confirm, os anteriores no Dismiss, na ordem); sem botões, um "OK" (no iOS, o
+  do sistema, traduzido). `destructive` na cor de erro do Material 3 no Android e com `role` destrutivo no iOS; no iOS a
+  Apple pode reordenar os botões pelo role. Ignorados nesse caminho: `userInterfaceStyle` e `isPreferred`.
+- **Cai no Alert do RN, com os mesmos argumentos:** binário sem o módulo nativo `ExpoUI` (JS novo por OTA num binário
+  antigo), alerta antes de o layout montar, app sem slot e erro ao carregar ou desenhar o diálogo (`expo_utils_warn`;
+  depois de um erro, o resto da sessão fica no Alert do RN). O `Alert.prompt` nunca passa pela lib.
+- **Dependência:** nenhuma nova e sem rebuild no SDK 57 (o `@expo/ui` vem com o expo-router 57). No SDK 58 o expo-router
+  deixou o `@expo/ui` opcional: o app precisa declará-lo.
+- **Export novo** (`index.ts` / `index.d.ts`): `NativeAlertSlot`.
+- **Ainda não visto no aparelho.** Conferir antes de soltar (seção 10.3), principalmente no iOS, onde o alerta sai de
+  um Host na raiz do app e não de uma janela própria como o do RN: alerta com um `Modal` ou uma tela `modal` /
+  `fullScreenModal` aberta, com intersticial ou app open na tela, e alerta aberto logo depois de outro. Se o UIKit
+  recusar a apresentação, nenhum evento volta e os alertas seguintes ficam presos na fila até o app fechar.
 
 ### 4.3 `babel.config.js`
 
@@ -1315,6 +1343,9 @@ abrir. A lib já trata as duas gerações (seção 2.4).
 - [ ] Device físico / emulador Android: console do Metro mostra `Subscribed to topic: <slug>-purchase-<status>`
       (em simulador iOS não aparece — sem APNS a lib pula os tópicos). Entrega só se prova mandando uma
       push para o tópico e vendo chegar
+- [ ] `Alert.alert` do app abre o diálogo do Expo UI (iOS: alerta do SwiftUI; Android: Material 3) e cada botão roda o
+      `onPress` (seção 4.2.2). No iOS, conferir também com um `Modal` ou tela `fullScreenModal` aberta, com um
+      intersticial na tela e com um alerta aberto dentro do `onPress` de outro
 
 ### 10.4 Expo doctor
 

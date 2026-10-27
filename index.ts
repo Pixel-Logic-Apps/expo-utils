@@ -31,3 +31,4 @@ export type {ResolveRetentionOffersOptions, ResolvedRetentionOffers, RetentionPr
 export type {RetentionVariant, RetentionShowPayload, RetentionRequest, RetentionPreviewOptions, RetentionCloseMethod, RetentionClosedEvent} from "./utils/retention-events";
 export type {RetentionOffer, RetentionOfferInput, RetentionPrice, RetentionPeriod, RetentionModalState, RetentionOfferAction, RetentionStoreRef} from "./utils/retention-offers";
 export {RetentionModalSlot} from "./utils/retention-modal";
+export {NativeAlertSlot} from "./utils/native-alert-slot";

@@ -28,6 +28,7 @@ import {ReviewTutorial, ReviewTutorialParams} from "./review-tutorial";
 import type {ReviewStyle} from "./types";
 import {SquircleCorners, SquircleFill} from "./squircle";
 import {RetentionModalSlot} from "./retention-modal";
+import {NativeAlertSlot} from "./native-alert-slot";
 import {GLASS_SECONDARY, GlassButton} from "./glass-button";
 
 // Sistema de eventos para mostrar o popup de review
@@ -601,14 +602,15 @@ const buildVariants = (winHeight: number, bars: SystemBars): Record<ReviewStyle,
 });
 
 /**
- * O overlay tambem monta o slot do modal de retencao (trial cancelado): o template padrao renderiza
- * este componente sem o ExpoUtilsLayout, e assim o modal aparece sem linha nova no app. O slot fica
- * sempre na mesma posicao ([overlay | null, slot]), aberto ou fechado, para nao remontar.
+ * O overlay tambem monta o slot do modal de retencao (trial cancelado) e o do Alert.alert nativo: o template
+ * padrao renderiza este componente sem o ExpoUtilsLayout, e assim os dois funcionam sem linha nova no app. Os
+ * slots ficam sempre na mesma posicao ([overlay | null, retencao, alerta]), aberto ou fechado, para nao remontar.
  */
-const withRetentionSlot = (overlay: React.ReactNode) => (
+const withSlots = (overlay: React.ReactNode) => (
     <>
         {overlay}
         <RetentionModalSlot priority={1} />
+        <NativeAlertSlot />
     </>
 );
 
@@ -789,7 +791,7 @@ const AskForReviewOverlay: React.FC<AskForReviewOverlayProps> = ({
         }
     };
 
-    if (!visible) return withRetentionSlot(null);
+    if (!visible) return withSlots(null);
 
     const defaultTexts = getDefaultTranslations();
     // Use props texts if provided, otherwise use individual props, otherwise use defaults
@@ -798,7 +800,7 @@ const AskForReviewOverlay: React.FC<AskForReviewOverlayProps> = ({
     const displayRateNow = rateNowText || texts?.rateNow || defaultTexts.rateNow;
     const displayNotNow = notNowText || texts?.notNow || defaultTexts.notNow;
 
-    return withRetentionSlot(
+    return withSlots(
         <Animated.View style={[styles.overlayContainer, {opacity: backdrop}]} pointerEvents={visible ? "auto" : "none"}>
             <View style={[styles.container, {justifyContent: layout.justify}, layout.noSidePadding && styles.containerFull]}>
                 <Pressable
