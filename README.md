@@ -255,6 +255,12 @@ Para uso sem hook, use `new PaywallController({t})` ou os métodos estáticos de
 | `repeat_ads_count` | number | Quantidade de ações antes de mostrar anúncio |
 | `ad_blocklist` | string[] | Lista de placement IDs bloqueados |
 | `taichi_events` | string[] | Nomes Taichi habilitados: ausente = todos os 60; `[]` = sem emissões; lista = apenas os nomes indicados. A soma é mantida. |
+| `appopen_preload_enabled` | boolean | Pré-carga do app open: guarda um anúncio pronto (o 1º depois do UMP/ATT, os outros a cada fechamento) e mostra na volta sem esperar. Padrão `false` = carrega na volta ([detalhes](#app-open-volta-ao-app-e-pré-carga)) |
+| `interstitial_preload_enabled` | boolean | Pré-carga do intersticial: a partir do fechamento do 1º da sessão, guarda o próximo pronto. Padrão `false` = carrega na chamada |
+| `appopen_preload_max_age_minutes` | number | Validade do app open pronto; mais velho é descartado e carrega de novo. Padrão `240` (o prazo do Google) |
+| `interstitial_preload_max_age_minutes` | number | Validade do intersticial pronto. Padrão `60` (o da react-native-google-mobile-ads) |
+| `ad_preload_error_pause_seconds` | number | Segundos sem nova pré-carga depois de um erro de carga, medidos pela hora (sem timer). Padrão `0` |
+| `ad_load_max_wait_seconds` | number | Espera máxima quando o app open ou o intersticial carrega na hora de mostrar: passou, o app segue sem anúncio e o que chegar depois não aparece. Padrão `0` = sem limite |
 | `promotional` | object | Configuração de conteúdo promocional (veja seção dedicada) |
 | `tiktokads` | object | Configurações do TikTok Ads SDK (`token`, `appid`, `tkappid`, `isdebug`) |
 | `clarity_id` | string | Project ID do Microsoft Clarity |
@@ -607,6 +613,34 @@ await AsyncStorage.removeItem("@isPremium");
 - Usa unit IDs do `AppStrings` local (`global.adUnits`)
 - Permite override via parâmetro
 - Configuração por plataforma (iOS/Android)
+
+### App open: volta ao app e pré-carga
+
+**Gatilho.** O app open aparece quando o app volta do segundo plano (`setupAppOpenListener`, chamado pelo
+`ExpoUtilsLayout`). No Android, o `AppState` do RN conta como volta o fechamento de um diálogo de permissão, de um
+intersticial, da folha de compra ou da de compartilhamento, e isso mostrava app open indevido. Com o pacote
+[`react-native-applifecycle`](https://github.com/douglasjunior/react-native-applifecycle) instalado no app (peer
+opcional, 1.0.0), a lib usa o `ProcessLifecycleOwner`, a correção que os plugins do próprio Google para Flutter e Unity
+usam: só conta a saída e a volta do app inteiro. A lib detecta o módulo nativo sozinha (o app não importa nada); sem
+ele, e no iOS, continua no `AppState`. O módulo é nativo: precisa de build novo, não chega por OTA. No Metro aparece
+`[expo-utils] AppOpen trigger: process-lifecycle` (ou `app-state`).
+
+**Pré-carga (desligada por padrão).** Chaves no bloco `utils` (tabela acima). Ligada, a lib guarda um anúncio pronto;
+na hora de mostrar usa o pronto se estiver dentro da validade, senão carrega na hora, como antes; depois de fechar,
+pré-carrega o próximo. O app open pré-carrega o 1º quando o fluxo de UMP/ATT da lib termina (teto de 2 min, só para
+layout sem `handleReady`); o intersticial começa no fechamento do 1º da sessão. Premium, ads desligados, bloqueio do
+tipo no `ad_blocklist` (`appopen`, `interstitial` ou `*`) e unitId valem também na pré-carga; bloqueio de página ou de
+placement vale na hora de mostrar. Posição e frequência não mudam. No
+Android sem o `react-native-applifecycle`, o falso retorno (fechar diálogo, intersticial…) continua mostrando app open,
+como antes; com a pré-carga ligada, ele aparece na hora em vez de depois da carga.
+
+**Espera máxima** (`ad_load_max_wait_seconds`, padrão sem limite): vale quando o anúncio carrega na hora de mostrar.
+Passou do limite, o `showInterstitial` resolve `true` e o fluxo segue; o anúncio que chegar depois não aparece (com a
+pré-carga ligada, vira o pronto da próxima vez).
+
+**Analytics.** Nenhum evento novo. Com a pré-carga ligada, o `AdLOADED` do intersticial sai na hora da exibição, com o
+placement dela; pré-carga que falha e anúncio que chega depois da espera máxima não geram `AdLOADED` nem `AdERROR`. O
+`ad_revenue` leva sempre o placement da exibição.
 
 ### Mediation, consentimento (UMP) e receita por impressão
 

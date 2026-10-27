@@ -259,6 +259,51 @@ export interface RemoteConfigUtilsType {
      */
     taichi_events?: string[];
     /**
+     * Guarda um app open pronto (o 1º quando o UMP/ATT termina, os outros a cada fechamento) e mostra na volta ao app
+     * sem esperar a carga. Desligado: carrega na hora da volta.
+     * @section Anúncios
+     * @label Pré-carga do app open
+     * @default desligado
+     */
+    appopen_preload_enabled?: boolean;
+    /**
+     * Guarda um intersticial pronto para a próxima chamada (carregado quando o anterior fecha). Desligado: carrega na
+     * hora de mostrar.
+     * @section Anúncios
+     * @label Pré-carga do intersticial
+     * @default desligado
+     */
+    interstitial_preload_enabled?: boolean;
+    /**
+     * Idade máxima, em minutos, do app open pronto. Mais velho é descartado e o anúncio carrega de novo.
+     * @section Anúncios
+     * @label Validade do app open pronto (min)
+     * @default 240 (o prazo do Google)
+     */
+    appopen_preload_max_age_minutes?: number;
+    /**
+     * Idade máxima, em minutos, do intersticial pronto. Mais velho é descartado e o anúncio carrega de novo.
+     * @section Anúncios
+     * @label Validade do intersticial pronto (min)
+     * @default 60
+     */
+    interstitial_preload_max_age_minutes?: number;
+    /**
+     * Segundos sem nova pré-carga depois de um erro de carga (app open e intersticial, cada um com o seu erro).
+     * @section Anúncios
+     * @label Pausa da pré-carga após erro (s)
+     * @default 0
+     */
+    ad_preload_error_pause_seconds?: number;
+    /**
+     * Segundos de espera, no máximo, quando o app open ou o intersticial carrega na hora de mostrar. Passou disso, o
+     * app segue sem anúncio e o que chegar depois não aparece. 0 = sem limite.
+     * @section Anúncios
+     * @label Espera máxima do anúncio (s)
+     * @default 0 (sem limite)
+     */
+    ad_load_max_wait_seconds?: number;
+    /**
      * Abaixo desta versão o app pede para atualizar.
      * @section Loja e versão
      * @label Versão mínima

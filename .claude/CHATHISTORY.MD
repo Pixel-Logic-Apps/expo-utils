@@ -2424,3 +2424,68 @@ e-mail para analisar e finalizar. Nada de código novo — é projeto/pesquisa. 
 - Worker `volta-lab` do Cloudflare ainda PUBLICADO — apagar quando o dono mandar.
 - Builds de release e simulador iOS do lab ficam na máquina; chave do RevenueCat do lab RESTAURADA.
 - Nada commitado nem publicado em produção. É projeto para implementar na próxima versão (Expo 58).
+# 2026-10-27 — App open pelo ProcessLifecycleOwner + pré-carga atrás do Remote Config (ramo feat/anuncios-preload, sem versão nova)
+
+### Pedido
+- Duas mudanças de anúncio aprovadas pelo Bruno (via agente coordenador da sessão do eleicoes-ota): (1) no Android, o gatilho
+  do app open passa a usar o ProcessLifecycleOwner quando o app tiver o módulo nativo do `react-native-applifecycle` — o
+  AppState contava como volta o fechamento de diálogo de permissão, intersticial, folha de compra/compartilhamento; (2)
+  pré-carga de app open e intersticial atrás de chaves do Remote Config, com o padrão igual ao de hoje.
+- Regras: não mudar posição nem frequência; todo comportamento novo atrás de chave com padrão = hoje; a lib não tem nativo
+  próprio (vai por OTA); sem capa, trava de tempo ou temporizador para "voltar". Worktree próprio; sem bump, push ou publish.
+
+### O que foi feito
+- `utils/app-lifecycle.ts` (novo, módulo-folha): Android com `NativeModules.ReactNativeAppLifecycle` → assina o evento
+  `ReactNativeAppLifecycle` (`ON_START`/`ON_STOP` → `active`/`background`) com `NativeEventEmitter`; sem o módulo, ou no iOS,
+  `AppState`. O pacote JS NÃO é importado (app sem ele não quebra no bundle).
+- `utils/ad-preload.ts` (novo): leitura das chaves, conferências por timestamp (idade, pausa por erro, espera máxima) e a
+  reserva de UM anúncio pronto por formato (`createAdPreloader`: `wants`/`preload`/`take`/`adopt`/`noteLoadError`).
+- `utils/appopen-ads.tsx`: mesma janela (10 s depois do CLOSED), mesmas checagens e mesmo registro único; volta decidida pelo
+  `addAppLifecycleListener`; pronto usado na volta; espera máxima conferida pela hora no LOADED (sem timer); 1ª pré-carga
+  depois de `waitAttFlowDone(2 min)`; pré-carga do próximo no CLOSED.
+- `utils/LoadAdsManager.ts`: `showInterstitial` dividido em `presentInterstitial` (listeners da exibição) e
+  `loadInterstitial` (carga na hora + espera máxima); pronto usado na chamada; pré-carga no CLOSED. Rewarded intocado.
+- `utils/AdPlacementTracker.ts`: `isAdTypeBlocked` (só `*` e o tipo). `utils/types.ts`: 6 chaves com as tags do pldev.
+- `package.json`: peer opcional `react-native-applifecycle >=1.0.0`. README (tabela + seção "App open: volta ao app e
+  pré-carga") e playbook (§2.5, §5.4, §8, §10.3). `docs/ANALYTICS-EVENTS.md` intocado (nenhum evento/parâmetro mudou).
+- Testes: `tests/ad-preload.test.ts` (18), `tests/appopen-ads.test.ts` (16), `tests/interstitial-preload.test.ts` (12) e o
+  helper `tests/helpers/ads-mocks.ts` (SDK de anúncios falso, AppState e módulo nativo mockados).
+
+### Chaves novas (bloco `utils`, seção Anúncios)
+- `appopen_preload_enabled` (false) · `interstitial_preload_enabled` (false) · `appopen_preload_max_age_minutes` (240) ·
+  `interstitial_preload_max_age_minutes` (60) · `ad_preload_error_pause_seconds` (0) · `ad_load_max_wait_seconds` (0 = sem limite).
+
+### Decisões (preservar)
+- Pré-carga confere o bloqueio só por TIPO (`isAdTypeBlocked`): chamar `generatePlacementId` na pré-carga registraria um
+  chamador a mais e poderia deslocar o índice de um placement real (colisão de hash). Página/placement valem na exibição.
+- AdLOADED do pronto sai na hora da exibição, com o placement dela (na pré-carga não há placement); erro da pré-carga e o
+  que chega depois da espera máxima não geram AdLOADED/AdERROR. PAID sempre com o placement da exibição.
+- 1ª pré-carga do app open espera o fluxo de UMP/ATT de verdade: o teto padrão de 15 s do `waitAttFlowDone` (o do promo)
+  passaria com o formulário do UMP aberto (o próprio UMP espera até 20 s). 2 min só para layout sem `handleReady`.
+- Intersticial não tem gatilho de boot (não há "setup" de intersticial e o ExpoUtilsLayout ficou fora do escopo): o 1º da
+  sessão carrega na chamada e a pré-carga começa no fechamento dele.
+- Espera máxima do intersticial usa `setTimeout` só para liberar o fluxo no limite; o LOADED confere a hora também (timer
+  suspenso no Android não deixa o atrasado aparecer) e com 0 nenhum timer é criado. Passou do limite → resolve `true`.
+- Anúncio que chega depois da espera máxima vira o pronto quando a pré-carga está ligada (sem gastar outro pedido).
+- Pré-carga não tenta de novo sozinha depois de erro (evita laço de no-fill); a próxima tentativa vem do próximo gatilho.
+- Commit sem `Co-Authored-By`: a última linha do AGENTS.md proíbe e nenhum commit do repo tem.
+
+### Verificado × NÃO verificado
+- `./tests/run.sh`: **379 pass / 0 fail em 25 arquivos** (antes 333 em 22). Os testes novos rodados contra o `main` puro
+  (cópia no scratchpad): os 3 de "tudo desligado" do intersticial e os 3 do app open (pelo AppState) PASSAM no código antigo
+  — prova de que o padrão reproduz o de hoje —; os de gatilho, pré-carga e espera falham. 9 mutações (ON_START inicial,
+  sem portão do ATT, limite da idade, sem pausa, só timer na espera, duas fontes, placement da pré-carga, sem bloqueio do
+  tipo, app open atrasado aparecendo) — todas quebram algum teste.
+- `tsc` strict pela receita do AGENTS (symlinks no scratchpad) contra expo-utils-lab (RNGMA 17.0.0, RNFB 26.4.0) e
+  expo-urna-v2 (RNGMA 16.5.0, RNFB 24.1.1): **0 erros**; erro proposital num arquivo novo é pego (os arquivos entram).
+- Fonte conferida: RN 0.86.3 (`BridgelessNativeModuleProxy` devolve módulo legado pelo interop ou `null`; o
+  `TurboModuleManager` chama `initialize()` do legado; arquitetura nova liga o interop); AGP 8.12 ainda tem o `lintOptions`
+  que o `build.gradle` do pacote usa; RN 0.86 ainda tem o `ReactAndroid/gradle.properties` que ele lê; RNGMA 17.0.0
+  `AdStalenessGuidanceMillis` = 4 h app open / 1 h outros; npm: `react-native-applifecycle@1.0.0` é o `latest`.
+- **NÃO verificado:** nada no aparelho nem build Android com o pacote instalado (autolinking, eventos ON_START/ON_STOP
+  chegando, folha de compartilhamento para outro app de tela cheia — essa conta como volta, igual ao Google).
+
+### Pendências
+- Testar no lab: instalar o `react-native-applifecycle`, prebuild + build, conferir `[expo-utils] AppOpen trigger:
+  process-lifecycle` e os casos de diálogo/intersticial/compra; depois ligar as chaves de pré-carga e olhar o show rate no AdMob.
+- AGENTS.md não ganhou nota sobre o gatilho/pré-carga (fora do pedido; a pasta principal tem o AGENTS.md alterado por outro trabalho).

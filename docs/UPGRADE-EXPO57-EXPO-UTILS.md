@@ -279,6 +279,7 @@ expo-tracking-transparency       ~57.0.1
 expo-device                      ~57.0.1
 expo-video                       ~57.0.1
 expo-tiktok-ads-events           0.1.6
+react-native-applifecycle        1.0.0    (opcional; Android: gatilho do app open, ver §8)
 eas-build-cache-provider         20.0.0   (devDependency)
 ```
 
@@ -860,6 +861,13 @@ marca só a rede e guarda o dado cifrado (`meta_ref_*`). Tem prioridade sobre
 `AppStrings.metaInstallReferrerKey`. Conferir em produção pelo parâmetro `meta` do evento
 `install_attribution` (`decrypted` = chave certa; `decrypt_failed` = chave errada).
 
+Pré-carga e espera dos anúncios de tela cheia (opcionais; sem as chaves = comportamento de antes, então não precisam
+entrar no JSON da migração): `appopen_preload_enabled` / `interstitial_preload_enabled` (padrão `false`),
+`appopen_preload_max_age_minutes` (padrão 240) / `interstitial_preload_max_age_minutes` (padrão 60),
+`ad_preload_error_pause_seconds` (padrão 0) e `ad_load_max_wait_seconds` (padrão 0 = sem limite). Mudam só como e
+quando o anúncio carrega; posição e frequência continuam com o app. Detalhes no README ("App open: volta ao app e
+pré-carga").
+
 ### 5.4.0 Layout do popup (`review_style`)
 
 Troca o desenho do `AskForReviewOverlay` **sem release**. Três valores:
@@ -1211,6 +1219,13 @@ abrir. A lib já trata as duas gerações (seção 2.4).
   - `expo-utils/utils/LoadAdsManager`
   - `expo-utils/utils/styles` (ExpoUtilsStyles)
 - `LoadAdsManager.showInterstitial()` — na lib nova **não pendura** (sempre resolve)
+- **App open no Android:** instalar `react-native-applifecycle` (1.0.0, peer opcional) e fazer **build nativo novo**
+  (o autolinking do prebuild liga o módulo; nada a editar em `android/`). OTA sozinho não traz o módulo. A lib detecta
+  `NativeModules.ReactNativeAppLifecycle` e passa a decidir a volta pelo `ProcessLifecycleOwner`: fechar diálogo de
+  permissão, intersticial, folha de compra ou de compartilhamento deixa de mostrar app open. Não importe o pacote no
+  app para isso. Sem ele, e no iOS, fica o `AppState`, como antes.
+- Pré-carga e espera máxima dos anúncios: chaves opcionais do `utils` (§5.4), desligadas por padrão; nada muda no
+  código do app.
 - Review local do app pode coexistir com overlay da lib — controle via `review_type` no RC para não double-prompt
 - `global.isAdsEnabled` / store gate: se `disableAdsIfBuildIsNewerThanStore: true`, ads desligam em build mais nova que a loja
 
@@ -1284,6 +1299,8 @@ abrir. A lib já trata as duas gerações (seção 2.4).
 - [ ] Onboarding / index navega
 - [ ] Tabs renderizam
 - [ ] Banner não crasha se sem unitId
+- [ ] Android com `react-native-applifecycle`: Metro mostra `[expo-utils] AppOpen trigger: process-lifecycle`, e fechar
+      um diálogo de permissão ou um intersticial não mostra app open (sair para a home e voltar mostra)
 - [ ] Paywall abre se `screens.paywall` + rckey válidos
 - [ ] Identificação/API se `screens.api_url` válido
 - [ ] Interstitial não trava o fluxo

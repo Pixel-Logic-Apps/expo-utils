@@ -175,6 +175,15 @@ export function setBlocklist(list?: string[]) {
 }
 
 /**
+ * O tipo inteiro está bloqueado (`"*"` ou o nome do tipo, ex.: `"interstitial"`)? É a conferência da pré-carga, que
+ * acontece antes de existir placement — e sem chamar generatePlacementId, que registraria um chamador a mais e poderia
+ * mudar o índice de um placement real. Bloqueio por página ou por placement vale na hora de mostrar.
+ */
+export function isAdTypeBlocked(adType: string): boolean {
+    return blocklist.includes("*") || blocklist.includes(adType);
+}
+
+/**
  * Check if a placement ID is blocked by the blocklist.
  *
  * Matching hierarchy:
