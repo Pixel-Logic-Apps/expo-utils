@@ -79,16 +79,152 @@ function detectPackageManager() {
     return "bun";
 }
 
+/** Spec declarado no package.json do app (dependencies → devDependencies → optionalDependencies). */
+function declaredSpec(projectPkg, name) {
+    for (const field of ["dependencies", "devDependencies", "optionalDependencies"]) {
+        const spec = projectPkg && projectPkg[field] && projectPkg[field][name];
+        if (typeof spec === "string") return spec;
+    }
+    return null;
+}
+
+/** Versão instalada em node_modules do app, ou null. */
+function installedPackageVersion(name) {
+    try {
+        const pkgJson = path.join(projectRoot, "node_modules", name, "package.json");
+        if (!fs.existsSync(pkgJson)) return null;
+        const version = JSON.parse(fs.readFileSync(pkgJson, "utf-8")).version;
+        return typeof version === "string" ? version : null;
+    } catch {
+        return null;
+    }
+}
+
+/** Major de uma versão ou range de registry ("27.1.0", "^26.4.0", ">=0.35.3 <1" → 27, 26, 0); git/file/url → null. */
+function majorOf(spec) {
+    if (typeof spec !== "string" || spec.includes(":") || spec.includes("/")) return null;
+    const match = spec.match(/\d+/);
+    return match ? parseInt(match[0], 10) : null;
+}
+
+/** Major do pacote no app: a versão instalada vale mais que o spec (um range como >=24.0.0 resolve a mais nova). */
+function packageMajor(projectPkg, name) {
+    const installed = majorOf(installedPackageVersion(name));
+    return installed !== null ? installed : majorOf(declaredSpec(projectPkg, name));
+}
+
+// --- Hot Updater: v0 (0.35/0.36) é o padrão; v1 (1.1.3+) com --hot-updater-v1 ou quando o app já tem a 1.x ---
+// As duas gerações não se falam (servidor v1 novo, API nova): nunca misturar pacotes nem plugins delas.
+const HOT_UPDATER_PACKAGES = ["@hot-updater/react-native", "@hot-updater/expo", "hot-updater"];
+const HOT_UPDATER_RANGES = {0: ">=0.35.3 <1", 1: ">=1.1.3 <2"};
+// O @hot-updater/react-native 1.x não tem app.plugin.js: no v1 o plugin do Expo é o @hot-updater/expo.
+const HOT_UPDATER_PLUGINS = {0: "@hot-updater/react-native", 1: "@hot-updater/expo"};
+const HOT_UPDATER_V0_STRINGS_PLACEHOLDER = "https://YOUR-WORKER.workers.dev/api/check-update";
+const HOT_UPDATER_V1_STRINGS_PLACEHOLDER = "https://YOUR-V1-WORKER.workers.dev";
+
+/**
+ * 1 com --hot-updater-v1 ou com algum pacote do Hot Updater na 1.x no app; senão 0. Aqui o spec declarado vale
+ * mais que o instalado: um v0 sem teto (`>=0.35.3`, dos instaladores antigos) que resolveu a 1.x por acidente
+ * (o `latest` virou 1.x em 20/10/2026) continua v0 — o servidor desses apps é v0 — e o `--hot-updater` põe o teto.
+ * O instalado só conta para pacote que o app não declara.
+ */
+function detectHotUpdaterGeneration(args, projectPkg) {
+    if ((args || []).includes("--hot-updater-v1")) return 1;
+    const generationOf = (name) => {
+        const specMajor = majorOf(declaredSpec(projectPkg, name));
+        const major = specMajor !== null ? specMajor : majorOf(installedPackageVersion(name));
+        return major === null ? null : major >= 1 ? 1 : 0;
+    };
+    return [...HOT_UPDATER_PACKAGES, "@hot-updater/cloudflare"].some((name) => generationOf(name) === 1) ? 1 : 0;
+}
+
+// --- expo-build-properties pelo RNFirebase instalado no app ---
+// RNFB 27+: o Firebase iOS 13 só vem por Swift Package e exige frameworks DINÂMICOS (com estático o pod
+// install aborta: "SPM + static linkage is not supported"); os pods do RNFB não podem estar no
+// forceStaticLinking, que fica com o RNGoogleMobileAds (doc do RNGMA) e o react-native-fbsdk-next
+// (fbsdk-next#678). O Firebase Android BoM 35 exige Kotlin >= 2.4.0: 2.4.20, porque os compiler plugins do
+// Expo (pika-compiler, expo-modules-v2-compiler-plugin) só estão no Maven Central até a 2.4.20.
+// Combinação testada em 27/10/2026 no Eleições (SDK 58, RNFB 27.1.0, RNGMA 17.4.0): Release no iOS e no Android.
+// RNFB 24–26 (apps no SDK 57): o stack estático de sempre.
+const RNFB_STATIC_PODS = ["RNFBApp", "RNFBAuth", "RNFBFirestore", "RNFBMessaging", "RNFBCrashlytics", "RNFBAnalytics", "RNFBRemoteConfig"];
+const RNFB_SPM_FORCE_STATIC = ["RNGoogleMobileAds", "react-native-fbsdk-next"];
+const RNFB_SPM_KOTLIN_VERSION = "2.4.20";
+
+function buildPropertiesFor(rnfbMajor) {
+    if (rnfbMajor !== null && rnfbMajor >= 27) {
+        return {
+            ios: {useFrameworks: "dynamic", forceStaticLinking: [...RNFB_SPM_FORCE_STATIC]},
+            android: {kotlinVersion: RNFB_SPM_KOTLIN_VERSION},
+        };
+    }
+    return {ios: {useFrameworks: "static", forceStaticLinking: [...RNFB_STATIC_PODS]}};
+}
+
+/**
+ * Aplica no app.json o expo-build-properties da major do RNFB. Mantém as outras chaves do plugin; o
+ * forceStaticLinking soma ao que o app já tem (no RNFB 27+ sem os pods RNFB*). `useModularHeaders` sai:
+ * o expo-build-properties não tem essa chave e a ignora em silêncio.
+ */
+function applyBuildProperties(config, rnfbMajor) {
+    config.expo = config.expo || {};
+    config.expo.plugins = config.expo.plugins || [];
+    const wanted = buildPropertiesFor(rnfbMajor);
+    const spm = !!wanted.android;
+    const index = config.expo.plugins.findIndex(
+        (p) => (Array.isArray(p) && p[0] === "expo-build-properties") || p === "expo-build-properties",
+    );
+    const existing = index !== -1 && Array.isArray(config.expo.plugins[index]) ? config.expo.plugins[index][1] || {} : {};
+    const previousStatic = (existing.ios && existing.ios.forceStaticLinking) || [];
+    const ios = {
+        ...(existing.ios || {}),
+        useFrameworks: wanted.ios.useFrameworks,
+        forceStaticLinking: [...previousStatic.filter((pod) => !(spm && /^RNFB/.test(pod))), ...wanted.ios.forceStaticLinking].filter(
+            (pod, i, all) => all.indexOf(pod) === i,
+        ),
+    };
+    delete ios.useModularHeaders;
+    const pluginConfig = {...existing, ios};
+    if (wanted.android) pluginConfig.android = {...(existing.android || {}), ...wanted.android};
+    const plugin = ["expo-build-properties", pluginConfig];
+    if (index === -1) config.expo.plugins.push(plugin);
+    else config.expo.plugins[index] = plugin;
+    return {added: index === -1, spm};
+}
+
 // --- Scaffolding Functions ---
 
-async function handleDependencyInstall() {
+/**
+ * O que o passo de dependências instala: todo peer (inclusive os opcionais) que o app ainda não declara.
+ * Os peers do Hot Updater aceitam as duas gerações (">=0.35.3 <1 || >=1.1.3 <2"), e esse range resolveria a
+ * 1.x; por isso eles entram com o range da geração do app (v0 por padrão). `@expo/ui` e `expo-device` são
+ * importados de forma fixa pela lib e, do SDK 58 em diante, não vêm mais junto com o expo-router: entram
+ * aqui como qualquer peer que falta e passam pelo `expo install` (versão do SDK do app).
+ */
+function planMissingDependencies(peerDependencies, projectPkg, hotUpdaterGeneration) {
+    const existingDeps = {...projectPkg.dependencies, ...projectPkg.devDependencies};
+    const missing = Object.keys(peerDependencies).filter((dep) => !existingDeps[dep]);
+    const specs = {};
+    for (const dep of missing) {
+        specs[dep] = HOT_UPDATER_PACKAGES.includes(dep) ? HOT_UPDATER_RANGES[hotUpdaterGeneration] : peerDependencies[dep];
+    }
+    const expoManaged = missing.filter(
+        (dep) => dep === "expo" || dep === "react" || dep === "react-native" || dep.startsWith("expo-") || dep.startsWith("@expo/"),
+    );
+    return {missing, specs, expoManaged};
+}
+
+async function handleDependencyInstall(args = []) {
     console.log(chalk.cyan("🚀 Checking for missing peer dependencies..."));
     const modulePkg = require(path.join(moduleDir, "package.json"));
     const peerDependencies = modulePkg.peerDependencies || {};
     const projectPkgPath = path.join(projectRoot, "package.json");
     const projectPkg = JSON.parse(fs.readFileSync(projectPkgPath, "utf-8"));
-    const existingDeps = {...projectPkg.dependencies, ...projectPkg.devDependencies};
-    const missingDeps = Object.keys(peerDependencies).filter((dep) => !existingDeps[dep]);
+    const hotUpdaterGeneration = detectHotUpdaterGeneration(args, projectPkg);
+    const {missing: missingDeps, specs, expoManaged: expoManagedDeps} = planMissingDependencies(
+        peerDependencies,
+        projectPkg,
+        hotUpdaterGeneration,
+    );
 
     if (missingDeps.length === 0) {
         console.log(chalk.green("✅ All required peer dependencies are already installed."));
@@ -108,22 +244,17 @@ async function handleDependencyInstall() {
     // detect native modules and pod install will miss them.
     projectPkg.dependencies = projectPkg.dependencies || {};
     for (const dep of missingDeps) {
-        projectPkg.dependencies[dep] = peerDependencies[dep];
+        projectPkg.dependencies[dep] = specs[dep];
     }
     fs.writeFileSync(projectPkgPath, JSON.stringify(projectPkg, null, 2));
     console.log(chalk.green(`  -> Added ${missingDeps.length} dependencies to package.json`));
+    if (missingDeps.some((dep) => HOT_UPDATER_PACKAGES.includes(dep))) {
+        console.log(chalk.gray(`  -> Hot Updater v${hotUpdaterGeneration}: ${HOT_UPDATER_RANGES[hotUpdaterGeneration]}`));
+    }
 
     // Step 2: For expo-managed deps, run expo install (names only) to
     // resolve SDK-compatible versions and update package.json entries.
     if (hasExpo) {
-        const expoManagedDeps = missingDeps.filter((dep) =>
-            dep === "expo" ||
-            dep === "react" ||
-            dep === "react-native" ||
-            dep.startsWith("expo-") ||
-            dep.startsWith("@expo/")
-        );
-
         if (expoManagedDeps.length > 0) {
             const execCmd = { bun: "bunx", npm: "npx -y", yarn: "npx -y", pnpm: "npx -y" };
             const expoCmd = `${execCmd[pm]} expo install ${expoManagedDeps.join(" ")}`;
@@ -700,55 +831,15 @@ function handleIosBuildFixFlag() {
     config.expo = config.expo || {};
     config.expo.ios = config.expo.ios || {};
 
-    // --- Configure build properties for Firebase ---
-    config.expo.plugins = config.expo.plugins || [];
-
-    // Find the index of the expo-build-properties plugin
-    const buildPropertiesIndex = config.expo.plugins.findIndex((p) =>
-        (Array.isArray(p) && p[0] === "expo-build-properties") || p === "expo-build-properties"
-    );
-
-    const iosBuildConfig = {
-        useFrameworks: "static",
-        useModularHeaders: true,
-        forceStaticLinking: [
-            "RNFBApp",
-            "RNFBAuth",
-            "RNFBFirestore",
-            "RNFBMessaging",
-            "RNFBCrashlytics",
-            "RNFBAnalytics",
-            "RNFBRemoteConfig"
-        ]
-    };
-
-    if (buildPropertiesIndex !== -1) {
-        const existingPlugin = config.expo.plugins[buildPropertiesIndex];
-
-        // Handle both array and string formats
-        if (Array.isArray(existingPlugin)) {
-            // Merge with existing configuration
-            existingPlugin[1] = existingPlugin[1] || {};
-            existingPlugin[1].ios = {
-                ...existingPlugin[1].ios,  // Keep existing iOS config
-                ...iosBuildConfig,         // Add our required config
-                // If forceStaticLinking already exists, merge the arrays
-                forceStaticLinking: [
-                    ...(existingPlugin[1].ios?.forceStaticLinking || []),
-                    ...iosBuildConfig.forceStaticLinking
-                ].filter((value, index, self) => self.indexOf(value) === index) // Remove duplicates
-            };
-            config.expo.plugins[buildPropertiesIndex] = existingPlugin;
-        } else {
-            // Convert string format to array format with configuration
-            config.expo.plugins[buildPropertiesIndex] = ["expo-build-properties", {ios: iosBuildConfig}];
-        }
-        console.log(chalk.green("  -> Updated expo-build-properties for iOS in app.json."));
-    } else {
-        // Plugin doesn't exist, add it
-        config.expo.plugins.push(["expo-build-properties", {ios: iosBuildConfig}]);
-        console.log(chalk.green("  -> Added and configured expo-build-properties for iOS."));
-    }
+    // --- Configure build properties for Firebase (pela major do RNFirebase instalado no app) ---
+    const projectPkgPath = path.join(projectRoot, "package.json");
+    const projectPkg = fs.existsSync(projectPkgPath) ? JSON.parse(fs.readFileSync(projectPkgPath, "utf-8")) : {};
+    const rnfbMajor = packageMajor(projectPkg, "@react-native-firebase/app");
+    const {added, spm} = applyBuildProperties(config, rnfbMajor);
+    const variant = spm
+        ? `RNFirebase ${rnfbMajor}: useFrameworks "dynamic", forceStaticLinking ${RNFB_SPM_FORCE_STATIC.join(" + ")}, Kotlin ${RNFB_SPM_KOTLIN_VERSION}`
+        : `RNFirebase ${rnfbMajor === null ? "não encontrado (usando o padrão 24–26)" : rnfbMajor}: useFrameworks "static", RNFB* no forceStaticLinking`;
+    console.log(chalk.green(`  -> ${added ? "Added" : "Updated"} expo-build-properties — ${variant}.`));
 
     // --- Configure entitlements for Push Notifications ---
     config.expo.ios.entitlements = config.expo.ios.entitlements || {};
@@ -952,7 +1043,7 @@ bun.lock`;
     console.log(chalk.green("✅ EAS configuration complete."));
 }
 
-function handleConstantsFlag() {
+function handleConstantsFlag(hotUpdaterGeneration = 0) {
     console.log(chalk.cyan("📁 Creating constants folder..."));
     // Verifica se o projeto usa estrutura src
     const srcAppExists = fs.existsSync(path.join(projectRoot, "src", "app"));
@@ -974,6 +1065,8 @@ function handleConstantsFlag() {
     if (fs.existsSync(stringsTemplatePath) && !fs.existsSync(stringsDestPath)) {
         fs.copyFileSync(stringsTemplatePath, stringsDestPath);
         console.log(chalk.green(`  -> Created ${path.relative(projectRoot, stringsDestPath)} from template.`));
+        // O template vem no formato do v0; no v1 (--hot-updater-v1 ou 1.x no app) ganha a URL de exemplo e a chave.
+        if (hotUpdaterGeneration === 1) applyHotUpdaterV1ToStringsFile(stringsDestPath);
     } else if (fs.existsSync(stringsDestPath)) {
         console.log(chalk.yellow(`  -> Strings.ts already exists, skipping.`));
     }
@@ -1073,12 +1166,161 @@ function handleGitignoreFlag() {
     console.log(chalk.green("✅ Atualizado .gitignore com ios/ e android/."));
 }
 
-function handleHotUpdaterFlag() {
-    console.log(chalk.cyan("🔥 Configuring Hot Updater..."));
+const DEP_FIELDS = ["dependencies", "devDependencies", "optionalDependencies"];
 
-    // --- 1. Update package.json to add hot-updater and react-dom ---
+/** Spec de v0 que deixaria entrar a 1.x num install novo (">=0.35.3", "*", "latest"…). */
+function hotUpdaterSpecAdmitsV1(spec) {
+    const value = String(spec).trim();
+    return ["", "*", "x", "latest"].includes(value) || (/^>=?\s*0\./.test(value) && !value.includes("<"));
+}
+
+/**
+ * Deixa os pacotes do Hot Updater do app na MESMA geração: os de HOT_UPDATER_PACKAGES que faltam entram com o
+ * range da geração, e os já declarados (inclusive outros @hot-updater/*, como o cloudflare) de outra geração —
+ * ou um v0 sem teto, que resolveria a 1.x — passam a usar esse range.
+ * @returns {string[]} o que mudou, para o log
+ */
+function alignHotUpdaterDependencies(projectPkg, generation) {
+    const range = HOT_UPDATER_RANGES[generation];
+    const changes = [];
+    projectPkg.dependencies = projectPkg.dependencies || {};
+    const declared = DEP_FIELDS.flatMap((field) => Object.keys(projectPkg[field] || {}));
+    const names = [...new Set([...HOT_UPDATER_PACKAGES, ...declared.filter((name) => name.startsWith("@hot-updater/"))])];
+    for (const name of names) {
+        const field = DEP_FIELDS.find((f) => projectPkg[f] && typeof projectPkg[f][name] === "string");
+        if (!field) {
+            if (HOT_UPDATER_PACKAGES.includes(name)) {
+                projectPkg.dependencies[name] = range;
+                changes.push(`${name}@${range}`);
+            }
+            continue;
+        }
+        const spec = projectPkg[field][name];
+        const major = majorOf(spec);
+        const wrongGeneration = major !== null && (major >= 1 ? 1 : 0) !== generation;
+        if (wrongGeneration || (generation === 0 && hotUpdaterSpecAdmitsV1(spec))) {
+            projectPkg[field][name] = range;
+            changes.push(`${name}: ${spec} → ${range}`);
+        }
+    }
+    return changes;
+}
+
+/**
+ * Deixa no app.json só o plugin do Hot Updater da geração (v0: @hot-updater/react-native; v1: @hot-updater/expo),
+ * levando as opções (channel, publicKeyPath…) do plugin da outra geração. Sem channel: "production".
+ */
+function applyHotUpdaterPlugin(config, generation) {
+    config.expo = config.expo || {};
+    config.expo.plugins = config.expo.plugins || [];
+    const wanted = HOT_UPDATER_PLUGINS[generation];
+    const other = HOT_UPDATER_PLUGINS[generation === 1 ? 0 : 1];
+    const nameOf = (p) => (Array.isArray(p) ? p[0] : p);
+    const optionsOf = (p) => (Array.isArray(p) && p[1] && typeof p[1] === "object" ? p[1] : {});
+    const plugins = config.expo.plugins;
+    const otherIndex = plugins.findIndex((p) => nameOf(p) === other);
+    const index = plugins.findIndex((p) => nameOf(p) === wanted);
+    const entry = [
+        wanted,
+        {
+            channel: "production",
+            ...(otherIndex !== -1 ? optionsOf(plugins[otherIndex]) : {}),
+            ...(index !== -1 ? optionsOf(plugins[index]) : {}),
+        },
+    ];
+    if (index !== -1) plugins[index] = entry;
+    else if (otherIndex !== -1) plugins[otherIndex] = entry; // no lugar do plugin da outra geração
+    else plugins.push(entry);
+    config.expo.plugins = plugins.filter((p) => nameOf(p) !== other);
+    return {added: index === -1, replaced: otherIndex !== -1 ? other : null};
+}
+
+/** Acrescenta ao .env as chaves do template que faltam, sem mexer nas que já existem. */
+function mergeEnvKeys(current, template, header) {
+    const keyOf = (line) => (line.match(/^\s*([A-Za-z0-9_]+)\s*=/) || [])[1];
+    const existing = new Set(current.split(/\r?\n/).map(keyOf).filter(Boolean));
+    const missing = template.split(/\r?\n/).filter((line) => keyOf(line) && !existing.has(keyOf(line)));
+    if (!missing.length) return {source: current, added: []};
+    return {
+        source: `${current.replace(/\s*$/, "")}\n\n${header}\n${missing.join("\n")}\n`,
+        added: missing.map(keyOf),
+    };
+}
+
+/** HOT_UPDATER_API_KEY do .env.hotupdater do app (a chave de cliente do servidor v1), ou "". */
+function hotUpdaterApiKeyFromEnv() {
+    try {
+        const env = fs.readFileSync(path.join(projectRoot, ".env.hotupdater"), "utf-8");
+        const match = env.match(/^\s*HOT_UPDATER_API_KEY\s*=\s*["']?([^"'\r\n#]*)["']?/m);
+        const key = match ? match[1].trim() : "";
+        return key && !/^YOUR[_-]/i.test(key) ? key : "";
+    } catch {
+        return "";
+    }
+}
+
+function findStringsFile() {
+    for (const candidate of [path.join(projectRoot, "src", "constants", "Strings.ts"), path.join(projectRoot, "constants", "Strings.ts")]) {
+        if (fs.existsSync(candidate)) return candidate;
+    }
+    return null;
+}
+
+/**
+ * Strings.ts para o Hot Updater v1: garante o `hotUpdaterApiKey` (logo depois do `hotUpdaterUrl`, preenchido
+ * com a HOT_UPDATER_API_KEY quando ela existe) e troca a URL de EXEMPLO do v0 pela de exemplo do v1. URL real de
+ * v0 fica como está e vira aviso: o v1 é OUTRO Worker, e tirar o `/api/check-update` apontaria para o servidor v0.
+ */
+function hotUpdaterV1Strings(source, apiKey) {
+    let out = source;
+    const warnings = [];
+    if (out.includes(HOT_UPDATER_V0_STRINGS_PLACEHOLDER)) {
+        out = out.split(HOT_UPDATER_V0_STRINGS_PLACEHOLDER).join(HOT_UPDATER_V1_STRINGS_PLACEHOLDER);
+    } else if (/hotUpdaterUrl\s*[:=]\s*["'`][^"'`]*\/api\/check-update/.test(out)) {
+        warnings.push(
+            "hotUpdaterUrl ainda é de servidor v0 (/api/check-update): troque pela URL do Worker v1 NOVO — o v0 continua servindo os binários antigos.",
+        );
+    }
+    const keyValue = JSON.stringify(apiKey || "");
+    const keyPattern = /(hotUpdaterApiKey\s*:\s*)(["'`])([^"'`]*)\2/;
+    const keyMatch = out.match(keyPattern);
+    if (keyMatch) {
+        if (!keyMatch[3] && apiKey) out = out.replace(keyPattern, (_all, prefix) => `${prefix}${keyValue}`);
+    } else {
+        const urlLines = /^([ \t]*)hotUpdaterUrl\s*[:,][^\n]*\n/gm;
+        if (urlLines.test(out)) {
+            out = out.replace(
+                urlLines,
+                (line, indent) =>
+                    `${line}${indent}// Hot Updater v1: chave de cliente do servidor (vai no x-api-key), a HOT_UPDATER_API_KEY do hot-updater init.\n` +
+                    `${indent}hotUpdaterApiKey: ${keyValue},\n`,
+            );
+        } else {
+            warnings.push("não achei o hotUpdaterUrl no Strings.ts: ponha hotUpdaterUrl (raiz do Worker v1) e hotUpdaterApiKey à mão.");
+        }
+    }
+    return {source: out, changed: out !== source, warnings};
+}
+
+function applyHotUpdaterV1ToStringsFile(stringsPath) {
+    const apiKey = hotUpdaterApiKeyFromEnv();
+    const result = hotUpdaterV1Strings(fs.readFileSync(stringsPath, "utf-8"), apiKey);
+    if (result.changed) {
+        fs.writeFileSync(stringsPath, result.source);
+        console.log(chalk.green(`  -> ${path.relative(projectRoot, stringsPath)}: hotUpdaterApiKey${apiKey ? " (do .env.hotupdater)" : ""} para o Hot Updater v1.`));
+    }
+    result.warnings.forEach((warning) => console.log(chalk.yellow(`  -> ⚠️  ${warning}`)));
+    if (!apiKey) {
+        console.log(chalk.yellow("  -> Preencha hotUpdaterApiKey no Strings.ts com a HOT_UPDATER_API_KEY do servidor v1 (sem ela o OTA fica desligado)."));
+    }
+}
+
+function handleHotUpdaterFlag(generation = 0) {
+    console.log(chalk.cyan(`🔥 Configuring Hot Updater v${generation} (${HOT_UPDATER_RANGES[generation]})...`));
+
+    // --- 1. Update package.json: react-dom e os pacotes do Hot Updater, todos da mesma geração ---
     const projectPkgPath = path.join(projectRoot, "package.json");
-    const projectPkg = require(projectPkgPath);
+    const projectPkg = JSON.parse(fs.readFileSync(projectPkgPath, "utf-8"));
     let pkgUpdated = false;
 
     projectPkg.dependencies = projectPkg.dependencies || {};
@@ -1093,13 +1335,12 @@ function handleHotUpdaterFlag() {
         console.log(chalk.yellow(`  -> react-dom already in dependencies.`));
     }
 
-    // Add hot-updater if not present
-    if (!projectPkg.dependencies["hot-updater"]) {
-        projectPkg.dependencies["hot-updater"] = ">=0.35.3";
-        console.log(chalk.green(`  -> Added hot-updater@>=0.35.3 to dependencies.`));
+    const hotUpdaterChanges = alignHotUpdaterDependencies(projectPkg, generation);
+    if (hotUpdaterChanges.length) {
+        hotUpdaterChanges.forEach((change) => console.log(chalk.green(`  -> ${change}`)));
         pkgUpdated = true;
     } else {
-        console.log(chalk.yellow(`  -> hot-updater already in dependencies.`));
+        console.log(chalk.yellow(`  -> Hot Updater packages already on v${generation}.`));
     }
 
     // Add overrides to force react-dom version
@@ -1127,9 +1368,10 @@ function handleHotUpdaterFlag() {
             fs.copyFileSync(babelTemplatePath, babelConfigPath);
             console.log(chalk.green(`  -> Created babel.config.js with hot-updater plugin.`));
         } else {
-            // Check if hot-updater plugin is already in babel.config.js
+            // Check if hot-updater plugin is already in babel.config.js (o do template é o
+            // @hot-updater/expo/babel-plugin; sem aceitar esse nome, todo run sobrescrevia o babel do app)
             const existingBabel = fs.readFileSync(babelConfigPath, "utf-8");
-            if (!existingBabel.includes("hot-updater/babel-plugin")) {
+            if (!/hot-updater\/(expo\/)?babel-plugin/.test(existingBabel)) {
                 // Replace with template
                 fs.copyFileSync(babelTemplatePath, babelConfigPath);
                 console.log(chalk.green(`  -> Updated babel.config.js with hot-updater plugin.`));
@@ -1141,8 +1383,9 @@ function handleHotUpdaterFlag() {
         console.error(chalk.red("❌ babel.config.js template not found in expo-utils module."));
     }
 
-    // --- 3. Create .env and .env.hotupdater placeholder files ---
-    const envTemplatePath = path.join(moduleDir, "templates", ".env.hotupdater.template");
+    // --- 3. Create .env and .env.hotupdater placeholder files (chaves da geração) ---
+    const envTemplateName = generation === 1 ? ".env.hotupdater.v1.template" : ".env.hotupdater.template";
+    const envTemplatePath = path.join(moduleDir, "templates", envTemplateName);
     const envPath = path.join(projectRoot, ".env");
     const envHotUpdaterPath = path.join(projectRoot, ".env.hotupdater");
 
@@ -1159,11 +1402,29 @@ function handleHotUpdaterFlag() {
         if (!fs.existsSync(envHotUpdaterPath)) {
             fs.writeFileSync(envHotUpdaterPath, envContent);
             console.log(chalk.green(`  -> Created .env.hotupdater with placeholders.`));
+        } else if (generation === 1) {
+            // App vindo do v0: só acrescenta as chaves do v1 que faltam (valores existentes ficam).
+            const merged = mergeEnvKeys(
+                fs.readFileSync(envHotUpdaterPath, "utf-8"),
+                envContent,
+                "# Hot Updater v1 (expo-utils-install --hot-updater-v1): preencha com o npx hot-updater init",
+            );
+            if (merged.added.length) {
+                fs.writeFileSync(envHotUpdaterPath, merged.source);
+                console.log(chalk.green(`  -> .env.hotupdater: + ${merged.added.join(", ")}.`));
+            } else {
+                console.log(chalk.yellow(`  -> .env.hotupdater already has the v1 keys.`));
+            }
+            console.log(
+                chalk.yellow(
+                    "  -> ⚠️  O v1 precisa de D1 e Worker NOVOS: troque HOT_UPDATER_CLOUDFLARE_D1_DATABASE_ID/_NAME e HOT_UPDATER_CLOUDFLARE_WORKER_NAME (ou deixe vazios para o init criar). Os do v0 continuam servindo os binários antigos.",
+                ),
+            );
         } else {
             console.log(chalk.yellow(`  -> .env.hotupdater already exists. Skipping.`));
         }
     } else {
-        console.error(chalk.red("❌ .env.hotupdater.template not found in expo-utils module."));
+        console.error(chalk.red(`❌ ${envTemplateName} not found in expo-utils module.`));
     }
 
     // --- 4. Update .gitignore to include .env files ---
@@ -1188,49 +1449,30 @@ function handleHotUpdaterFlag() {
         console.log(chalk.green(`  -> Updated .gitignore with .env files.`));
     }
 
-    // --- 5. Add @hot-updater/react-native plugin to app.json ---
+    // --- 5. Plugin do Hot Updater no app.json: um só, o da geração ---
     const config = getAppConfig();
     if (config) {
-        config.expo = config.expo || {};
-        config.expo.plugins = config.expo.plugins || [];
-
-        const pluginName = "@hot-updater/react-native";
-        const hotUpdaterConfig = {
-            channel: "production",
-        };
-
-        // Find the index of the @hot-updater/react-native plugin
-        const hotUpdaterIndex = config.expo.plugins.findIndex((p) =>
-            (Array.isArray(p) && p[0] === pluginName) || p === pluginName
-        );
-
-        if (hotUpdaterIndex !== -1) {
-            const existingPlugin = config.expo.plugins[hotUpdaterIndex];
-
-            // Handle both array and string formats
-            if (Array.isArray(existingPlugin)) {
-                // Merge with existing configuration
-                existingPlugin[1] = {
-                    ...existingPlugin[1],  // Keep existing config
-                    ...hotUpdaterConfig    // Add our required config
-                };
-                config.expo.plugins[hotUpdaterIndex] = existingPlugin;
-            } else {
-                // Convert string format to array format with configuration
-                config.expo.plugins[hotUpdaterIndex] = [pluginName, hotUpdaterConfig];
-            }
-            console.log(chalk.green(`  -> Updated ${pluginName} plugin configuration.`));
-        } else {
-            // Plugin doesn't exist, add it
-            config.expo.plugins.push([pluginName, hotUpdaterConfig]);
-            console.log(chalk.green(`  -> Added and configured ${pluginName} plugin.`));
-        }
-
+        const {added, replaced} = applyHotUpdaterPlugin(config, generation);
+        const pluginName = HOT_UPDATER_PLUGINS[generation];
+        if (replaced) console.log(chalk.green(`  -> Replaced ${replaced} plugin with ${pluginName} (options kept).`));
+        else console.log(chalk.green(`  -> ${added ? "Added and configured" : "Updated"} ${pluginName} plugin.`));
         writeAppConfig(config);
     }
 
-    console.log(chalk.green("✅ Hot Updater setup complete."));
-    console.log(chalk.cyan("   📝 Remember to fill in your Cloudflare credentials in .env and .env.hotupdater"));
+    // --- 6. v1: chave de cliente no Strings.ts ---
+    if (generation === 1) {
+        const stringsPath = findStringsFile();
+        if (stringsPath) applyHotUpdaterV1ToStringsFile(stringsPath);
+        else console.log(chalk.gray("  -> Strings.ts ainda não existe: o --constants aplica o hotUpdaterApiKey quando criar."));
+    }
+
+    console.log(chalk.green(`✅ Hot Updater v${generation} setup complete.`));
+    if (generation === 1) {
+        console.log(chalk.cyan("   📝 Servidor v1 NOVO (D1 + Worker novos): npx hot-updater init. Mantenha o v0 no ar para os binários antigos."));
+        console.log(chalk.cyan("   📝 Strings.ts: hotUpdaterUrl = raiz do Worker v1 (sem /api/check-update) + hotUpdaterApiKey."));
+    } else {
+        console.log(chalk.cyan("   📝 Remember to fill in your Cloudflare credentials in .env and .env.hotupdater"));
+    }
     const hotUpdaterPm = detectPackageManager();
     const installCmd = { bun: "bun install", npm: "npm install", yarn: "yarn", pnpm: "pnpm install" };
     console.log(chalk.cyan(`   📝 Then run: ${installCmd[hotUpdaterPm]}`));
@@ -1407,11 +1649,18 @@ async function handleAppReset() {
 
 // --- Main Execution ---
 
+/** Geração do Hot Updater do app agora (package.json/node_modules mudam no passo de dependências). */
+function currentHotUpdaterGeneration(args) {
+    const projectPkgPath = path.join(projectRoot, "package.json");
+    const projectPkg = fs.existsSync(projectPkgPath) ? JSON.parse(fs.readFileSync(projectPkgPath, "utf-8")) : {};
+    return detectHotUpdaterGeneration(args, projectPkg);
+}
+
 async function main() {
     const args = process.argv.slice(2);
 
     // Always run dependency install first
-    await handleDependencyInstall();
+    await handleDependencyInstall(args);
 
     console.log(chalk.blue("\n--- Running Scaffolding Steps ---"));
 
@@ -1428,7 +1677,7 @@ async function main() {
         handleSkadnetworkFlag();
         handleTrackingPermissionFlag();
         handleGitignoreFlag(); // Nova chamada para atualizar .gitignore
-        handleHotUpdaterFlag(); // Setup hot-updater
+        handleHotUpdaterFlag(currentHotUpdaterGeneration(args)); // Setup hot-updater (v0; v1 com --hot-updater-v1 ou 1.x no app)
         handlePinDepsFlag(); // Fixa as versões das deps (após todos os handlers que mexem em package.json)
         handleClaudeMdFlag();
         handlePolicyChecksFlag(); // Após o AGENTS.md: o template novo já cita o arquivo (REGRA 6)
@@ -1448,7 +1697,7 @@ async function main() {
                     console.log(chalk.cyan("💡 To replace the layout, run 'npx expo-utils-install --layout'"));
                 } else {
                     await handleAppReset();
-                    handleConstantsFlag(); // Execute after app reset
+                    handleConstantsFlag(currentHotUpdaterGeneration(args)); // Execute after app reset
                     // handleAppReset deletou assets/expo.icon — re-verifica o ios.icon, que
                     // agora está quebrado. O handleExpoIconFlag() dos passos não-destrutivos
                     // rodou ANTES do reset (quando a pasta ainda existia), então não pegou isso.
@@ -1479,9 +1728,11 @@ async function main() {
         if (args.includes("--expo-icon")) handleExpoIconFlag();
         if (args.includes("--tracking-permission")) handleTrackingPermissionFlag();
         if (args.includes("--eas-config")) handleEasConfigFlag();
-        if (args.includes("--constants")) handleConstantsFlag();
+        if (args.includes("--constants")) handleConstantsFlag(currentHotUpdaterGeneration(args));
         if (args.includes("--gitignore")) handleGitignoreFlag(); // Nova flag para atualizar .gitignore
-        if (args.includes("--hot-updater")) handleHotUpdaterFlag(); // Setup hot-updater
+        if (args.includes("--hot-updater") || args.includes("--hot-updater-v1")) {
+            handleHotUpdaterFlag(currentHotUpdaterGeneration(args)); // Setup hot-updater (v0; v1 com --hot-updater-v1 ou 1.x no app)
+        }
         if (args.includes("--pin-deps")) handlePinDepsFlag(); // Fixa versões das deps (remove ^, ~, >=)
         if (args.includes("--policy-checks")) handlePolicyChecksFlag(); // Sincroniza .claude/POLICY-CHECKS.md
         console.log(chalk.bold.magenta("\n✨ All done! ✨"));
@@ -1501,5 +1752,17 @@ if (require.main === module) {
         handleLanguagesFlag,
         handlePinDepsFlag,
         handlePolicyChecksFlag,
+        handleIosBuildFixFlag,
+        handleHotUpdaterFlag,
+        handleConstantsFlag,
+        planMissingDependencies,
+        detectHotUpdaterGeneration,
+        buildPropertiesFor,
+        applyBuildProperties,
+        alignHotUpdaterDependencies,
+        applyHotUpdaterPlugin,
+        mergeEnvKeys,
+        hotUpdaterV1Strings,
+        HOT_UPDATER_RANGES,
     };
 }

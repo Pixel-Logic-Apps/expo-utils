@@ -12,11 +12,8 @@
         "autoLogAppEventsEnabled": true,
         "isAutoInitEnabled": true
     },
-    "react-native-edge-to-edge": {
-        "android": {
-            "parentTheme": "Default",
-            "enforceNavigationBarContrast": false
-        }
+    "expo-navigation-bar": {
+        "enforceContrast": false
     },
     "expo-splash-screen": {
         "backgroundColor": "#FFFFFF",
