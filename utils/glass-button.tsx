@@ -22,8 +22,9 @@ import {
  *
  * iOS 26+: o botão Liquid Glass NATIVO do SwiftUI (`glassProminent`, via @expo/ui), com `color` de tint — no
  * principal a cor do app, no secundário o cinza do sistema. O `glass` puro ficou de fora: sobre o card branco
- * ele sai #FDFDFD, igual ao fundo (medido no simulador), e o "Agora não" some. O @expo/ui é dependência do
- * expo-router 57, então o módulo nativo já está no binário dos apps.
+ * ele sai #FDFDFD, igual ao fundo (medido no simulador), e o "Agora não" some. No SDK 57 o @expo/ui vem com o
+ * expo-router (dependência dele); no SDK 58 virou peer opcional do expo-router, então o app precisa dele como
+ * dependência direta (o `expo-utils-install` instala) — senão este import quebra o bundle.
  *
  * Android, iOS < 26 (lá o @expo/ui troca `glassProminent` por `.automatic`, um botão sem fundo) e binário sem o
  * módulo nativo (JS novo por OTA num binário antigo): cápsula em RN com os números medidos no nativo — 50 de

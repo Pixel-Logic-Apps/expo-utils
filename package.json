@@ -43,8 +43,8 @@
     },
     "peerDependencies": {
         "@expo/ui": ">=57.0.0",
-        "@hot-updater/expo": ">=0.35.3",
-        "@hot-updater/react-native": ">=0.35.3",
+        "@hot-updater/expo": ">=0.35.3 <1 || >=1.1.3 <2",
+        "@hot-updater/react-native": ">=0.35.3 <1 || >=1.1.3 <2",
         "@microsoft/react-native-clarity": ">=4.6.3",
         "@react-native-async-storage/async-storage": ">=2.2.0",
         "@react-native-community/slider": ">=5.2.0",
@@ -69,6 +69,7 @@
         "expo-linking": ">=57.0.2",
         "expo-localization": ">=57.0.0",
         "expo-mail-composer": ">=57.0.0",
+        "expo-navigation-bar": ">=57.0.0",
         "expo-network": ">=57.0.0",
         "expo-print": ">=57.0.0",
         "expo-router": ">=57.0.4",
@@ -80,10 +81,9 @@
         "expo-tiktok-ads-events": ">=0.1.6",
         "expo-tracking-transparency": ">=57.0.0",
         "expo-video": ">=57.0.0",
-        "hot-updater": ">=0.35.3",
+        "hot-updater": ">=0.35.3 <1 || >=1.1.3 <2",
         "react": ">=19.2.3",
         "react-native": ">=0.86.0",
-        "react-native-edge-to-edge": ">=1.8.1",
         "react-native-fbsdk-next": ">=13.4.3",
         "react-native-fs": ">=2.20.0",
         "react-native-google-mobile-ads": ">=16.4.0",
@@ -174,6 +174,9 @@
         "expo-mail-composer": {
             "optional": true
         },
+        "expo-navigation-bar": {
+            "optional": true
+        },
         "expo-network": {
             "optional": true
         },
@@ -207,9 +210,6 @@
         "react-native": {
             "optional": true
         },
-        "react-native-edge-to-edge": {
-            "optional": true
-        },
         "react-native-fbsdk-next": {
             "optional": true
         },
@@ -233,31 +233,38 @@
         }
     },
     "devDependencies": {
-        "@hot-updater/react-native": ">=0.35.3",
-        "@microsoft/react-native-clarity": ">=4.6.3",
+        "@expo/ui": "~58.0.23",
+        "@hot-updater/react-native": "1.1.3",
+        "@microsoft/react-native-clarity": "4.9.2",
         "@react-native-async-storage/async-storage": "2.2.0",
-        "@react-native-firebase/analytics": ">=25.0.0",
-        "@react-native-firebase/app": ">=25.0.0",
-        "@react-native-firebase/messaging": ">=25.0.0",
-        "@react-native-firebase/remote-config": ">=25.0.0",
+        "@react-native-firebase/analytics": "27.1.0",
+        "@react-native-firebase/app": "27.1.0",
+        "@react-native-firebase/messaging": "27.1.0",
+        "@react-native-firebase/remote-config": "27.1.0",
         "@types/node": "^22.5.2",
-        "@types/react": "~19.2.14",
-        "expo": "~57.0.4",
-        "expo-application": "~57.0.0",
-        "expo-device": "~57.0.0",
-        "expo-localization": "~57.0.0",
-        "expo-modules-core": "~57.0.3",
-        "expo-splash-screen": "~57.0.2",
+        "@types/react": "~19.3.0",
+        "expo": "~58.0.19",
+        "expo-application": "~58.1.2",
+        "expo-dev-client": "~58.0.15",
+        "expo-device": "~58.0.5",
+        "expo-linear-gradient": "~58.0.3",
+        "expo-linking": "~58.0.14",
+        "expo-localization": "~58.0.5",
+        "expo-modules-core": "~58.0.26",
+        "expo-router": "~58.0.26",
+        "expo-splash-screen": "~58.0.11",
+        "expo-store-review": "~58.0.2",
         "expo-tiktok-ads-events": "^0.1.6",
-        "expo-tracking-transparency": "~57.0.0",
-        "expo-video": "~57.0.0",
-        "react": "19.2.3",
-        "react-native": "0.86.0",
+        "expo-tracking-transparency": "~58.0.2",
+        "expo-video": "~58.0.12",
+        "react": "19.3.0",
+        "react-native": "0.88.0",
         "react-native-fbsdk-next": "^13.4.3",
-        "react-native-google-mobile-ads": "^16.4.0",
-        "react-native-purchases": ">=10.4.2",
-        "react-native-safe-area-context": "~5.7.0",
-        "typescript": "^5.9.3"
+        "react-native-google-mobile-ads": "17.4.0",
+        "react-native-purchases": "10.15.1",
+        "react-native-safe-area-context": "~5.10.1",
+        "react-native-webview": "14.0.1",
+        "typescript": "~6.0.3"
     },
     "expo": {
         "plugins": [

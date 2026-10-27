@@ -44,7 +44,7 @@ export function ExpoUtilsLayout({appConfig, appStrings, children, onReady, fcmTr
     useEffect(() => {
         (async () => {
             try {
-                await initHotUpdater(appStrings?.hotUpdaterUrl);
+                await initHotUpdater(appStrings?.hotUpdaterUrl, {apiKey: appStrings?.hotUpdaterApiKey});
                 await Utils.prepare(setAppIsReady, appConfig, appStrings, fcmTrackingAllowed);
                 if (!onReadyRan.current) {
                     onReadyRan.current = true;

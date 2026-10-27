@@ -58,7 +58,7 @@ import Purchases, {LOG_LEVEL, type CustomerInfo} from "react-native-purchases";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {Alert, AppState, Platform, Linking, LogBox, DevSettings, PermissionsAndroid} from "react-native";
 import {registerDevMenuItems} from "expo-dev-menu";
-import {HotUpdater} from "@hot-updater/react-native";
+import {initHotUpdater, type InitHotUpdaterOptions} from "./hot-updater";
 import mobileAds, {AdsConsent, AdsConsentDebugGeography} from "react-native-google-mobile-ads";
 import {reportConfigIntegrity} from "./config-integrity";
 import {mergeRemoteConfigBlocks, readRemoteConfigBlocks, type RemoteConfigSource} from "./settings";
@@ -162,26 +162,9 @@ function getExpoUtilsOption(appConfig: any, key: string): any {
     return undefined;
 }
 
-export async function initHotUpdater(baseURL?: string) {
-    // Em dev o bundle vem do Metro — baixar OTA aqui só arma a armadilha do cold launch:
-    // o bundle OTA em Documents/bundle-store carrega no lugar do embutido e "engole" código
-    // novo de rebuild (o isolation_key hotupdater_<versão>_<channel> NÃO muda em rebuild da
-    // mesma versão, então o OTA velho continua válido). OTA só faz sentido em release.
-    if (__DEV__) return;
-    if (!baseURL) return;
-    try {
-        HotUpdater.init({baseURL});
-        const updateInfo = await HotUpdater.checkForUpdate({updateStrategy: "appVersion"});
-        if (updateInfo) {
-            await updateInfo.updateBundle();
-            if (updateInfo.shouldForceUpdate) {
-                await HotUpdater.reload();
-            }
-        }
-    } catch (e) {
-        expoUtilsWarn("initHotUpdater:", e);
-    }
-}
+// OTA (Hot Updater v0 e v1): implementação em ./hot-updater; reexportado aqui porque os apps importam
+// `initHotUpdater` de "expo-utils/utils/Utils".
+export {initHotUpdater};
 
 // Memoiza o portão de APNs: o token (ou a ausência dele) não muda dentro de uma sessão,
 // então pollamos uma única vez e reusamos o resultado em requestFCMToken/setupMessagingTopics/etc.
@@ -1196,8 +1179,8 @@ const Utils = {
         }
     },
 
-    maybeApplyUpdate: async (baseURL?: string) => {
-        await initHotUpdater(baseURL);
+    maybeApplyUpdate: async (target?: string | object | null, options?: InitHotUpdaterOptions) => {
+        await initHotUpdater(target, options);
     },
 
     // Estado do assinante (free/trial/trial_cancelled/intro/active/cancelled/billing_issue/

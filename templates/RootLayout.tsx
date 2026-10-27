@@ -21,7 +21,7 @@ export default function RootLayout() {
     useEffect(() => {
         (async () => {
             try {
-                await initHotUpdater(appStrings.hotUpdaterUrl);
+                await initHotUpdater(appStrings.hotUpdaterUrl, {apiKey: appStrings.hotUpdaterApiKey});
                 await Utils.prepare(setAppIsReady, appConfig, appStrings);
                 setupAppOpenListener();
                 showPromoModal();

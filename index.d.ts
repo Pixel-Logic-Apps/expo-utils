@@ -1,5 +1,7 @@
 export {default as Utils, initHotUpdater, isRevenueCatActive, queueAlert, expoUtilsWarn, expoUtilsLog} from "./utils/Utils";
 export {default} from "./utils/Utils";
+export {getHotUpdater, getRunningBundleId, hotUpdaterGeneration} from "./utils/hot-updater";
+export type {HotUpdaterGeneration, InitHotUpdaterOptions} from "./utils/hot-updater";
 export {PremiumUtils} from "./utils/PremiumUtils";
 export {ExpoUtilsLayout} from "./utils/ExpoUtilsLayout";
 export {ExpoUtilsStyles} from "./utils/styles";

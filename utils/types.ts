@@ -32,7 +32,16 @@ export interface AdUnits {
 export interface AppStrings {
     rckey?: string;
     adUnits?: AdUnits;
+    /**
+     * Servidor do Hot Updater. v0: a URL que termina em `/api/check-update`. v1: a raiz do Worker v1 (outro
+     * servidor, sem `/api/check-update`), junto com `hotUpdaterApiKey`.
+     */
     hotUpdaterUrl?: string;
+    /**
+     * Só Hot Updater v1: chave de cliente do servidor (vai no `x-api-key`), a `HOT_UPDATER_API_KEY` do
+     * `hot-updater init`. Sem ela o `initHotUpdater` avisa e não roda o OTA. O v0 ignora.
+     */
+    hotUpdaterApiKey?: string;
     /**
      * "Install Referrer Decryption Key" do app na Meta (Meta for Developers → App settings → Basic →
      * Android). Abre a campanha/conjunto/anúncio dos installs vindos de anúncio da Meta no Android.
