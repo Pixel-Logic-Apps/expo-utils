@@ -2489,3 +2489,81 @@ e-mail para analisar e finalizar. Nada de código novo — é projeto/pesquisa. 
 - Testar no lab: instalar o `react-native-applifecycle`, prebuild + build, conferir `[expo-utils] AppOpen trigger:
   process-lifecycle` e os casos de diálogo/intersticial/compra; depois ligar as chaves de pré-carga e olhar o show rate no AdMob.
 - AGENTS.md não ganhou nota sobre o gatilho/pré-carga (fora do pedido; a pasta principal tem o AGENTS.md alterado por outro trabalho).
+
+# 2026-10-26 — Alert.alert desenhado pelo Expo UI (SwiftUI no iOS, Material 3 no Android) — ramo feat/alert-expo-ui, sem versão nova
+
+### Pedido
+- Bruno (26/10/2026): "implementar no Expo Utils uma abstração do Expo UI para chamar os diálogos de alert. Em todos os
+  outros aplicativos continue chamando o alert do mesmo jeito, só que na verdade ele vai abstrair para o novo Expo UI para
+  chamar o do nativo." Corrigiu no meio: iOS com o Alert do SwiftUI e Android com o Jetpack Compose (não deixar o iOS no
+  Alert do RN); e quer na main, na 1.5.1, sem ramo à parte.
+- Regras: a lib sem módulo nativo próprio (vai por OTA); `@expo/ui` como peer opcional, detectado com
+  `requireOptionalNativeModule("ExpoUI")`, caindo no Alert do RN sem ele; sem Metro/simulador/build; sem mexer em app nem
+  nos arquivos de anúncio; sem bump, push ou publish.
+- Feito no worktree `/Users/plapps/Documents/projetos/expo-utils-alert`, ramo `feat/alert-expo-ui` (base ebec071): commits
+  `c2552f9` (implementação) e `553401b` (achados da revisão). A main andou para d551d68 nesse meio-tempo.
+
+### O que foi feito
+- `utils/native-alert.ts` (folha, testada no bun): troca o `Alert.alert` quando o 1º host registra; sem host, ou depois de
+  erro do diálogo, repassa ao Alert do RN com os mesmos argumentos; fila (um diálogo de cada vez), dono único (só o 1º host
+  desenha), callback uma vez só, `failNativeAlert` e o mapeamento dos botões (`composeAlertButtons`, `swiftAlertRoles`).
+- `utils/native-alert-slot.tsx` (`NativeAlertSlot`, exportado em `index.ts` e `index.d.ts`): só carrega o diálogo com o
+  módulo ExpoUI (require em try/catch, exceção anotada na regra de imports do AGENTS.md) e tem error boundary.
+- `utils/native-alert-dialog.ios.tsx`: `Alert` do `@expo/ui/swift-ui` com `Alert.Trigger` invisível num Host de 1 pt, um
+  Alert por pedido (`key`), role cancel/destructive pelo style. O pedido sai da fila 0,5 s depois do
+  `onIsPresentedChange(false)` (remendo: o @expo/ui não avisa o fim da saída e o UIKit recusa o próximo durante ela).
+- `utils/native-alert-dialog.android.tsx`: `AlertDialog` do M3 (`@expo/ui/jetpack-compose`), tipografia explícita, cor de
+  erro no destructive, `cancelable`/`onDismiss`, mensagem com rolagem; botões do Dismiss invertidos para sair na ordem do RN.
+- Quem monta o slot é o `AskForReviewOverlay` (`withSlots`), que o `ExpoUtilsLayout` sempre renderiza; o slot do layout
+  saiu na revisão (nunca desenhava) e o `utils/ExpoUtilsLayout.tsx` voltou a ser igual ao da base.
+- Último botão sem texto vira "OK" (como o RN). README (seção "Alert.alert nativo"), AGENTS.md (seção própria, imports e
+  testes) e playbook (4.2.2 e checklist 10.3). Testes: `tests/native-alert.test.ts` (12).
+- Arquivos alterados no ramo: `utils/native-alert.ts`, `utils/native-alert-slot.tsx`, `utils/native-alert-dialog.ios.tsx`,
+  `utils/native-alert-dialog.android.tsx`, `utils/ask-for-review.tsx`, `index.ts`, `index.d.ts`,
+  `tests/native-alert.test.ts`, `README.md`, `AGENTS.md`, `docs/UPGRADE-EXPO57-EXPO-UTILS.md`.
+
+### Revisão (3 revisores) — decisões (preservar)
+- Aplicados: atraso de 0,5 s no iOS (fórum da Apple, thread 721190: próximo alerta logo depois do false → "already
+  presenting"); ordem dos 3 botões no Android (material3 1.5.0-alpha17/beta01 põe o confirm como 1º item de um FlowRow de
+  direção invertida e cada botão do slot vira um item: [A, B, C] saía "B A C"); "OK" no último sem texto; slot morto do
+  layout; docs que prometiam fallback num binário sem ExpoUI.
+- NÃO aplicados, ficam com o Bruno: (1) trocar o iOS para o Alert do RN — com Modal, rota modal/fullScreenModal (paywall do
+  fakeit, modal-novo-cargo do urna-v2), intersticial ou UMP aberto, o alerta do SwiftUI (sai do Host na raiz) pode não
+  aparecer e travar a fila; o do RN usa janela própria. Sem nativo não há contorno nem como detectar a recusa. (2) Manter o
+  require protegido do diálogo ou trocar por import no topo como o glass-button: hoje nenhum dos dois salva um binário sem
+  ExpoUI, porque o `glass-button.tsx` importa o @expo/ui no topo e o app cai no boot antes. (3) Rebase na main: fica para a
+  junção.
+- Commits sem `Co-Authored-By` (última linha do AGENTS.md), só com `Claude-Session`.
+
+### Verificado × NÃO verificado
+- `./tests/run.sh`: 23 arquivos, 345 pass, 0 fail. `tsc` pela receita do AGENTS contra expo-fakeit, expo-resultado,
+  expo-urna-v2, expo-titulo-eleitor e @expo/ui 57.0.0/58.0.23: só os 4 TS2591 de sempre do preview.ts; strict sem ele, 0.
+  SDK 58 (node_modules do worktree expo-utils-sdk58: RN 0.88.0, @expo/ui 58.0.23): nenhum erro nos arquivos do alerta.
+- NÃO verificado no aparelho: nada rodou (sem Metro, simulador ou build). Testar primeiro no iOS: alerta com Modal, rota
+  modal/fullScreenModal, intersticial/app open/UMP, alertas seguidos e alerta dentro do onPress de outro. No Android: 3
+  botões na ordem do RN.
+
+### Pendências
+- Juntar na main (d551d68): `git merge-tree` dá 2 conflitos de texto — AGENTS.md (lista de testes: manter o parágrafo da
+  main e incluir `native-alert.test.ts`) e playbook (bloco de versões do @expo/ui: manter a nota do SDK 58 da main e
+  acrescentar a frase do Alert). Depois apagar o ramo e o worktree.
+- Decisões (1) e (2) acima. O expo-eleicao só ganha o alerta novo com `<NativeAlertSlot />` no `_layout`.
+
+## 2026-10-27 — 1.5.1 completa na main: SDK 58, Hot Updater v0/v1, anúncios e alerta com Expo UI (junção dos ramos)
+
+### Pedido
+O Bruno quer a 1.5.1 com tudo na main ("sem ser outro branch") e, depois de ver o código, commit + tag `v1.5.1` no GitHub, com os apps apontando para `github:Pixel-Logic-Apps/expo-utils#v1.5.1`.
+
+### O que foi feito
+- Commit 5585c58: registros das sessões de 21 e 22/10 que estavam sem commit. A trava `<1` do hot-updater de 21/10 (sem commit em package.json, bin/install.js, AGENTS.md e playbook) foi descartada porque o ramo do SDK 58 a substitui pela faixa dupla v0/v1; cópia do diff e do docs/PLANO-STARTUP-ZERO.md (que continua sem commit, intocado) em /private/tmp/claude-501/-Users-plapps-Documents-projetos-eleicoes-ota/7882086e-2861-47bc-a4e2-85a5078ea236/scratchpad/expo-utils-main-backup/.
+- Três ramos rebaseados e levados à main por fast-forward (histórico linear, sem `Co-Authored-By`, conferido):
+  - `feat/sdk58` (0f41104…f101687): `$RNFirebaseDisableSPM` só com RNFB 24–26; Hot Updater v0 e v1 no `initHotUpdater` (URL+apiKey ou instância; `getHotUpdater`, `hotUpdaterGeneration`, `getRunningBundleId`); devDependencies do SDK 58 e tsconfig `bundler`; instalador do SDK 58 (`--fix-ios-build` pela major do RNFB, Kotlin 2.4.20, `--hot-updater-v1`, `expo-navigation-bar` no lugar do edge-to-edge, babel.config.js sem sobrescrever); catálogo de mediação do RNGMA 17.4 com compat do Pangle para o 16.x; docs.
+  - `feat/anuncios-preload` (d551d68): app open pelo ProcessLifecycleOwner (módulo `ReactNativeAppLifecycle`, sem importar o pacote) e pré-carga de app open e intersticial atrás de 6 chaves do RC com padrão igual ao de antes. Conflitos resolvidos: package.json (fica o peer `react-native-applifecycle`, sai o edge-to-edge) e CHATHISTORY.
+  - `feat/alert-expo-ui` (06ce75a, 6d232cf): Alert.alert desenhado pelo Expo UI (SwiftUI no iOS, AlertDialog do Material 3 no Android), montado no AskForReviewOverlay. Conflitos de texto no AGENTS.md e no playbook resolvidos com o texto da main + a parte do alerta.
+- Validação na main (worktree do alerta, SDK 58): `tsc --noEmit` exit 0; `tests/run.sh` 431 pass, 0 fail.
+
+### Pendências (decisão do Bruno)
+- iOS: o Alert do SwiftUI é apresentado pelo controlador da raiz; com Modal do RN, rota modal, intersticial ou formulário UMP por cima, o UIKit pode recusar e a fila trava até fechar o app. Testar no aparelho antes de publicar, ou usar o Alert do RN no iOS (mesmo visual do iOS 26, com a fila nova).
+- Regra de imports × proteção do @expo/ui: o alerta carrega o @expo/ui com `require` protegido, mas o glass-button já importa no topo desde a 1.5.1 (binário sem o ExpoUI cai no boot). Seguir a regra (import no topo) ou proteger os dois.
+- Cor do alerta no Android: hoje segue o papel de parede (Material You); a proposta é a cor de cada app (`seedColor` no Host, vinda do app).
+- Tag `v1.5.1` e push só depois do OK do Bruno.
