@@ -8,8 +8,8 @@ const common = {
     hotUpdaterUrl: "https://YOUR-WORKER.workers.dev/api/check-update",
     // Só no Hot Updater v1: chave de cliente do servidor (vai no x-api-key), a HOT_UPDATER_API_KEY do hot-updater init.
     hotUpdaterApiKey: "",
-    // Cor primária do app: semente do Material 3 do alerta da lib no Android (sem ela, a cor do papel de parede).
-    primaryColor: "#6750A4",
+    // Semente do Material 3 da UI da lib no Android (alerta): gera o fundo e os botões. Sem ela, a cor do papel de parede.
+    seedColor: "#6750A4",
 };
 
 const ios = {

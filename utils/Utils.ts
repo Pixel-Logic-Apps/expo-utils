@@ -174,7 +174,7 @@ let apnsReadyPromise: Promise<boolean> | null = null;
 // (chamado via <View onLayout={Utils.handleReady} />). bootDone garante que rode 1x.
 let bootAppConfig: any;
 let bootAppStrings: AppStrings | undefined;
-/** AppStrings do boot (Utils.prepare), para a UI da lib que não recebe props do app (ex.: a cor do alerta). */
+/** AppStrings do boot (Utils.prepare), para a UI da lib que não recebe props do app (ex.: o seedColor do alerta). */
 export const getBootAppStrings = (): AppStrings | undefined => bootAppStrings;
 let bootFcmTrackingAllowed = true;
 let bootDone = false;

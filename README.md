@@ -1426,8 +1426,8 @@ publicar está no playbook, seção 4.2.2).
 - **Botões no iOS:** `cancel` e `destructive` viram o `role` do botão do SwiftUI, e a Apple pode reordenar os botões pelo
   role. Sem botões, o "OK" do sistema, traduzido, como o RN. Dois `cancel` no mesmo alerta: só o último fica `cancel`
   (o iOS aceita um só, e o RN faz o mesmo).
-- **Cor no Android:** a paleta do Material 3 sai do `primaryColor` do AppStrings (o `seedColor` do Host); sem ele, a
-  cor dinâmica do aparelho (papel de parede). No iOS, o alerta é o do sistema.
+- **Cor no Android:** a paleta do Material 3 (fundo e botões do diálogo) sai do `seedColor` do AppStrings, passado ao
+  Host; sem ele, a cor dinâmica do aparelho (papel de parede). No iOS, o alerta é o do sistema.
 - **`cancelable` e `onDismiss`:** só no Android, como no RN. O padrão é `false` (só fecha por botão); com `true`, voltar e
   toque fora fecham e chamam o `onDismiss`. No iOS o alerta não fecha tocando fora. `userInterfaceStyle` e `isPreferred`
   são ignorados nesse caminho (nenhum app usa).

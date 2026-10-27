@@ -10,8 +10,8 @@ import {getBootAppStrings} from "./Utils";
  * do layout e montado enquanto a fila tiver pedido (um AlertDialog por pedido, pelo `key`). Montado = aberto: o botão
  * tira o pedido da fila no próprio onClick e o diálogo desmonta. O Text do @expo/ui parte do TextStyle.Default e não
  * herda a tipografia do slot, por isso cada texto leva o token do diálogo do M3 (título headlineSmall, texto
- * bodyMedium, botão labelLarge). A mensagem rola, como no AlertDialog do RN. A paleta sai da cor primária do app
- * (`primaryColor` do AppStrings, pelo `seedColor` do Host); sem ela, a cor dinâmica do aparelho.
+ * bodyMedium, botão labelLarge). A mensagem rola, como no AlertDialog do RN. A paleta sai do `seedColor` do AppStrings
+ * (passado ao Host); sem ele, a cor dinâmica do aparelho.
  */
 export default function NativeAlertDialog({request}: {request: NativeAlertRequest}) {
     const {error} = useMaterialColors();
@@ -30,7 +30,7 @@ export default function NativeAlertDialog({request}: {request: NativeAlertReques
         </TextButton>
     );
     return (
-        <Host style={styles.host} seedColor={getBootAppStrings()?.primaryColor}>
+        <Host style={styles.host} seedColor={getBootAppStrings()?.seedColor}>
             <AlertDialog
                 key={request.id}
                 // só chega com cancelable: o Compose só chama no voltar/toque fora liberados pelas properties
