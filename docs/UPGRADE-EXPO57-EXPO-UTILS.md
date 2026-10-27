@@ -724,6 +724,8 @@ o método e desenha o diálogo pelo `@expo/ui`: `Alert` do SwiftUI no iOS, `Aler
   máximo 3 botões no Android (o último no Confirm, os anteriores no Dismiss, na ordem); sem botões, um "OK" (no iOS, o
   do sistema, traduzido). `destructive` na cor de erro do Material 3 no Android e com `role` destrutivo no iOS; no iOS a
   Apple pode reordenar os botões pelo role. Ignorados nesse caminho: `userInterfaceStyle` e `isPreferred`.
+- **Cor no Android:** `primaryColor` no `Strings.ts` (AppStrings) vira o `seedColor` do Host e gera a paleta do
+  Material 3 do alerta. Sem ele, a cor dinâmica do aparelho (papel de parede), que tira a identidade do app.
 - **Cai no Alert do RN, com os mesmos argumentos:** alerta antes de o layout montar, app sem slot e erro ao carregar ou
   desenhar o diálogo (`expo_utils_warn`; depois de um erro, o resto da sessão fica no Alert do RN). O `Alert.prompt`
   nunca passa pela lib.

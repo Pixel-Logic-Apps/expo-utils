@@ -43,6 +43,12 @@ export interface AppStrings {
      */
     hotUpdaterApiKey?: string;
     /**
+     * Cor primária do app (hex, ex.: "#0AAB7D"). No Android é a semente do Material 3 do alerta da lib: o Host do
+     * Expo UI gera dela a paleta inteira (secundária, superfícies, erro). Sem ela, o alerta segue a cor dinâmica do
+     * aparelho (papel de parede, no Android 12+).
+     */
+    primaryColor?: string;
+    /**
      * "Install Referrer Decryption Key" do app na Meta (Meta for Developers → App settings → Basic →
      * Android). Abre a campanha/conjunto/anúncio dos installs vindos de anúncio da Meta no Android.
      * Também aceita pelo Remote Config (`meta_install_referrer_key`), que tem prioridade.
