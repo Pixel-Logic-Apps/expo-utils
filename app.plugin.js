@@ -193,14 +193,30 @@ function withFirebaseLogLevel(config, level) {
 const RNFB_ANALYTICS_PODFILE_TAG = "rnfirebase-analytics-podfile-globals";
 
 /**
+ * true = o RNFB instalado no app ainda aceita o Firebase iOS por CocoaPods (v24–26), e a global
+ * `$RNFirebaseDisableSPM` é necessária com o stack estático. Do RNFB 27 em diante o Firebase iOS 13 só
+ * vem por SPM e a global quebra o `pod install`. Sem o pacote ou sem versão legível, fica como antes.
+ */
+function rnfbUsesCocoaPods(config) {
+    try {
+        const root = config._internal?.projectRoot || process.cwd();
+        const pkg = require(require.resolve("@react-native-firebase/app/package.json", {paths: [root]}));
+        return parseInt(String(pkg.version), 10) < 27;
+    } catch {
+        return true;
+    }
+}
+
+/**
  * Injeta variáveis GLOBAIS do RNFirebase no Podfile iOS no prebuild. Os podspecs do RNFB leem
  * essas globais no pod install:
- *   - `$RNFirebaseDisableSPM` → força resolução do firebase-ios-sdk por CocoaPods. **Obrigatório
- *     no stack**: o CLI configura `useFrameworks: "static"` e, do RNFB v25+ em diante, o Firebase
- *     vem por Swift Package (produtos de linkagem automática). Com pods estáticos cada pod do RNFB
- *     embute a sua cópia e o `pod install` ABORTA: "[react-native-firebase] SPM + static linkage
- *     is not supported". Desligue com `{ firebaseDisableSPM: false }` (só faz sentido se o app
- *     também trocar para `useFrameworks: "dynamic"`).
+ *   - `$RNFirebaseDisableSPM` → força resolução do firebase-ios-sdk por CocoaPods. Só no RNFB 24–26:
+ *     o CLI configura `useFrameworks: "static"` e, do RNFB v25 em diante, o Firebase vem por Swift
+ *     Package (produtos de linkagem automática). Com pods estáticos cada pod do RNFB embute a sua
+ *     cópia e o `pod install` ABORTA: "[react-native-firebase] SPM + static linkage is not
+ *     supported". No RNFB 27+ o Firebase iOS 13 só existe por SPM (com `useFrameworks: "dynamic"`)
+ *     e é a global que quebra o `pod install`: por isso ela só entra com o RNFB instalado < 27
+ *     (`rnfbUsesCocoaPods`). `{ firebaseDisableSPM: true | false }` força um dos dois.
  *   - `$RNFirebaseAnalyticsEnableAdSupport` → linka `AdSupport.framework` (IDFA → audiência/
  *     demografia no iOS, como no Android).
  *   - `$RNFirebaseAnalyticsGoogleAppMeasurementOnDeviceConversion` → add pod
@@ -606,9 +622,10 @@ function withIosMediationPods(config, networks) {
  * (`$RNFirebaseAnalyticsEnableAdSupport` / `...GoogleAppMeasurementOnDeviceConversion`).
  * Desligue cada uma com `{ analyticsAdSupport: false }` / `{ analyticsOnDeviceConversion: false }`.
  *
- * `options.firebaseDisableSPM` LIGADO por padrão: injeta `$RNFirebaseDisableSPM = true` no Podfile.
- * Sem isso, RNFB v25+ (Firebase via Swift Package) + `useFrameworks: "static"` — que o CLI
- * configura — faz o `pod install` abortar com "SPM + static linkage is not supported".
+ * `options.firebaseDisableSPM` automático pela versão do RNFB do app: injeta `$RNFirebaseDisableSPM =
+ * true` no Podfile só no RNFB 24–26, onde Firebase via Swift Package + `useFrameworks: "static"` —
+ * que o CLI configura — faz o `pod install` abortar com "SPM + static linkage is not supported". No
+ * RNFB 27+ (Firebase só por SPM) a global é que quebra o `pod install`, então não entra.
  *
  * `options.usageDescriptions` LIGADO por padrão: injeta NS*UsageDescription (Photo Library
  * read/add + Camera) no Info.plist se faltarem, resolvendo o ITMS-90683 disparado por SDKs
@@ -709,7 +726,7 @@ function withExpoUtils(config, options = {}) {
         result = withFirebaseLogLevel(result, level);
     }
     const podfileGlobals = [];
-    if (options?.firebaseDisableSPM !== false) {
+    if (options?.firebaseDisableSPM ?? rnfbUsesCocoaPods(config)) {
         // Precisa vir ANTES dos targets — o anchor `require 'json'` garante isso.
         podfileGlobals.push("$RNFirebaseDisableSPM = true");
     }
