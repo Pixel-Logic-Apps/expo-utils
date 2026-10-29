@@ -1263,7 +1263,7 @@ abrir. A lib já trata as duas gerações (seção 2.4).
 - Pré-carga e espera máxima dos anúncios: chaves opcionais do `utils` (§5.4), desligadas por padrão; nada muda no
   código do app.
 - Review local do app pode coexistir com overlay da lib — controle via `review_type` no RC para não double-prompt
-- `global.isAdsEnabled` / store gate: se `disableAdsIfBuildIsNewerThanStore: true`, ads desligam em build mais nova que a loja
+- `global.isAdsEnabled` / store gate: ligado por padrão desde a 1.5.4 (desliga com `disableAdsIfBuildIsNewerThanStore: false`); ads desligam em build mais nova que a loja
 
 <a id="taichi"></a>
 

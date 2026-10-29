@@ -2611,3 +2611,23 @@ O Bruno lembrou o problema de antes: o adapter entrava sem o SDK da rede e a med
 - iOS: o `pod install` passa; com `ios.sdkPod` errado ele para com a mensagem (o `npx expo prebuild` local só avisa e sai com 0; no EAS para).
 - Binários: as 6 SDKs e os 6 adapters dentro do APK Release com R8 (mapping.txt) e do app do iOS (frameworks AppLovinSDK/FBAudienceNetwork e classes PAGSdk, MTGSDK, UADSMetaData e VungleAdsSDK no executável). O modo estrito do R8 não remove nada dos SDKs nem dos adapters (diferença do usage.txt contra o modo antigo).
 
+
+## 2026-10-28 — 1.5.4: trava de anúncios por versão da loja ligada por padrão
+
+### Pedido
+No Eleições 1.6.0 os anúncios apareciam num build mais novo que a loja: a trava da lib era opt-in e o app.json não tinha a opção. O Bruno: "Então coloca isso e default eu pedi isso".
+
+### O que foi feito
+- `getExpoUtilsDisableAdsIfBuildIsNewerThanStore` agora devolve `true` por padrão: sem `appConfig`, sem plugins ou sem a opção. Só `"disableAdsIfBuildIsNewerThanStore": false` desliga. Até a 1.5.3 era opt-in (`true`), desde 02/07 (2690ebf).
+- O gate (`runStoreGate`) não mudou: fail-closed, iTunes lookup e página da Play com timeout de 5 s, `ios_store_version`/`android_store_version` do Remote Config como válvula, aguardado dentro do `prepare()`.
+- Docs: comentários do `Utils.ts`, README ("Ligada por padrão (desde a 1.5.4)"), AGENTS.md e o guia de upgrade.
+- Testes: `tests/run.sh` com 444 pass, com as dependências do Eleições ligadas no worktree. Sem `node_modules`, os dois testes de plugin falham por falta do `@expo/config-plugins`, igual na main.
+- Consultas da loja conferidas em 28/10: o iTunes lookup do `br.eleicoes2024.eleicao` dá 1.5.0, com e sem `country`; a página da Play do `br.eleicoes2026.resultado` dá 1.3.0, com o UA do okhttp e com o do Chrome.
+
+### Efeito nos apps
+- Todo app que subir para a 1.5.4 espera a consulta da loja no boot (até 5 s) e fica sem anúncio enquanto a versão instalada for maior que a da loja, inclusive na revisão da Apple e do Google.
+- Depois de publicar, libera sozinho quando a consulta mostrar a versão nova. O lookup da Apple pode levar algumas horas para mudar; a válvula do Remote Config resolve na hora.
+- App que não pode ter a trava põe `false` no app.json.
+
+### Versão
+1.5.4 (tag `v1.5.4`).

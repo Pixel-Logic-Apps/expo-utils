@@ -138,17 +138,17 @@ function getExpoUtilsDisableLogs(appConfig?: any): boolean {
     return false;
 }
 
-// Opt-in (default DESATIVADO): ["expo-utils", {"disableAdsIfBuildIsNewerThanStore": true}]
-// liga a checagem automática de versão da loja no prepare() (lida em RUNTIME, como disableWarnings/disableLogs).
+// Ligada por padrão desde a 1.5.4: a checagem automática de versão da loja roda no prepare() de todo app. Só
+// ["expo-utils", {"disableAdsIfBuildIsNewerThanStore": false}] desliga (lida em RUNTIME, como disableWarnings/disableLogs).
 function getExpoUtilsDisableAdsIfBuildIsNewerThanStore(appConfig?: any): boolean {
-    if (!appConfig?.expo?.plugins) return false;
-    const plugins = appConfig.expo.plugins;
+    const plugins = appConfig?.expo?.plugins;
+    if (!Array.isArray(plugins)) return true;
     for (const plugin of plugins) {
-        if (Array.isArray(plugin) && plugin[0] === "expo-utils" && plugin[1]?.disableAdsIfBuildIsNewerThanStore === true) {
-            return true;
+        if (Array.isArray(plugin) && plugin[0] === "expo-utils" && plugin[1]?.disableAdsIfBuildIsNewerThanStore === false) {
+            return false;
         }
     }
-    return false;
+    return true;
 }
 
 // Lê uma opção qualquer do ["expo-utils", {...}] do app.json em RUNTIME (mesma ideia dos
@@ -442,8 +442,8 @@ const runPrepare = async (appConfig?: any, appStrings?: AppStrings): Promise<voi
         try { await Utils.setupGlobalConfigs(appConfig, remoteConfigs, adUnits); } catch (e) { expoUtilsWarn("setupGlobalConfigs:", e); }
         try { await reportConfigIntegrity(remoteConfigs, appConfig, remoteConfigSource); } catch (e) { expoUtilsWarn("reportConfigIntegrity:", e); }
 
-        // Opt-in via app.json (["expo-utils", {"disableAdsIfBuildIsNewerThanStore": true}], default
-        // DESATIVADO): gate FAIL-CLOSED de ads por versão da loja. AGUARDADO de propósito — o
+        // Ligado por padrão (desliga com ["expo-utils", {"disableAdsIfBuildIsNewerThanStore": false}] no
+        // app.json): gate FAIL-CLOSED de ads por versão da loja. AGUARDADO de propósito — o
         // veredito precisa chegar ANTES do setAppIsReady(true), porque banner-ad lê
         // global.isAdsEnabled UMA vez no mount e os filhos do ExpoUtilsLayout montam assim que
         // appIsReady vira true. Também precisa rodar DEPOIS do setupGlobalConfigs (que reseta/
@@ -1253,8 +1253,8 @@ const Utils = {
      * Versão da loja: iTunes lookup (storefront do usuário → US) / página do Play Store,
      * com ios_store_version/android_store_version do Remote Config como válvula pós-lançamento.
      * Memoizada — roda 1x por sessão. Resolve true = ads bloqueados.
-     * DESATIVADA por padrão. Ative no app.json (["expo-utils", {"disableAdsIfBuildIsNewerThanStore": true}])
-     * para rodar no boot: o prepare() AGUARDA o veredito antes do setAppIsReady(true), então os
+     * LIGADA por padrão desde a 1.5.4 (desligue no app.json com ["expo-utils", {"disableAdsIfBuildIsNewerThanStore": false}]).
+     * Roda no boot: o prepare() AGUARDA o veredito antes do setAppIsReady(true), então os
      * banners (que leem global.isAdsEnabled 1x no mount) já montam com o valor final.
      * Chamada manual: sempre DEPOIS do prepare() (que reseta/sobrescreve os globals de ads).
      */

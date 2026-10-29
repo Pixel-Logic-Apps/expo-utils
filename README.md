@@ -997,19 +997,19 @@ https://itunes.apple.com/lookup?bundleId=SEU_BUNDLE_ID
 
 Kill switch de ads por versão de loja, **fail-closed**: os anúncios só permanecem ligados com a versão da loja **confirmada** e o build local **menor ou igual** à da loja. Build mais novo que a loja (App Review, TestFlight, teste interno), app ainda **não publicado** (review da 1ª versão!), erro de rede ou timeout → ads **OFF**. Fail-open não cobriria justamente a 1ª submissão — app sem versão na loja mostraria ads durante o review.
 
-### Ativação via app.json (default: desativado)
+### Ligada por padrão (desde a 1.5.4)
 
-A checagem **não roda por padrão**. Para ativar a execução automática no boot (dentro do `prepare()`, logo após os remote configs globais serem populados), adicione a flag no plugin do expo-utils:
+A checagem **roda por padrão** no boot, dentro do `prepare()`, logo após os remote configs globais serem populados. Para desligar num app, ponha `false` no plugin do expo-utils:
 
 ```json
 {
     "expo": {
-        "plugins": [["expo-utils", {"disableAdsIfBuildIsNewerThanStore": true}]]
+        "plugins": [["expo-utils", {"disableAdsIfBuildIsNewerThanStore": false}]]
     }
 }
 ```
 
-A flag é lida em **runtime** (como `disableWarnings`/`disableLogs`). O gate roda dentro do `prepare()`, **depois** do `setupGlobalConfigs` (que reseta os globals de ads — por isso um gate rodando por fora, em paralelo ao boot, é sobrescrito) e é **aguardado** antes do `setAppIsReady` — assim os banners (que leem `global.isAdsEnabled` uma única vez, no mount) já montam com o veredito final. Não pendura o boot: a consulta tem timeout de 5s e nunca rejeita. Sem a flag (ou com `false`), nada roda automaticamente.
+A flag é lida em **runtime** (como `disableWarnings`/`disableLogs`). O gate roda dentro do `prepare()`, **depois** do `setupGlobalConfigs` (que reseta os globals de ads — por isso um gate rodando por fora, em paralelo ao boot, é sobrescrito) e é **aguardado** antes do `setAppIsReady` — assim os banners (que leem `global.isAdsEnabled` uma única vez, no mount) já montam com o veredito final. Não pendura o boot: a consulta tem timeout de 5s e nunca rejeita. Com `false`, nada roda automaticamente. Até a 1.5.3 era o contrário: só rodava com `true`.
 
 ### Chamada Manual
 
