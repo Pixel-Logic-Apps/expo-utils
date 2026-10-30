@@ -1,5 +1,7 @@
 # AGENTS.md - Instrucoes para agentes que trabalham no expo-utils
 
+> **Regra obrigatória (vale para qualquer agente):** nunca coloque `Co-Authored-By`, `Claude-Session`, "Generated with …" nem qualquer crédito ou link de IA em commit, PR, tag, changelog, código ou documento.
+
 ## Docs de upgrade (OBRIGATORIO manter atualizado)
 
 Playbook para migrar apps legados (Expo 53 + API antiga) → stack atual:
