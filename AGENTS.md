@@ -699,4 +699,4 @@ Since this is a library:
 6. Verify: Strings.ts, CLAUDE.md, app.json (no updates block, has buildCacheProvider), .gitignore/.easignore (has bun.lock)
 
 
-nunca use Co-Authored-By:
+nunca use Co-Authored-By, Claude-Session, "Generated with Claude Code" nem qualquer crédito ou link do Claude (nem em commit, PR, tag, changelog, código ou docs):
