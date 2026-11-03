@@ -1,12 +1,8 @@
 import {memo, useEffect, useState} from "react";
-import {View} from "react-native";
 import {BannerAd, BannerAdSize, TestIds} from "react-native-google-mobile-ads";
 import Utils, {expoUtilsLog} from "./Utils";
 import {PremiumUtils} from "./PremiumUtils";
 import {logAdRevenue} from "./ad-revenue";
-
-// Fechado: altura 0, mas o BannerAd segue montado (o pedido e o refresh automático do AdMob continuam).
-const closedStyle = {height: 0, overflow: "hidden"} as const;
 
 /**
  * Banner protegido contra o erro “The specified child already has a parent…”.
@@ -14,25 +10,25 @@ const closedStyle = {height: 0, overflow: "hidden"} as const;
  *  • destrói o AdView no unmount;
  *  • evita múltiplas instâncias simultâneas usando `React.memo`;
  *  • troca o unitId automaticamente em modo DEV;
- *  • fica fechado até o anúncio carregar: sem anúncio (no fill), não sobra espaço em branco.
+ *  • reserva o espaço enquanto carrega e sai da tela se a 1ª carga não tiver anúncio (no fill).
  */
 const SafeBanner = memo(({unitId}: {unitId: string | undefined}) => {
-    // O BannerAd reserva a altura do tamanho adaptativo antes de ter anúncio (o nativo manda onSizeChange
-    // assim que recebe o size), então quem controla a altura é o container: abre no onAdLoaded e fecha no
-    // onAdFailedToLoad. Se um refresh do AdMob carregar depois, o onAdLoaded abre de novo.
-    const [loaded, setLoaded] = useState(false);
+    // carregando: o BannerAd já reserva a altura do tamanho adaptativo (o nativo manda onSizeChange antes do
+    // anúncio), então o anúncio entra sem mover o conteúdo, como o AdMob pede (reservar o espaço ao carregar).
+    // aberto: depois do 1º anúncio, falha de refresh é ignorada; o AdView continua mostrando o anúncio anterior.
+    // falhou: a 1ª carga não teve anúncio; o BannerAd sai da árvore (o AdView é destruído), sem espaço em branco
+    // e sem anúncio escondido. Nova tentativa só quando o componente montar de novo.
+    const [status, setStatus] = useState<"carregando" | "aberto" | "falhou">("carregando");
+    if (status === "falhou") return null;
     return (
-        // collapsable={false}: a View nunca é achatada ao trocar de estilo, então o AdView não troca de pai.
-        <View collapsable={false} style={loaded ? undefined : closedStyle}>
-            <BannerAd
-                unitId={__DEV__ ? TestIds.BANNER : unitId!}
-                size={BannerAdSize.ANCHORED_ADAPTIVE_BANNER}
-                onAdLoaded={() => setLoaded(true)}
-                onAdFailedToLoad={() => setLoaded(false)}
-                // ILRD: receita da impressão (valor/moeda/precisão) — ver utils/ad-revenue.ts.
-                onPaid={(e) => logAdRevenue("banner", "safe-banner", e)}
-            />
-        </View>
+        <BannerAd
+            unitId={__DEV__ ? TestIds.BANNER : unitId!}
+            size={BannerAdSize.ANCHORED_ADAPTIVE_BANNER}
+            onAdLoaded={() => setStatus("aberto")}
+            onAdFailedToLoad={() => setStatus((s) => (s === "aberto" ? s : "falhou"))}
+            // ILRD: receita da impressão (valor/moeda/precisão) — ver utils/ad-revenue.ts.
+            onPaid={(e) => logAdRevenue("banner", "safe-banner", e)}
+        />
     );
 });
 
