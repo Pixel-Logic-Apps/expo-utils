@@ -2631,3 +2631,28 @@ No Eleições 1.6.0 os anúncios apareciam num build mais novo que a loja: a tra
 
 ### Versão
 1.5.4 (tag `v1.5.4`).
+
+
+## 2026-11-03 — 1.5.5: banner do safe-banner-ad fechado até carregar
+
+### Pedido
+No vídeo de teste do Android do app do Diego (Eleição 2026, 1.1.0), sobrava um espaço em branco grande entre o conteúdo e a
+barra de abas em todas as telas com banner: sem anúncio (no fill, código 3), o espaço do banner ficava reservado e vazio. O
+Bruno aprovou lançar a correção como 1.5.5 e passar o app para a tag `v1.5.5`.
+
+### O que foi feito
+- `utils/safe-banner-ad.tsx` (commit 14ae421): o `SafeBanner` fica num container com altura 0 e overflow hidden, com o
+  `BannerAd` montado; abre no `onAdLoaded` e fecha no `onAdFailedToLoad`. `tests/safe-banner-ad.test.ts` (2 testes).
+- Versão 1.5.5; README (seção do BannerAdComponent) e guia de upgrade (§8).
+- Patch local do app do Diego (`patches/expo-utils@1.5.4.patch`, 7 arquivos) lido trecho a trecho: nada entrou na lib. Tudo é
+  política de anúncio daquele app (começa sem anúncio e só liga com `is_ads_enabled === true` vindo do servidor, UMP estrito
+  com o desvio do "no form(s) configured", intersticial sempre pré-carregado, App Open por AppState com 30 s/3 min e opt-in
+  `app_open_enabled`, promo desligado sem anúncio, espaço de 8 pt no banner). Mudar isso na lib mudaria os anúncios dos
+  outros apps. Continua no patch do app, agora `patches/expo-utils@1.5.5.patch`.
+
+### Efeito nos apps
+- Só quem importa `expo-utils/utils/safe-banner-ad` (hoje, só o app do Diego). Os outros apps usam o `banner-ad`, que não
+  mudou e continua reservando o espaço do banner antes de ter anúncio.
+
+### Versão
+1.5.5 (tag `v1.5.5`). Não publicada no npm (conta travada no 2FA).
