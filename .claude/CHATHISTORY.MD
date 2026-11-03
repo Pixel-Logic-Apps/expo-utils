@@ -2656,3 +2656,31 @@ Bruno aprovou lançar a correção como 1.5.5 e passar o app para a tag `v1.5.5`
 
 ### Versão
 1.5.5 (tag `v1.5.5`). Não publicada no npm (conta travada no 2FA).
+
+
+## 2026-11-03 — 1.5.6: banner do safe-banner-ad reserva o espaço enquanto carrega
+
+### Pedido
+A revisão da 1.5.5 achou dois problemas altos no banner fechado até carregar: (1) o anúncio entrava empurrando o conteúdo,
+contra a orientação do AdMob (https://support.google.com/admob/answer/2936217: reservar o espaço ao carregar a tela, para o
+anúncio não cobrir nem mover o conteúdo); no app do Diego isso se repetia a cada troca de aba, porque o banner monta de novo
+a cada foco; (2) um refresh que falhava fechava o banner com o anúncio anterior ainda carregado no AdView. Corrigir na lib e
+no patch do app.
+
+### O que foi feito
+- `utils/safe-banner-ad.tsx` (commit fd47e34): o `SafeBanner` tem três estados. Carregando: o `BannerAd` é renderizado
+  como na 1.5.4 (o nativo reserva a altura antes do anúncio). Aberto: depois do 1º `onAdLoaded`, `onAdFailedToLoad` é
+  ignorado. Falhou (1ª carga sem anúncio): devolve `null`, o AdView é destruído. Saiu o container de altura 0.
+- `tests/safe-banner-ad.test.ts`: 3 testes (falham na 1.5.4 e na 1.5.5). `tests/run.sh`: 436 pass; os 2 testes do plugin
+  falham sem `@expo/config-plugins`, igual na main.
+- Versão 1.5.6; README (seção do BannerAdComponent) e guia de upgrade (§8): não usar a 1.5.5.
+- App do Diego: patch local refeito para a 1.5.6. O espaço de 8 pt em volta do banner volta a existir também enquanto
+  carrega (como na 1.5.4) e some junto com o banner quando a 1ª carga não tem anúncio.
+
+### Efeito nos apps
+- Só quem importa `expo-utils/utils/safe-banner-ad` (hoje, só o app do Diego). Diferença para a 1.5.4: sem anúncio na 1ª
+  carga, o banner sai da tela (antes ficava o espaço vazio). Com anúncio, igual à 1.5.4. O `banner-ad` não mudou.
+- Custo aceito: o espaço fica vazio por 1 a 3 s, até chegar a resposta "sem anúncio".
+
+### Versão
+1.5.6 (tag `v1.5.6`). Não publicada no npm (conta travada no 2FA).

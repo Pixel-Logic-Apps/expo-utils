@@ -773,7 +773,7 @@ import { ExpoUtilsStyles } from 'expo-utils';
 
 O `tag` é usado pelo sistema de Ad Placement Tracking para gerar IDs únicos de placement (e poder bloquear via `ad_blocklist`).
 
-**`expo-utils/utils/safe-banner-ad` (desde a 1.5.5):** o banner fica fechado (altura 0) até o anúncio carregar e fecha de novo quando o AdMob não entrega anúncio; sem anúncio, não sobra espaço em branco embaixo do conteúdo. O `BannerAd` continua montado (o pedido e o refresh automático seguem) e um refresh que carregar depois abre o banner. O `banner-ad` não mudou.
+**`expo-utils/utils/safe-banner-ad` (desde a 1.5.6):** o banner reserva o espaço enquanto carrega, então o anúncio entra sem mover o conteúdo (orientação do AdMob: reservar o espaço ao carregar a tela). Se a 1ª carga não tiver anúncio (no fill), o `BannerAd` sai da árvore e não sobra espaço em branco; nova tentativa só quando o componente montar de novo. Depois do 1º anúncio, falha de refresh é ignorada e o anúncio anterior continua na tela. O `banner-ad` não mudou. (A 1.5.5 deixava o banner com altura 0 até carregar: o anúncio entrava empurrando o conteúdo e um refresh que falhava escondia o anúncio carregado. Não use a 1.5.5.)
 
 ## 📬 Gerenciamento de Tópicos FCM
 

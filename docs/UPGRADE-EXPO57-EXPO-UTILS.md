@@ -1264,8 +1264,9 @@ abrir. A lib já trata as duas gerações (seção 2.4).
   código do app.
 - Review local do app pode coexistir com overlay da lib — controle via `review_type` no RC para não double-prompt
 - `global.isAdsEnabled` / store gate: ligado por padrão desde a 1.5.4 (desliga com `disableAdsIfBuildIsNewerThanStore: false`); ads desligam em build mais nova que a loja
-- `safe-banner-ad` (1.5.5): fica fechado até o anúncio carregar. Espaço em volta do banner (padding/margin) posto pelo app
-  por fora do componente continua na tela mesmo sem anúncio
+- `safe-banner-ad` (1.5.6): reserva o espaço enquanto carrega e sai da árvore se a 1ª carga não tiver anúncio; depois do
+  1º anúncio, falha de refresh é ignorada. Espaço em volta do banner (padding/margin) posto pelo app por fora do componente
+  continua na tela mesmo sem anúncio. Não use a 1.5.5 (altura 0 até carregar: o anúncio entrava empurrando o conteúdo)
 
 <a id="taichi"></a>
 
