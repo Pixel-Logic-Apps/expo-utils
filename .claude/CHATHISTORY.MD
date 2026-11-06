@@ -2684,3 +2684,49 @@ no patch do app.
 
 ### Versão
 1.5.6 (tag `v1.5.6`). Não publicada no npm (conta travada no 2FA).
+
+
+## 2026-11-06 — 1.5.7: splash sem a espera fixa de 3 s
+
+### Pedido
+O Bruno achou que os apps demoram muito para abrir e pediu para incluir nas versões novas só a correção da demora do
+splash que a análise de 20/10 achou na lib: o `setTimeout(3000)` do `Utils.handleReady`, que segurava o splash 3 s depois
+do app pronto, sem motivo registrado (entrou em `0bf2d78`; medido no lab, release Android: −3,0 s por abertura). Só isso:
+a regra do Remote Config fresco antes de mostrar o app (21/10), os +2000 ms antes do `requestTrackingWhenActive` e o resto
+do plano de startup (incluindo o conserto do app-open da seção 4.1) ficam como estão.
+
+### O que foi feito
+- `utils/Utils.ts` (`handleReady`): `if (bootDone) return; bootDone = true;` → `SplashScreen.hideAsync()` na hora, com
+  `.catch` que vira `expoUtilsWarn` (antes um `hideAsync` rejeitado, sem catch, parava UMP, ATT, push e a fase 2) → a
+  cadeia de consentimento 2 s depois, como antes. JSDoc reescrito.
+- Conferido: não há outra espera fixa no splash na lib. `ExpoUtilsLayout` e `templates/RootLayout.tsx` só chamam
+  `setOptions` e `preventAutoHideAsync` no import; o único `hideAsync` é o do `handleReady`.
+- App-open (`utils/appopen-ads.tsx` + `utils/app-lifecycle.ts`): nada depende do splash durar 3 s. O listener é assinado
+  depois do `prepare()` (antes do `handleReady`), começa em `active` e só mostra numa volta background → active; a
+  pré-carga espera o fluxo do ATT (`waitAttFlowDone`), que continua 2 s depois do hide.
+- `tests/handle-ready.test.ts` (novo, 3 testes; importa o `Utils.ts` real com as dependências mockadas): splash escondido
+  na hora, `hideAsync` rejeitado vira warn e a cadeia sai em 2000 ms (não em 1999), 2º `onLayout` não repete nada. Os 2
+  primeiros falham na 1.5.6.
+- Docs: README (aviso do boot), guia de upgrade (§4.2.1, "3s de splash + 2s" → "esconde o splash na hora + 2s", e nota
+  para tirar espera própria do app ao migrar) e AGENTS.md (regra: não recolocar espera no splash; os +2 s ficam).
+- Versão 1.5.7. Sem mudança de import nem de módulo nativo: vai por OTA para binário que já roda a 1.5.6.
+
+### Verificação
+- `tests/run.sh` no repo: 439 pass; os 2 testes do plugin falham sem `@expo/config-plugins`, igual na main. Numa cópia no
+  scratchpad com `bun install`: todos passam (441).
+- `tsc --noEmit` na cópia com as devDependencies do SDK 58: exit 0. `tsc` strict pela receita (symlink pro
+  `node_modules` do expo-utils-lab, Expo 57.0.24, expo-splash-screen 57.0.9): 0 erros.
+- Não medido em aparelho nem no iOS nesta tarefa.
+
+### Riscos anotados
+- Apps que pedem permissão própria ao montar a home (localização do expo-resultado em ~0,46 s; ATT próprio de
+  expo-eleicao, expo-eleicoes-v2, eleicoes-ota e expo-eye-identifier em ~1,5 s) agora encontram a cadeia da lib 2 s depois
+  de montar, e não 5 s. No iOS o ATT da lib espera `active` por até 4 s e não tenta de novo (plano 4.6). Conferir no iPhone
+  em instalação limpa.
+- A home aparece 3 s antes: estados de carregamento que o splash escondia (spinner, catálogo, fontes) ficam visíveis.
+- App-open no Android sem `react-native-applifecycle` (e no iOS) continua no `AppState`: o problema antigo do anúncio
+  depois de diálogo do sistema não muda com esta versão (o conserto da 4.1 não entrou, por pedido).
+- O shim `compat-130` do `eleicoes-ota-130` (Android 1.3.0) tem a própria espera, fora da lib: não ganha nada com a 1.5.7.
+
+### Versão
+1.5.7 (tag `v1.5.7`). Não publicada no npm (conta travada no 2FA).

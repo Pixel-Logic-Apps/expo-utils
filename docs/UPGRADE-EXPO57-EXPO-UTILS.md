@@ -657,10 +657,15 @@ Ordem real do boot:
 
 ```text
 prepare()                       Remote Config → Purchases.configure → ATRIBUIÇÃO FASE 1 (destacada) → globals → ready
-handleReady (1º frame)          3s de splash + 2s
+handleReady (1º frame)          esconde o splash na hora + 2s
 requestTrackingWhenActive       UMP → ATT → [FB → ATRIBUIÇÃO FASE 2] (destacada) → push → consent_flow
                                 → TikTok → link-in-bio → update dialog
 ```
+
+**Splash (1.5.7):** o `handleReady` esconde o splash assim que o 1º frame é desenhado. Até a 1.5.6 o splash ficava 3s a
+mais na tela, sem motivo (−3s por abertura, medido no lab). Os 2s até a cadeia de consentimento continuam. Ao migrar,
+tire do app qualquer espera própria antes do `hideAsync` (timer no layout, shim que repita os 3s): quem esconde o splash
+é a lib.
 
 - **Fase 1** (sem consentimento): AdServices (iOS), `$firebaseAppInstanceId`, atributos de contexto
   (`language`, `locale`, `device_region`, `currency`, `timezone`, `store_country`, `app_version`…),

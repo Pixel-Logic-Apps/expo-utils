@@ -385,7 +385,8 @@ Utils.prepare(setAppIsReady, appConfig, AppStrings, false);
 
 > ⚠️ **ATT, UMP, permissão de push, Facebook, TikTok e a fase 2 da atribuição NÃO rodam dentro do `prepare()`** —
 > rodam depois do primeiro frame, disparados pelo `Utils.handleReady` (o `<View onLayout={Utils.handleReady} />`
-> que o `ExpoUtilsLayout` e o template `RootLayout.tsx` já renderizam). Um `_layout.tsx` legado que só chama
+> que o `ExpoUtilsLayout` e o template `RootLayout.tsx` já renderizam). O `handleReady` esconde o splash na hora e
+> dispara essa cadeia 2s depois (até a 1.5.6 o splash ficava 3s a mais na tela). Um `_layout.tsx` legado que só chama
 > `Utils.prepare()` perde tudo isso em silêncio. Desde a v1.4.0 um watchdog avisa: 30s depois do `prepare()` sem
 > `handleReady`, sai um `expoUtilsWarn` (que vira o evento `expo_utils_warn` no Analytics).
 

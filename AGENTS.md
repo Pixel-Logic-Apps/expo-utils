@@ -406,6 +406,12 @@ Central initialization module with a `prepare()` function that:
 - Dispara a **fase 1 da atribuicao do RevenueCat** logo apos o `Purchases.configure` (destacada, nao atrasa o
   splash) e arma o **watchdog do `handleReady`** (30s sem `handleReady` → `expoUtilsWarn`). UMP/ATT/push/FB/
   TikTok/fase 2 NAO rodam no `prepare()`: rodam no `Utils.handleReady` → `requestTrackingWhenActive`
+- **Splash sem espera fixa (1.5.7)**: o `Utils.handleReady` esconde o splash NA HORA (`hideAsync().catch(warn)`) e
+  dispara a cadeia de consentimento 2s depois. Ate a 1.5.6 havia um `setTimeout(3000)` antes do `hideAsync`, sem
+  motivo registrado: 3s a mais em toda abertura (medido no lab, release Android). Nao recoloque espera no splash; se
+  um app precisar de tempo de marca, vira opcao do app, nunca timer no caminho do consentimento. Os +2s ficam: separam
+  os pedidos de permissao da lib dos que a home faz ao montar (tirar so com portoes por evento). O `catch` e
+  obrigatorio: `hideAsync` rejeitado sem catch parava UMP, ATT, push e a fase 2. Teste: `tests/handle-ready.test.ts`
 - Mantem a user property `rc_status`, o `user_id` do GA4 (= App User ID do RC) e os topicos FCM de assinatura
   (estado + marcos, `utils/rc-status.ts`) a cada `customerInfo`
 - Loga um evento cujo **nome é o slug do app**, 1x por instalação, via `Utils.logFirstOpenOnce()` — flag `@first_open_logged` no AsyncStorage; roda no bloco não-bloqueante do boot (não atrasa o splash). O slug passa por `.replace(/\W/g, "_").slice(0, 40)` porque nome de evento GA4 só aceita `[A-Za-z0-9_]` e no máximo 40 chars — `titulo-eleitor` vira `titulo_eleitor`.
