@@ -899,16 +899,17 @@ const Utils = {
 
     /**
      * Chamado via <View onLayout={Utils.handleReady} /> no layout, logo após o primeiro frame.
-     * Mantém o splash por 3s, esconde, e 2s depois dispara o ATT (timing confiável do prompt).
+     * Esconde o splash na hora e, 2s depois, dispara a cadeia de consentimento (UMP → ATT → push → …).
+     * Sem espera fixa no splash: até a 1.5.6 havia mais 3s aqui, sem motivo, e cada abertura levava 3s a mais.
+     * Os 2s ficam: separam os pedidos de permissão da lib dos que a home faz ao montar.
+     * O catch do hideAsync é obrigatório: rejeitado sem catch, pararia UMP, ATT, push e a fase 2 da sessão.
      * Roda uma única vez; usa o appConfig/appStrings capturados no prepare().
      */
     handleReady: () => {
         if (bootDone) return;
         bootDone = true;
-        setTimeout(async () => {
-            await SplashScreen.hideAsync();
-            setTimeout(async () => await Utils.requestTrackingWhenActive(bootAppConfig, bootAppStrings, bootFcmTrackingAllowed), 2000);
-        }, 3000);
+        SplashScreen.hideAsync().catch((e) => expoUtilsWarn("SplashScreen.hideAsync:", e));
+        setTimeout(async () => await Utils.requestTrackingWhenActive(bootAppConfig, bootAppStrings, bootFcmTrackingAllowed), 2000);
     },
 
     /**
