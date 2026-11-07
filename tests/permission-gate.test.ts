@@ -1,8 +1,9 @@
 // Portão de permissões (utils/permission-gate.ts): pede só com o app ativo (evento do AppState, nunca timer), relê o
 // status antes de cada pedido, pede de novo no próximo "ficou ativo" quando o pedido se perde (até 3 por abertura),
-// todo pedido tem limite de tempo e chamadas concorrentes recebem o mesmo fluxo.
+// todo pedido tem limite de tempo e chamadas concorrentes recebem o mesmo fluxo. E a trava única: um pedido por vez, na
+// ordem de chegada, com o limite correndo só com o app ativo.
 import {afterAll, beforeAll, beforeEach, describe, expect, jest, test} from "bun:test";
-import {createPermissionGate, TIMED_OUT, waitForActive, withTimeout, type AppStateLike} from "../utils/permission-gate";
+import {createPermissionGate, createPermissionLock, TIMED_OUT, waitForActive, withTimeout, type AppStateLike} from "../utils/permission-gate";
 
 const LIMIT = 20000;
 
@@ -66,7 +67,7 @@ const attGate = (permission: ReturnType<typeof fakePermission>) =>
         read: permission.read,
         request: permission.request,
         canAsk: (status) => status === "undetermined",
-        requestLimitMs: LIMIT,
+        lock: createPermissionLock(appState, LIMIT),
     });
 
 // Como a lib configura a notificação no Android 13+: negado sem o app sair de active = diálogo não apareceu.
@@ -77,7 +78,7 @@ const androidPushGate = (permission: ReturnType<typeof fakePermission>) =>
         request: permission.request,
         canAsk: (status) => status !== "granted",
         lost: (status, leftActive) => !leftActive && (status === "denied" || status === "never_ask_again"),
-        requestLimitMs: LIMIT,
+        lock: createPermissionLock(appState, LIMIT),
     });
 
 beforeAll(() => jest.useFakeTimers());
@@ -227,7 +228,7 @@ describe("ATT", () => {
             },
             request: att.request,
             canAsk: (status) => status === "undetermined",
-            requestLimitMs: LIMIT,
+            lock: createPermissionLock(appState, LIMIT),
         }).run();
         await advance(60_000);
         expect(att.requests).toBe(0);
@@ -296,7 +297,8 @@ describe("notificação no Android", () => {
             },
         ], "-");
         const flow = androidPushGate(push).run();
-        await advance(LIMIT);
+        for (let i = 0; i < 4; i++) await flush(); // o pedido sai, o diálogo pausa a Activity e ela volta
+        await advance(LIMIT); // o limite conta a partir da volta a active
         expect(await flow.final).toEqual({status: "denied", attempts: 1});
         await leaveAndReturn("background");
         expect(push.requests).toBe(1);
@@ -313,7 +315,7 @@ describe("ordem entre portões (after)", () => {
             read: push.read,
             request: push.request,
             canAsk: (status) => status === "undetermined",
-            requestLimitMs: LIMIT,
+            lock: createPermissionLock(appState, LIMIT),
             after: () => attEnd,
         }).run();
         let first: unknown;
@@ -336,9 +338,350 @@ describe("ordem entre portões (after)", () => {
             read: push.read,
             request: push.request,
             canAsk: (status) => status === "undetermined",
-            requestLimitMs: LIMIT,
+            lock: createPermissionLock(appState, LIMIT),
             after: () => never<void>(),
         }).run();
         expect(await flow.final).toEqual({status: "granted", attempts: 0});
+    });
+});
+
+// Pedido controlado pelo teste: `open` conta os que estão de pé ao mesmo tempo, e `answer` responde.
+const prompts = () => {
+    const log = {started: [] as string[], open: 0, maxOpen: 0};
+    const answers = new Map<string, (value: string) => void>();
+    const fails = new Map<string, (error: Error) => void>();
+    const prompt = (name: string) => () => {
+        log.started.push(name);
+        log.maxOpen = Math.max(log.maxOpen, ++log.open);
+        return new Promise<string>((resolve, reject) => {
+            answers.set(name, (value) => {
+                log.open--;
+                resolve(value);
+            });
+            fails.set(name, (error) => {
+                log.open--;
+                reject(error);
+            });
+        });
+    };
+    return {log, prompt, answer: (name: string, value = "ok") => answers.get(name)?.(value), fail: (name: string, error: Error) => fails.get(name)?.(error)};
+};
+const track = <T>(promise: Promise<T>) => {
+    const seen: {value?: T; error?: unknown; settled: boolean} = {settled: false};
+    promise.then(
+        (value) => Object.assign(seen, {value, settled: true}),
+        (error) => Object.assign(seen, {error, settled: true}),
+    );
+    return seen;
+};
+
+describe("trava de permissão", () => {
+    const lockUnderTest = () => createPermissionLock(appState, LIMIT);
+
+    test("dois pedidos concorrentes nunca rodam juntos", async () => {
+        const lock = lockUnderTest();
+        const {log, prompt, answer} = prompts();
+        const a = track(lock(prompt("a")));
+        const b = track(lock(prompt("b")));
+        await flush();
+        expect(log.started).toEqual(["a"]);
+        await advance(LIMIT - 1);
+        expect(log.started).toEqual(["a"]); // sem a resposta do 1º, o 2º não sai
+        answer("a");
+        await flush();
+        expect(a.value).toBe("ok");
+        expect(log.started).toEqual(["a", "b"]);
+        answer("b");
+        await flush();
+        expect(b.value).toBe("ok");
+        expect(log.maxOpen).toBe(1);
+    });
+
+    test("ordem de chegada, com pedido chegando no meio da fila", async () => {
+        const lock = lockUnderTest();
+        const {log, prompt, answer} = prompts();
+        lock(prompt("a"));
+        lock(prompt("b"));
+        await flush();
+        lock(prompt("c"));
+        answer("a");
+        await flush();
+        answer("b");
+        await flush();
+        answer("c");
+        await flush();
+        expect(log.started).toEqual(["a", "b", "c"]);
+        expect(log.maxOpen).toBe(1);
+    });
+
+    test("fn que rejeita: quem pediu recebe a rejeição e a trava solta", async () => {
+        const lock = lockUnderTest();
+        const {log, prompt, fail, answer} = prompts();
+        const a = track(lock(prompt("a")));
+        const b = track(lock(prompt("b")));
+        await flush();
+        fail("a", new Error("nativo falhou"));
+        await flush();
+        expect((a.error as Error).message).toBe("nativo falhou");
+        expect(log.started).toEqual(["a", "b"]);
+        answer("b");
+        await flush();
+        expect(b.value).toBe("ok");
+    });
+
+    test("fn que lança na hora: a trava solta", async () => {
+        const lock = lockUnderTest();
+        const a = track(
+            lock(() => {
+                throw new Error("sem módulo");
+            }),
+        );
+        const b = track(lock(async () => "segue"));
+        await flush();
+        expect((a.error as Error).message).toBe("sem módulo");
+        expect(b.value).toBe("segue");
+    });
+
+    test("fn que pendura: no limite quem pediu segue, a trava solta e a resposta tardia não atrapalha", async () => {
+        const lock = lockUnderTest();
+        const {log, prompt, answer} = prompts();
+        const hung = track(lock(prompt("hung")));
+        const next = track(lock(prompt("next")));
+        await advance(LIMIT - 1);
+        expect(hung.settled).toBe(false);
+        expect(log.started).toEqual(["hung"]);
+        await advance(1);
+        expect(hung.value).toBe(TIMED_OUT);
+        expect(log.started).toEqual(["hung", "next"]);
+        answer("hung", "tarde");
+        await flush();
+        expect(hung.value).toBe(TIMED_OUT);
+        expect(next.settled).toBe(false);
+        answer("next");
+        await flush();
+        expect(next.value).toBe("ok");
+    });
+
+    test("app inativo: espera o active, sem limite e sem timer; na fila, a ordem continua a de chegada", async () => {
+        appState.currentState = "inactive";
+        const lock = lockUnderTest();
+        const {log, prompt, answer} = prompts();
+        const a = track(lock(prompt("a")));
+        lock(prompt("b"));
+        await advance(60 * 60_000);
+        expect(log.started).toEqual([]);
+        expect(a.settled).toBe(false);
+        await setAppState("background");
+        expect(log.started).toEqual([]);
+        await setAppState("active");
+        expect(log.started).toEqual(["a"]);
+        answer("a");
+        await flush();
+        expect(log.started).toEqual(["a", "b"]);
+    });
+
+    test("nenhum ouvinte do AppState fica para trás", async () => {
+        const lock = lockUnderTest();
+        const {prompt, answer} = prompts();
+        const a = lock(prompt("a"));
+        await flush();
+        expect(listeners.size).toBe(1);
+        answer("a");
+        await a;
+        expect(listeners.size).toBe(0);
+        const hung = lock(prompt("b"));
+        await advance(LIMIT);
+        await hung;
+        expect(listeners.size).toBe(0);
+    });
+});
+
+describe("trava: limite estourado com diálogo real na tela", () => {
+    const lockUnderTest = () => createPermissionLock(appState, LIMIT);
+
+    test("Android: pessoa demora além do limite → nada sai por cima; a resposta vale, mesmo chegando depois do active", async () => {
+        const lock = lockUnderTest();
+        const {log, prompt, answer} = prompts();
+        const location = track(lock(prompt("location")));
+        const push = track(lock(prompt("push")));
+        await flush();
+        await setAppState("background"); // o diálogo pausa a Activity
+        // Tarefa headless mantém os timers do JS correndo com a Activity pausada: o limite não corre mesmo assim.
+        await advance(10 * LIMIT);
+        expect(location.settled).toBe(false);
+        expect(log.started).toEqual(["location"]);
+        // ReactActivityDelegate.onResume: primeiro o host volta (AppState active), depois entrega a resposta.
+        await setAppState("active");
+        expect(location.settled).toBe(false);
+        expect(log.started).toEqual(["location"]);
+        answer("location", "granted");
+        await flush();
+        expect(location.value).toBe("granted");
+        expect(log.started).toEqual(["location", "push"]);
+        expect(push.settled).toBe(false);
+    });
+
+    test("Android: pendurada depois do diálogo (a resposta nunca vem) → o limite recomeça no active e solta a trava", async () => {
+        const lock = lockUnderTest();
+        const {log, prompt} = prompts();
+        const location = track(lock(prompt("location")));
+        lock(prompt("push"));
+        await advance(LIMIT - 1);
+        await setAppState("background");
+        await advance(10 * LIMIT);
+        await setAppState("active");
+        await advance(LIMIT - 1); // recomeçou do zero: não herda o tempo de antes
+        expect(location.settled).toBe(false);
+        expect(log.started).toEqual(["location"]);
+        await advance(1);
+        expect(location.value).toBe(TIMED_OUT);
+        expect(log.started).toEqual(["location", "push"]);
+    });
+
+    test("iOS 26: alerta deixa o app inactive além do limite → nada sai por cima; o próximo espera o active depois da resposta", async () => {
+        const lock = lockUnderTest();
+        const {log, prompt, answer} = prompts();
+        const location = track(lock(prompt("location")));
+        lock(prompt("att"));
+        await flush();
+        await setAppState("inactive");
+        await advance(10 * LIMIT);
+        expect(location.settled).toBe(false);
+        expect(log.started).toEqual(["location"]);
+        answer("location", "granted"); // a resposta chega antes do didBecomeActive
+        await flush();
+        expect(location.value).toBe("granted");
+        expect(log.started).toEqual(["location"]);
+        await setAppState("active");
+        expect(log.started).toEqual(["location", "att"]);
+    });
+
+    test("iOS 27: alerta não deixa o app inactive → não há como separar de pendurado; só no limite o próximo sai", async () => {
+        const lock = lockUnderTest();
+        const {log, prompt} = prompts();
+        const location = track(lock(prompt("location")));
+        lock(prompt("att"));
+        await advance(LIMIT - 1);
+        expect(log.started).toEqual(["location"]);
+        await advance(1);
+        expect(location.value).toBe(TIMED_OUT);
+        expect(log.started).toEqual(["location", "att"]);
+    });
+
+    test("limite estoura e o app saiu de active logo depois: o próximo não pede inativo", async () => {
+        const lock = lockUnderTest();
+        const {log, prompt} = prompts();
+        lock(prompt("hung"));
+        lock(prompt("next"));
+        await advance(LIMIT - 1);
+        appState.currentState = "inactive"; // o evento ainda não chegou, e o timer dispara
+        jest.advanceTimersByTime(1);
+        await flush();
+        expect(log.started).toEqual(["hung"]);
+        await setAppState("active");
+        expect(log.started).toEqual(["hung", "next"]);
+    });
+});
+
+describe("portões na trava: ATT e localização em sequência", () => {
+    const att = (permission: ReturnType<typeof fakePermission>, lock: ReturnType<typeof createPermissionLock>) =>
+        createPermissionGate<string>({
+            appState,
+            read: permission.read,
+            request: permission.request,
+            canAsk: (status) => status === "undetermined",
+            lock,
+        });
+
+    test("a home pede localização primeiro: o ATT espera a resposta dela, sem gastar tentativa, e sai no active", async () => {
+        const lock = createPermissionLock(appState, LIMIT);
+        const {log, prompt, answer} = prompts();
+        const attPermission = fakePermission("undetermined", ["granted"]);
+        const location = track(lock(prompt("location")));
+        const gate = att(attPermission, lock);
+        const flow = gate.run();
+        await flush();
+        await setAppState("inactive"); // alerta de localização no iOS 26
+        await advance(10 * LIMIT);
+        expect(attPermission.requests).toBe(0);
+        expect(gate.attempts()).toBe(0);
+        expect(gate.isPending()).toBe(true);
+        answer("location", "granted");
+        await flush();
+        expect(location.value).toBe("granted");
+        expect(attPermission.requests).toBe(0); // respondida, mas o app ainda não voltou a active
+        await setAppState("active");
+        expect(attPermission.requests).toBe(1);
+        expect(await flow.final).toEqual({status: "granted", attempts: 1});
+        expect(log.started).toEqual(["location"]);
+    });
+
+    test("o ATT pede primeiro: a localização espera a resposta dele", async () => {
+        const lock = createPermissionLock(appState, LIMIT);
+        const {log, prompt, answer} = prompts();
+        let answerAtt: (status: string) => void = () => {};
+        const attPermission = fakePermission("undetermined", [() => new Promise((resolve) => (answerAtt = resolve))]);
+        const flow = att(attPermission, lock).run();
+        await flush();
+        expect(attPermission.requests).toBe(1);
+        const location = track(lock(prompt("location")));
+        await advance(LIMIT - 1);
+        expect(log.started).toEqual([]);
+        attPermission.status = "denied";
+        answerAtt("denied");
+        await flush();
+        expect(await flow.final).toEqual({status: "denied", attempts: 1});
+        expect(log.started).toEqual(["location"]);
+        answer("location", "granted");
+        await flush();
+        expect(location.value).toBe("granted");
+    });
+
+    test("ATT descartado: a localização pedida depois dele sai, e a nova tentativa vem depois dela, no active", async () => {
+        const lock = createPermissionLock(appState, LIMIT);
+        const {log, prompt, answer} = prompts();
+        const attPermission = fakePermission("undetermined", ["undetermined", "granted"]);
+        const flow = att(attPermission, lock).run();
+        await flush();
+        expect(attPermission.requests).toBe(1); // o iOS descartou: volta `undetermined` na hora
+        lock(prompt("location"));
+        await flush();
+        expect(log.started).toEqual(["location"]);
+        await setAppState("inactive");
+        answer("location", "granted");
+        await flush();
+        expect(attPermission.requests).toBe(1);
+        await setAppState("active");
+        expect(attPermission.requests).toBe(2);
+        expect(await flow.final).toEqual({status: "granted", attempts: 2});
+    });
+
+    test("respondido enquanto esperava a vez: não pede", async () => {
+        const lock = createPermissionLock(appState, LIMIT);
+        const {prompt, answer} = prompts();
+        const attPermission = fakePermission("undetermined", []);
+        lock(prompt("location"));
+        const flow = att(attPermission, lock).run();
+        await flush();
+        attPermission.status = "granted";
+        answer("location");
+        expect(await flow.final).toEqual({status: "granted", attempts: 0});
+        expect(attPermission.requests).toBe(0);
+    });
+
+    test("alerta do ATT além do limite: a trava solta, mas o portão não pede de novo e acaba na resposta", async () => {
+        const lock = createPermissionLock(appState, LIMIT);
+        const {log, prompt} = prompts();
+        let answerAtt: (status: string) => void = () => {};
+        const attPermission = fakePermission("undetermined", [() => new Promise((resolve) => (answerAtt = resolve))]);
+        const flow = att(attPermission, lock).run();
+        lock(prompt("next"));
+        await advance(LIMIT);
+        expect(log.started).toEqual(["next"]);
+        expect(attPermission.requests).toBe(1);
+        attPermission.status = "denied";
+        answerAtt("denied");
+        expect(await flow.final).toEqual({status: "denied", attempts: 1});
+        expect(attPermission.requests).toBe(1);
     });
 });

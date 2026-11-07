@@ -7,18 +7,23 @@
  *   2. Relê o status logo antes de cada pedido e nunca pede o que já foi respondido.
  *   3. Pedido descartado ou cancelado sem resposta: pede de novo no próximo "ficou ativo", até 3 vezes por abertura.
  *      Depois desiste; a próxima abertura tenta de novo, porque o status continua sem resposta.
- *   4. Todo pedido tem limite de tempo: promessa nativa que nunca resolve não trava quem espera.
- *   5. Um pedido por vez: chamadas concorrentes recebem o mesmo fluxo, e `after` faz um portão esperar a vez dele (a
- *      notificação só pede depois do fim do ATT).
+ *   4. Todo pedido tem limite de tempo, que só corre com o app ativo: promessa nativa que nunca resolve não trava quem
+ *      espera, e diálogo na tela não vira estouro.
+ *   5. Um pedido por vez, em todo pedido real que passa pela trava (`createPermissionLock`): quem pede primeiro vai
+ *      primeiro, sem ordem fixa e sem reserva de lugar. Os pedidos do app que possam sair na abertura usam a mesma trava
+ *      (`Utils.withPermissionPrompt`). Chamadas concorrentes do mesmo portão recebem o mesmo fluxo, e `after` faz um
+ *      portão esperar o fim do outro (a notificação só pede depois do fim do ATT).
  *
  * Por que existe (06–07/11/2026). O iOS descarta o ATT em silêncio quando o app não está `active` na hora da chamada ou
  * quando há outro pedido de permissão pendente: o retorno chega em milissegundos como `notDetermined`, igual a "nunca
  * perguntado". A doc da Apple manda chamar de novo nesse caso (requestTrackingAuthorization; ATTrackingManager.h), e o
  * expo-tracking-transparency pede uma vez só. O `active` do RN é o didBecomeActive nativo (RCTAppState.mm). No
  * laboratório (simulador, iOS 26.5 e 27.0), pedir de novo no próximo `active` mostrou o ATT em 9 de 9 rodadas. No
- * Android, um pedido concorrente é cancelado pelo sistema, e o RN guarda um listener de permissão só: a promessa pode
- * ficar pendurada. As esperas fixas de antes (3 s no splash, 2 s, 1 s e "4 s e pede mesmo assim") só afastavam os
- * pedidos uns dos outros por acaso. Não recoloque espera fixa.
+ * Android, o RN guarda um listener de permissão só (ReactActivityDelegate.requestPermissions): um 2º pedido antes de o
+ * 1º diálogo pausar a Activity troca o listener e a resposta do 1º se perde. Se o 1º era do Expo, o PermissionsService
+ * fica com o listener preso: a promessa nunca resolve e todo pedido do Expo depois dela entra numa fila que só anda na
+ * próxima abertura. É isso que a trava evita. As esperas fixas de antes (3 s no splash, 2 s, 1 s e "4 s e pede mesmo
+ * assim") só afastavam os pedidos uns dos outros por acaso. Não recoloque espera fixa.
  *
  * Módulo-folha e sem dependência: recebe o AppState (o do RN, nos apps) para ser testável.
  */
@@ -81,6 +86,61 @@ const watchAppState = (appState: AppStateLike) => {
     return {nextActive, leftActive: () => left, stop: () => subscription.remove()};
 };
 
+/**
+ * Limite de um pedido na trava. Só corre com o app ativo e recomeça a cada "ficou ativo", porque fora de `active` há um
+ * diálogo na tela ou nada pode ser pedido, e estourar aí soltaria a trava por cima do diálogo. Os timers do JS no Android
+ * não bastam: congelam com a Activity pausada (JavaTimerManager), mas seguem durante uma tarefa headless, e o que venceu
+ * dispara na retomada, junto com a resposta do diálogo.
+ */
+const limitWhileActive = (appState: AppStateLike, ms: number) => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let expire: () => void = noop;
+    const expired = new Promise<typeof TIMED_OUT>((resolve) => {
+        expire = () => resolve(TIMED_OUT);
+    });
+    const arm = () => {
+        timer = setTimeout(expire, ms);
+    };
+    if (appState.currentState === "active") arm();
+    const subscription = appState.addEventListener("change", (state) => {
+        clearTimeout(timer);
+        if (state === "active") arm();
+    });
+    return {
+        expired,
+        stop: () => {
+            clearTimeout(timer);
+            subscription.remove();
+        },
+    };
+};
+
+/** Roda `fn` quando chegar a vez e o app estiver ativo. Com o limite estourado devolve `TIMED_OUT` e solta a trava. */
+export type PermissionLock = <T>(fn: () => Promise<T>) => Promise<T | typeof TIMED_OUT>;
+
+/**
+ * A trava única dos pedidos de permissão: uma fila na ordem de chegada, um `fn` por vez. O app ativo é conferido depois de
+ * chegar a vez, logo antes de `fn`, porque o diálogo anterior pode ter acabado de responder com o app ainda fora de
+ * `active`. Essa espera é por evento, sem limite: pedir com o app inativo é descarte certo. A trava sai quando `fn`
+ * termina (resposta ou rejeição) ou no limite, e `fn` que pendura não prende a fila.
+ */
+export const createPermissionLock = (appState: AppStateLike, limitMs: number): PermissionLock => {
+    let tail: Promise<unknown> = Promise.resolve();
+    return <T>(fn: () => Promise<T>) => {
+        const turn = tail.then(async () => {
+            await waitForActive(appState);
+            const limit = limitWhileActive(appState, limitMs);
+            try {
+                return await Promise.race([fn(), limit.expired]);
+            } finally {
+                limit.stop();
+            }
+        });
+        tail = turn.then(noop, noop);
+        return turn;
+    };
+};
+
 export type PermissionOutcome<S> = {status: S; attempts: number};
 
 export type PermissionFlow<S> = {
@@ -103,14 +163,14 @@ export type PermissionGateOptions<S> = {
      * `active` durante o pedido. Padrão: `canAsk(status)` (o status continua sem resposta).
      */
     lost?: (status: S, leftActive: boolean) => boolean;
-    /** Limite de cada pedido. No limite o status é relido e vale a mesma regra do `lost`. */
-    requestLimitMs: number;
+    /** A trava que faz cada pedido sair sozinho e com limite. No limite o status é relido e vale a mesma regra do `lost`. */
+    lock: PermissionLock;
     /** Pedidos por abertura. Padrão 3. */
     maxAttempts?: number;
     /**
      * Ordem entre portões: cada pedido só sai depois que esta promessa termina (ex.: o fim do fluxo do ATT, para a
      * notificação não sair junto nem antes dele). Sem limite, porque é ordem e não espera de tempo; só é aguardada quando
-     * há o que pedir, e o status e o AppState são conferidos de novo depois dela.
+     * há o que pedir, antes de entrar na fila da trava, e o status e o AppState são conferidos de novo na vez do pedido.
      */
     after?: () => Promise<unknown>;
 };
@@ -125,7 +185,7 @@ export type PermissionGate<S> = {
 };
 
 export const createPermissionGate = <S>(options: PermissionGateOptions<S>): PermissionGate<S> => {
-    const {appState, read, request, canAsk, requestLimitMs, maxAttempts = 3, after} = options;
+    const {appState, read, request, canAsk, lock, maxAttempts = 3, after} = options;
     const lost = options.lost ?? ((status: S) => canAsk(status));
     let flow: PermissionFlow<S> | null = null;
     let running = false;
@@ -144,17 +204,23 @@ export const createPermissionGate = <S>(options: PermissionGateOptions<S>): Perm
                 let status = await read();
                 if (!canAsk(status) || attempts >= maxAttempts) return {status, attempts};
                 if (after) await after().then(noop, noop);
-                await waitForActive(appState);
-                // Relido logo antes do pedido: pode ter sido respondido enquanto o app estava inativo.
-                status = await read();
-                if (!canAsk(status)) return {status, attempts};
-                // A releitura vai ao nativo: se o app saiu de `active` nesse meio-tempo, volta a esperar o "ficou ativo".
-                if (appState.currentState !== "active") continue;
-                attempts += 1;
-                const watch = watchAppState(appState);
+                const asked: {watch?: ReturnType<typeof watchAppState>; pending?: Promise<S>} = {};
                 try {
-                    const pending = request();
-                    const result = await withTimeout(pending, requestLimitMs);
+                    const result = await lock(async (): Promise<S> => {
+                        // Relido logo antes do pedido: pode ter sido respondido enquanto esperava a vez ou o app ficar ativo.
+                        const current = await read();
+                        // A releitura vai ao nativo: se o app saiu de `active` nesse meio-tempo, não pede e volta a esperar.
+                        if (!canAsk(current) || appState.currentState !== "active") return current;
+                        attempts += 1;
+                        asked.watch = watchAppState(appState);
+                        asked.pending = request();
+                        return asked.pending;
+                    });
+                    const {watch, pending} = asked;
+                    if (!watch || !pending) {
+                        if (result !== TIMED_OUT && !canAsk(result)) return {status: result, attempts};
+                        continue;
+                    }
                     const timedOut = result === TIMED_OUT;
                     status = result === TIMED_OUT ? await read() : result;
                     if (!lost(status, watch.leftActive()) || attempts >= maxAttempts) return {status, attempts};
@@ -163,7 +229,7 @@ export const createPermissionGate = <S>(options: PermissionGateOptions<S>): Perm
                     // alerta pode seguir na tela): o que vier antes acorda a releitura do status.
                     await (timedOut ? Promise.race([watch.nextActive, pending.then(noop, noop)]) : watch.nextActive);
                 } finally {
-                    watch.stop();
+                    asked.watch?.stop();
                 }
             }
         })();

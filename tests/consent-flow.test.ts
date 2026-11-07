@@ -1,7 +1,8 @@
 // Cadeia de consentimento (Utils.requestTrackingWhenActive) com o portão de permissões: o ATT pede de novo no próximo
 // active, a cadeia espera o resultado no máximo o limite e segue, e a resposta que chega depois avisa o FB, recoleta a
 // atribuição e sai no `consent_flow` (com as tentativas). Importa o Utils.ts de verdade, com as dependências mockadas
-// (nenhuma está instalada neste repo); cada teste usa uma instância nova do módulo (os fluxos são de sessão).
+// (nenhuma está instalada neste repo); cada teste usa uma instância nova do módulo (os fluxos são de sessão). No fim, a
+// trava única (withPermissionPrompt): o pedido de localização da home e os da lib nunca ao mesmo tempo.
 import {afterAll, beforeAll, beforeEach, expect, jest, mock, test} from "bun:test";
 
 const LIMIT = 20000;
@@ -72,6 +73,7 @@ mock.module("react-native", () => ({
         check: () => Promise.resolve(state.androidPush),
         request: () => {
             state.androidRequests++;
+            state.order.push("push");
             const answer = state.androidAnswers.shift() ?? "denied";
             if (answer === "hang") return never();
             if (answer === "granted") state.androidPush = true;
@@ -199,6 +201,7 @@ afterAll(() => jest.useRealTimers());
 beforeEach(() => {
     jest.clearAllTimers();
     listeners.clear();
+    delete (globalThis as any).isAdsEnabled;
     Object.assign(state, {
         os: "ios",
         appState: "active",
@@ -392,4 +395,138 @@ test("app open × UMP: com o ATT sem resposta, conta como ATT pendente já enqua
     android.default.requestTrackingWhenActive(appConfig, appStrings);
     await flush();
     expect(android.isAttPending()).toBe(false);
+});
+
+// Pedido de localização da home, controlado pelo teste.
+const homeLocation = (withPermissionPrompt: <T>(fn: () => Promise<T>) => Promise<T>) => {
+    let answer: (status: string) => void = () => {};
+    const seen: {status?: string; error?: Error} = {};
+    const done = withPermissionPrompt(() => {
+        state.order.push("location");
+        return new Promise<string>((resolve) => (answer = resolve));
+    }).then(
+        (status) => (seen.status = status),
+        (error) => (seen.error = error),
+    );
+    return {seen, done, answer: (status: string) => answer(status)};
+};
+
+test("a trava é uma só: exportada de forma nomeada e no Utils, e o requestPushPermission público passa por ela", async () => {
+    state.os = "android";
+    state.androidAnswers = ["granted"];
+    const {default: Utils, withPermissionPrompt} = await load();
+    expect(Utils.withPermissionPrompt).toBe(withPermissionPrompt);
+    const location = homeLocation(withPermissionPrompt);
+    const push = Utils.requestPushPermission();
+    await flush();
+    expect(state.order).toEqual(["location"]);
+    location.answer("granted");
+    expect(await push).toBe("granted");
+    expect(state.order).toEqual(["location", "push"]);
+});
+
+test("Android com anúncio desligado: a home pede localização no mesmo instante da cadeia → a notificação só sai depois da resposta", async () => {
+    state.os = "android";
+    (globalThis as any).isAdsEnabled = false; // setupMobileAds volta na hora: trava da loja, revisão, gradual
+    state.androidAnswers = ["granted"];
+    const {default: Utils, withPermissionPrompt} = await load();
+    const location = homeLocation(withPermissionPrompt);
+    let done = false;
+    Utils.requestTrackingWhenActive(appConfig, appStrings).then(() => (done = true));
+    await flush();
+    expect(state.order).toEqual(["location"]); // sem a trava, POST_NOTIFICATIONS sairia aqui e a localização penduraria
+    await setAppState("background"); // o diálogo pausa a Activity
+    await advance(3 * LIMIT);
+    expect(state.order).toEqual(["location"]);
+    expect(location.seen).toEqual({});
+    await setAppState("active");
+    location.answer("granted");
+    await location.done;
+    await flush();
+    expect(location.seen.status).toBe("granted");
+    expect(state.order).toEqual(["location", "push"]);
+    expect(done).toBe(true);
+    expect(state.fbTracking).toEqual([true]);
+    expect(consentEvents().at(-1)).toMatchObject({att: "na", push: "granted", push_attempts: 1});
+});
+
+test("Android: a cadeia pede primeiro → a localização da home espera a resposta da notificação", async () => {
+    state.os = "android";
+    (globalThis as any).isAdsEnabled = false;
+    state.androidAnswers = ["hang"];
+    const {default: Utils, withPermissionPrompt} = await load();
+    Utils.requestTrackingWhenActive(appConfig, appStrings);
+    await flush();
+    expect(state.order).toEqual(["push"]);
+    const location = homeLocation(withPermissionPrompt);
+    await flush();
+    expect(state.order).toEqual(["push"]);
+    await advance(LIMIT); // notificação pendurada: a trava não fica presa e a home não fica sem resposta
+    expect(state.order).toEqual(["push", "location"]);
+    location.answer("granted");
+    await location.done;
+    expect(location.seen.status).toBe("granted");
+});
+
+test("Android: localização pendurada (pedido de terceiro trocou o listener) → no limite a home segue e a notificação sai", async () => {
+    state.os = "android";
+    (globalThis as any).isAdsEnabled = false;
+    state.androidAnswers = ["granted"];
+    const {default: Utils, withPermissionPrompt} = await load();
+    const location = homeLocation(withPermissionPrompt); // nunca responde
+    Utils.requestTrackingWhenActive(appConfig, appStrings);
+    await advance(LIMIT - 1000);
+    expect(location.seen).toEqual({});
+    expect(state.order).toEqual(["location"]);
+    await advance(1000);
+    await location.done;
+    expect(location.seen.error?.message).toContain("sem resposta no limite");
+    expect(state.order).toEqual(["location", "push"]);
+});
+
+test("iOS 26: localização → ATT → notificação, um de cada vez, cada um no \"ficou ativo\" depois da resposta do anterior", async () => {
+    (globalThis as any).isAdsEnabled = false;
+    state.attHold = true;
+    state.pushStatus = -1;
+    state.pushAnswer = 1;
+    const {default: Utils, withPermissionPrompt} = await load();
+    const location = homeLocation(withPermissionPrompt);
+    Utils.requestTrackingWhenActive(appConfig, appStrings);
+    await flush();
+    expect(state.order).toEqual(["location"]);
+
+    await setAppState("inactive"); // alerta de localização
+    await advance(2 * LIMIT);
+    expect(state.order).toEqual(["location"]);
+    expect(state.attRequests).toBe(0);
+    location.answer("granted");
+    await location.done;
+    await flush();
+    expect(state.order).toEqual(["location"]); // respondida, app ainda inactive
+    await setAppState("active");
+    expect(state.order).toEqual(["location", "att"]);
+    expect(state.attRequests).toBe(1); // uma chamada só, com o app ativo: nenhum descarte
+
+    await setAppState("inactive"); // alerta do ATT
+    state.answerAtt("granted");
+    await flush();
+    expect(state.order).toEqual(["location", "att"]);
+    await setAppState("active");
+    expect(state.order).toEqual(["location", "att", "push"]);
+    expect(consentEvents().at(-1)).toMatchObject({att: "granted", push: "granted", att_attempts: 1, push_attempts: 1});
+});
+
+test("iOS 27: alerta de localização na tela com o app active → o ATT espera a resposta até 60 s; depois disso a trava solta", async () => {
+    (globalThis as any).isAdsEnabled = false;
+    state.attAnswers = ["granted"];
+    const {default: Utils, withPermissionPrompt} = await load();
+    const location = homeLocation(withPermissionPrompt);
+    Utils.requestTrackingWhenActive(appConfig, appStrings);
+    await advance(59000);
+    expect(state.order).toEqual(["location"]);
+    expect(location.seen).toEqual({});
+    await advance(1000);
+    await location.done;
+    expect(location.seen.error?.message).toContain("sem resposta no limite");
+    expect(state.order).toEqual(["location", "att"]);
 });
