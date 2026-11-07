@@ -74,6 +74,7 @@ export const ads = {
     lifecycleModule: true, // NativeModules.ReactNativeAppLifecycle presente (app instalou o react-native-applifecycle)
     premium: false,
     attGate: Promise.resolve() as Promise<void>, // waitAttFlowDone()
+    attPending: false, // isAttPending(): o ATT ainda vai pedir nesta abertura
     attTimeouts: [] as Array<number | undefined>,
     appStateListeners: [] as Array<(state: string) => void>,
     lifecycleListeners: [] as Array<{event: string; fn: (event: any) => void}>,
@@ -89,6 +90,7 @@ export function resetAds() {
     ads.lifecycleModule = true;
     ads.premium = false;
     ads.attGate = Promise.resolve();
+    ads.attPending = false;
     ads.attTimeouts.length = 0;
     ads.appStateListeners.length = 0;
     ads.lifecycleListeners.length = 0;
@@ -154,6 +156,7 @@ export function installAdsMocks() {
         expoUtilsWarn: (...args: any[]) => {
             ads.warns.push(args);
         },
+        isAttPending: () => ads.attPending,
         waitAttFlowDone: (timeoutMs?: number) => {
             ads.attTimeouts.push(timeoutMs);
             return ads.attGate;

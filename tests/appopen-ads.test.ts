@@ -84,6 +84,21 @@ describe("gatilho da volta", () => {
         expect(appOpens()).toHaveLength(1);
     });
 
+    test("iOS com o ATT pendente de nova tentativa: a volta não mostra app open (não saem juntos); sem pendência, mostra", async () => {
+        ads.os = "ios";
+        const {setupAppOpenListener} = await load();
+        setupAppOpenListener();
+        ads.attPending = true;
+        await appState("background");
+        await appState("active");
+        expect(appOpens()).toHaveLength(0);
+        // A janela não fechou: a próxima volta, já sem ATT pendente, mostra.
+        ads.attPending = false;
+        await appState("background");
+        await appState("active");
+        expect(appOpens()).toHaveLength(1);
+    });
+
     test("registro único: chamar de novo não assina outra vez", async () => {
         const {setupAppOpenListener} = await load();
         setupAppOpenListener();

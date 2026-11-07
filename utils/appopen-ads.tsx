@@ -1,6 +1,6 @@
 import {AppOpenAd, AdEventType} from "react-native-google-mobile-ads";
 import {generatePlacementId, isAdTypeBlocked, isPlacementBlocked} from "./AdPlacementTracker";
-import {expoUtilsLog, expoUtilsWarn, waitAttFlowDone} from "./Utils";
+import {expoUtilsLog, expoUtilsWarn, isAttPending, waitAttFlowDone} from "./Utils";
 import {PremiumUtils} from "./PremiumUtils";
 import {logAdRevenue} from "./ad-revenue";
 import {addAppLifecycleListener} from "./app-lifecycle";
@@ -68,6 +68,11 @@ export const setupAppOpenListener = (adUnitId?: string) => {
                 if (!unitId) return;
 
                 if (!(canShowAppOpenAgain && appState.current === "background" && nextAppState === "active")) return;
+                // O ATT vai pedir nesta volta (nova tentativa do portão, utils/permission-gate.ts): o app open não sai junto.
+                if (isAttPending()) {
+                    expoUtilsLog("[expo-utils] AppOpen: ATT pendente nesta volta — sem anúncio.");
+                    return;
+                }
                 // Fecha a janela ANTES de qualquer await — transições rápidas não disparam 2 loads.
                 canShowAppOpenAgain = false;
 

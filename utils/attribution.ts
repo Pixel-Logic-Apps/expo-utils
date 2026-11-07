@@ -341,6 +341,19 @@ export const runAttributionPhase2 = (rckey?: string, att?: string): Promise<void
 };
 
 /**
+ * ATT concedido depois da fase 2 (nova tentativa do portão no próximo `active`, utils/permission-gate.ts): a fase 2
+ * coletou os identificadores sem o IDFA. Espera a fase 2 terminar, recoleta (agora com o IDFA) e envia já. Nunca lança.
+ */
+export const refreshAttributionAfterAtt = async (rckey?: string): Promise<void> => {
+    if (!rckey) return;
+    try {
+        await phase2Promise;
+    } catch {}
+    await runStep("ids", () => Purchases.collectDeviceIdentifiers());
+    if (steps.ids === "ok") await scheduleRcSync(true);
+};
+
+/**
  * Atributo que depende de um SDK que sobe tarde (TikTok, link-in-bio): grava e agenda o envio.
  * No-op silencioso sem RevenueCat configurado.
  */

@@ -71,13 +71,14 @@ import {
     fetchAndActivate,
     getValue,
 } from "@react-native-firebase/remote-config";
-import {getMessaging, requestPermission, onMessage, subscribeToTopic, getToken, setBackgroundMessageHandler, experimentalSetDeliveryMetricsExportedToBigQueryEnabled, registerDeviceForRemoteMessages, isDeviceRegisteredForRemoteMessages, getAPNSToken, onNotificationOpenedApp, getInitialNotification} from "@react-native-firebase/messaging";
+import {getMessaging, requestPermission, hasPermission, onMessage, subscribeToTopic, getToken, setBackgroundMessageHandler, experimentalSetDeliveryMetricsExportedToBigQueryEnabled, registerDeviceForRemoteMessages, isDeviceRegisteredForRemoteMessages, getAPNSToken, onNotificationOpenedApp, getInitialNotification} from "@react-native-firebase/messaging";
 import {getApp} from "@react-native-firebase/app";
 import TiktokAdsEvents, {TikTokStandardEvents, TikTokWaitForConfig} from "expo-tiktok-ads-events";
 import {trackLinkInBioInstall} from "./link-in-bio";
 import {logUtilsEvent, setUtilsUserProperty} from "./analytics";
 import {initAdRevenue} from "./ad-revenue";
-import {runAttributionPhase1, runAttributionPhase2, setRcAttributesLate} from "./attribution";
+import {refreshAttributionAfterAtt, runAttributionPhase1, runAttributionPhase2, setRcAttributesLate} from "./attribution";
+import {createPermissionGate, TIMED_OUT, withTimeout, type PermissionFlow} from "./permission-gate";
 import {logPushOpened, logPushReceived} from "./push-analytics";
 import {getRevenueCatStatus as classifyRevenueCatStatus, syncRcStatus, type RcStatus} from "./rc-status";
 import {showRetentionPreview} from "./retention-events";
@@ -254,13 +255,91 @@ export const waitAttFlowDone = (timeoutMs = 15000): Promise<void> => {
     return Promise.race([attFlowDonePromise, new Promise<void>((resolve) => setTimeout(resolve, timeoutMs))]);
 };
 
+// Limite de cada pedido de permissão e de quanto a cadeia espera o ATT e a notificação. É limite, não espera: o pedido
+// sai assim que o app está ativo (utils/permission-gate.ts) e o limite só vale quando a resposta não vem — promessa
+// nativa pendurada, ou app que não volta a ficar ativo (iPad em tela dividida). Aí a lib segue sem travar push, FB,
+// atribuição, TikTok e o diálogo de update; a resposta que vier depois atualiza FB, atribuição e telemetria.
+const PERMISSION_LIMIT_MS = 20000;
+
+// AuthorizationStatus do RNFB: -1 não determinado, 0 negado, 1 autorizado, 2 provisório, 3 efêmero
+const pushStatusLabel = (status: number): string =>
+    status === 1 ? "granted" : status === 2 ? "provisional" : status === 3 ? "ephemeral" : status === 0 ? "denied" : "undetermined";
+
+// Status da notificação sem pedir nada. Android: POST_NOTIFICATIONS concedida ou não (o RN não diz se já foi perguntada).
+const readPushPermission = async (): Promise<string> => {
+    if (Platform.OS === "android") {
+        return (await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS)) ? "granted" : "denied";
+    }
+    return pushStatusLabel(Number(await hasPermission(getMessaging(getApp()))));
+};
+
+// ATT: um fluxo por abertura. Pede só com o app ativo e, se o iOS descartar (volta `undetermined`), pede de novo no
+// próximo "ficou ativo", até 3 vezes. Regras e motivo em utils/permission-gate.ts.
+const attGate = createPermissionGate<string>({
+    appState: AppState,
+    read: async () => String((await getTrackingPermissionsAsync()).status),
+    request: async () => String((await requestTrackingPermissionsAsync()).status),
+    canAsk: (status) => status === "undetermined",
+    requestLimitMs: PERMISSION_LIMIT_MS,
+});
+
+// Notificação (Android 13+: POST_NOTIFICATIONS; iOS: Firebase messaging) pela mesma regra. No Android o status lido não
+// separa "negado" de "nunca perguntado", então o pedido conta como perdido quando volta negado SEM o app sair de
+// `active`: o diálogo nem apareceu (o sistema cancela o pedido concorrente). Antes do Android 13 não há diálogo (o RN
+// resolve na hora): um pedido só, como antes.
+const pushGate = createPermissionGate<string>({
+    appState: AppState,
+    read: readPushPermission,
+    request: () => Utils.requestPushPermission(),
+    canAsk: (status) => (Platform.OS === "android" ? status !== "granted" : status === "undetermined"),
+    lost: (status, leftActive) =>
+        Platform.OS === "android"
+            ? Number(Platform.Version) >= 33 && !leftActive && (status === "denied" || status === "never_ask_again")
+            : status === "undetermined",
+    requestLimitMs: PERMISSION_LIMIT_MS,
+});
+
+/**
+ * O ATT ainda vai pedir (ou está pedindo) nesta abertura: o anúncio de abertura não aparece nessa volta ao app, para
+ * os dois não saírem juntos (utils/appopen-ads.tsx).
+ */
+export const isAttPending = (): boolean => attGate.isPending();
+
 // `consent_flow`: resultado do UMP, do ATT e do push num evento só — 1x por instalação e de
 // novo apenas quando algum dos três muda (taxa de opt-in por país/versão mexe direto no eCPM).
-const reportConsentFlow = async (att: string, push: string): Promise<void> => {
-    const value = `${umpOutcome}|${att}|${push}`;
-    if ((await AsyncStorage.getItem("@expo_utils_consent")) === value) return;
-    await AsyncStorage.setItem("@expo_utils_consent", value);
-    logUtilsEvent("consent_flow", {ump: umpOutcome, att, push});
+// `att_attempts`/`push_attempts`: quantos pedidos cada um precisou nesta abertura. Sai também quando a resposta chega
+// depois do limite da cadeia (nova tentativa no próximo active) e muda algum dos três.
+const consent = {att: "na", attAttempts: 0, push: "skipped", pushAttempts: 0, reported: false};
+let consentReport: Promise<void> = Promise.resolve();
+const reportConsentFlow = (): Promise<void> => {
+    // Em fila: a cadeia e uma resposta tardia não leem o AsyncStorage ao mesmo tempo (sairia 2x o mesmo valor).
+    consentReport = consentReport
+        .then(async () => {
+            const value = `${umpOutcome}|${consent.att}|${consent.push}`;
+            if ((await AsyncStorage.getItem("@expo_utils_consent")) === value) return;
+            await AsyncStorage.setItem("@expo_utils_consent", value);
+            logUtilsEvent("consent_flow", {
+                ump: umpOutcome,
+                att: consent.att,
+                push: consent.push,
+                att_attempts: consent.attAttempts,
+                push_attempts: consent.pushAttempts,
+            });
+        })
+        .catch(() => {});
+    return consentReport;
+};
+
+// ATT concedido numa nova tentativa depois de o FB e a fase 2 da atribuição terem subido com granted=false: o FB passa
+// a coletar o IDFA e a atribuição recoleta os identificadores, agora com ele.
+const applyLateAttGrant = async (rckey?: string): Promise<void> => {
+    try {
+        FbsdkSettings.setAdvertiserIDCollectionEnabled(true);
+        await FbsdkSettings.setAdvertiserTrackingEnabled(true);
+    } catch (e) {
+        expoUtilsWarn("applyLateAttGrant:", e);
+    }
+    await refreshAttributionAfterAtt(rckey);
 };
 
 // Memos de boot: Remote Config compartilhado entre prepare() e banners; prepare roda 1x.
@@ -840,9 +919,11 @@ const Utils = {
 
     /**
      * Solicita a permissão de Push Notifications (Android: POST_NOTIFICATIONS; iOS: Firebase
-     * messaging). NÃO chama ATT — é permissão separada. É invocada por requestTrackingWhenActive
-     * (depois do prompt ATT, em ambas as plataformas). Não é pré-requisito para inscrição em
-     * tópicos: a permissão só controla a EXIBIÇÃO da notificação, não a inscrição/recebimento.
+     * messaging), um pedido só, na hora. NÃO chama ATT — é permissão separada. A cadeia da lib
+     * (requestTrackingWhenActive, depois do ATT) chama esta função pelo portão de permissões
+     * (app ativo, nova tentativa no próximo active, limite de tempo — utils/permission-gate.ts).
+     * Não é pré-requisito para inscrição em tópicos: a permissão só controla a EXIBIÇÃO da
+     * notificação, não a inscrição/recebimento.
      */
     requestPushPermission: async (): Promise<string> => {
         try {
@@ -850,9 +931,7 @@ const Utils = {
                 // "granted" | "denied" | "never_ask_again" (Android < 13 resolve sem diálogo)
                 return String(await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS));
             }
-            // AuthorizationStatus do RNFB: -1 não determinado, 0 negado, 1 autorizado, 2 provisório, 3 efêmero
-            const status = Number(await requestPermission(getMessaging(getApp())));
-            return status === 1 ? "granted" : status === 2 ? "provisional" : status === 3 ? "ephemeral" : status === 0 ? "denied" : "undetermined";
+            return pushStatusLabel(Number(await requestPermission(getMessaging(getApp()))));
         } catch (e) {
             expoUtilsWarn("requestPushPermission:", e);
             return "error";
@@ -899,9 +978,17 @@ const Utils = {
 
     /**
      * Chamado via <View onLayout={Utils.handleReady} /> no layout, logo após o primeiro frame.
-     * Esconde o splash na hora e, 2s depois, dispara a cadeia de consentimento (UMP → ATT → push → …).
-     * Sem espera fixa no splash: até a 1.5.6 havia mais 3s aqui, sem motivo, e cada abertura levava 3s a mais.
-     * Os 2s ficam: separam os pedidos de permissão da lib dos que a home faz ao montar.
+     * Esconde o splash e dispara a cadeia de consentimento (UMP → ATT → push → …) na hora, sem espera fixa.
+     *
+     * Até a 1.5.6 havia 3s aqui antes do hideAsync, mais 2s até a cadeia, e o ATT ainda esperava 1s e
+     * "até 4s pelo active, depois pede mesmo assim". O motivo dos 3s era o ATT (dito pelo dono em
+     * 06/11/2026): às vezes o app abria e o ATT não aparecia. Era gambiarra: o splash não bloqueia o
+     * ATT (o alerta do iOS aparece por cima dele) e nenhuma espera fixa garante o app ativo — elas só
+     * afastavam, por acaso, o pedido da lib do alerta de localização e do ATT que a home pede ao montar.
+     * A causa é o iOS descartar o ATT pedido com o app fora de `active` ou com outro pedido pendente, e
+     * a correção é o portão de permissões (utils/permission-gate.ts): pede com o app ativo e pede de novo
+     * no próximo "ficou ativo". Não recoloque espera fixa aqui nem antes de um pedido de permissão.
+     *
      * O catch do hideAsync é obrigatório: rejeitado sem catch, pararia UMP, ATT, push e a fase 2 da sessão.
      * Roda uma única vez; usa o appConfig/appStrings capturados no prepare().
      */
@@ -909,7 +996,7 @@ const Utils = {
         if (bootDone) return;
         bootDone = true;
         SplashScreen.hideAsync().catch((e) => expoUtilsWarn("SplashScreen.hideAsync:", e));
-        setTimeout(async () => await Utils.requestTrackingWhenActive(bootAppConfig, bootAppStrings, bootFcmTrackingAllowed), 2000);
+        Utils.requestTrackingWhenActive(bootAppConfig, bootAppStrings, bootFcmTrackingAllowed).catch((e) => expoUtilsWarn("requestTrackingWhenActive:", e));
     },
 
     /**
@@ -1036,14 +1123,19 @@ const Utils = {
      *   1. UMP + init do Google Mobile Ads (setupMobileAds): consentimento de ads vem ANTES do
      *      ATT — ordem recomendada pelo Google e o iOS só exibe um modal de sistema por vez.
      *      Fora de EEA/UK/US regulado não mostra nada e sai rápido.
-     *   2. ATT (somente iOS): garante app em foreground/active antes de requestTrackingAuthorization
-     *      — requisito do iOS 15+, senão o prompt é descartado silenciosamente. Pré-checa o status
-     *      e só pede quando 'undetermined'. A espera por foreground tem timeout (NÃO trava o app).
+     *   2. ATT (somente iOS), pelo portão de permissões (utils/permission-gate.ts): relê o status e
+     *      só pede quando 'undetermined'; pede só com o app `active` (senão espera o evento, nunca
+     *      timer); se o iOS descartar (volta 'undetermined'), pede de novo no próximo "ficou ativo",
+     *      até 3 vezes por abertura. A cadeia espera o resultado por no máximo PERMISSION_LIMIT_MS e
+     *      segue; a resposta que vier depois atualiza `att_status`, o `consent_flow`, o FB e a atribuição.
      *   3. FB SDK + fase 2 da atribuição do RevenueCat, em cadeia DESTACADA (não aguardada):
      *      sai assim que o ATT resolve e não fica atrás de push/TikTok. O advertiser/IDFA do FB
-     *      recebe o resultado REAL do ATT (granted); sem consentimento o IDFA fica zerado.
-     *   4. Push permission (iOS + Android), se fcmTrackingAllowed. Em seguida o evento
-     *      `consent_flow` (ump/att/push) — 1x por instalação e quando algum deles muda.
+     *      recebe o resultado REAL do ATT (granted); sem consentimento o IDFA fica zerado. ATT
+     *      concedido numa nova tentativa, depois disso: FB avisado (setAdvertiserTrackingEnabled(true))
+     *      e identificadores recoletados.
+     *   4. Push permission (iOS + Android), se fcmTrackingAllowed, pelo mesmo portão (no Android,
+     *      pedido cancelado pelo sistema ou pendurado pede de novo no próximo active). Em seguida o
+     *      evento `consent_flow` (ump/att/push + tentativas) — 1x por instalação e quando algum muda.
      *   5. TikTok, link-in-bio e o diálogo de update obrigatório.
      *
      * @param appConfig   app.json (para FB App ID, bundle/package, etc.)
@@ -1053,57 +1145,30 @@ const Utils = {
      */
     requestTrackingWhenActive: async (appConfig?: any, appStrings?: AppStrings, fcmTrackingAllowed: boolean = true): Promise<boolean> => {
         let granted = true;
-        let attStatus = "na"; // Android/web: não existe ATT
+        consent.att = "na"; // Android/web: não existe ATT
 
         // UMP antes do ATT (ver ordem no comentário acima). Memoizado e com timeout próprio.
         await Utils.setupMobileAds(appConfig ?? bootAppConfig);
 
+        let attFlow: PermissionFlow<string> | null = null;
         if (Platform.OS === "ios") {
             try {
-                const current = await getTrackingPermissionsAsync();
-                if (current.status === "undetermined") {
-                    // O prompt do ATT só é exibido com o app em foreground/active. Esperamos esse
-                    // estado, mas SEMPRE com timeout de fallback para NUNCA travar o boot do app
-                    // (ex.: iPad em multitarefa/Split View pode reportar "inactive" indefinidamente).
-                    if (AppState.currentState !== "active") {
-                        await new Promise<void>((resolve) => {
-                            let done = false;
-                            const finish = () => {
-                                if (done) return;
-                                done = true;
-                                sub.remove();
-                                clearTimeout(timer);
-                                resolve();
-                            };
-                            const sub = AppState.addEventListener("change", (next) => {
-                                if (next === "active") finish();
-                            });
-                            const timer = setTimeout(finish, 4000);
-                            // Caso já tenha virado active entre a checagem e o registro do listener.
-                            if (AppState.currentState === "active") finish();
-                        });
-                    }
-                    // O useEffect roda no COMMIT do React, que NÃO é o frame apresentado na tela.
-                    // O iOS descarta o prompt se ele dispara antes do 1º frame — então damos um
-                    // tempo conservador para o frame ser apresentado antes de pedir o ATT.
-                    await new Promise<void>((resolve) => setTimeout(resolve, 1000));
-                    const result = await requestTrackingPermissionsAsync();
-                    granted = result.status === "granted";
-                    attStatus = String(result.status);
-                } else {
-                    granted = current.status === "granted";
-                    attStatus = String(current.status);
-                }
+                attFlow = attGate.run();
+                const outcome = await withTimeout(attFlow.final, PERMISSION_LIMIT_MS);
+                // No limite a cadeia segue com o status de agora; o portão continua e a resposta tardia é tratada abaixo.
+                consent.att = outcome === TIMED_OUT ? String((await getTrackingPermissionsAsync()).status) : outcome.status;
+                consent.attAttempts = attGate.attempts();
+                granted = consent.att === "granted";
             } catch (e) {
                 expoUtilsWarn("requestTrackingWhenActive:", e);
                 granted = false;
-                attStatus = "error";
+                consent.att = "error";
             }
         }
 
-        // Prompt do ATT resolvido (ou plataforma sem ATT): libera o gate do promo (waitAttFlowDone).
+        // ATT resolvido, no limite ou plataforma sem ATT: libera o gate do promo (waitAttFlowDone).
         settleAttFlow();
-        setUtilsUserProperty("att_status", attStatus);
+        setUtilsUserProperty("att_status", consent.att);
 
         const rckey = usableRcKey(appStrings?.rckey);
         const remoteConfigs = (global as any).remoteConfigUtils as RemoteConfigUtilsType;
@@ -1113,17 +1178,51 @@ const Utils = {
         // Não é aguardada: o prompt de push e o resto da fila não ficam atrás dela, nem ela
         // atrás deles. Antes a atribuição era o ÚLTIMO passo (depois de push, TikTok com até
         // 10s, link-in-bio e update dialog) — quem comprava no 1º minuto saía sem atributo.
-        (async () => {
+        const attStatus = consent.att;
+        const fbAndAttribution = (async () => {
             try { await Utils.initFBSDK(appConfig, granted); } catch (e) { expoUtilsWarn("initFBSDK:", e); }
             await Utils.setupAttribution(rckey, granted, attStatus);
         })().catch((e) => expoUtilsWarn("setupAttribution:", e));
 
-        // Push (iOS e Android) — não é tracking de IDFA, roda independente do ATT.
-        let pushStatus = "skipped";
+        // Resposta do ATT depois do limite (nova tentativa no próximo active): atualiza a telemetria e, se concedido,
+        // avisa o FB e recoleta os identificadores da atribuição — depois de eles terem subido com granted=false.
+        attFlow?.final.then(
+            (late) => {
+                consent.attAttempts = late.attempts;
+                if (late.status === consent.att) return;
+                consent.att = late.status;
+                setUtilsUserProperty("att_status", late.status);
+                if (late.status === "granted" && !granted) fbAndAttribution.then(() => applyLateAttGrant(rckey)).catch((e) => expoUtilsWarn("applyLateAttGrant:", e));
+                if (consent.reported) reportConsentFlow();
+            },
+            () => {},
+        );
+
+        // Push (iOS e Android) — não é tracking de IDFA, roda independente do ATT. A cadeia espera só o 1º desfecho:
+        // pedido perdido arma a nova tentativa sem segurar TikTok, link-in-bio e o diálogo de update.
+        consent.push = "skipped";
         if (fcmTrackingAllowed) {
-            try { pushStatus = await Utils.requestPushPermission(); } catch (e) { expoUtilsWarn("requestPushPermission:", e); }
+            try {
+                const pushFlow = pushGate.run();
+                const outcome = await withTimeout(pushFlow.first, PERMISSION_LIMIT_MS);
+                consent.push = outcome === TIMED_OUT ? "timeout" : outcome.status;
+                consent.pushAttempts = pushGate.attempts();
+                pushFlow.final.then(
+                    (late) => {
+                        if (late.status === consent.push && late.attempts === consent.pushAttempts) return;
+                        consent.push = late.status;
+                        consent.pushAttempts = late.attempts;
+                        if (consent.reported) reportConsentFlow();
+                    },
+                    () => {},
+                );
+            } catch (e) {
+                expoUtilsWarn("requestPushPermission:", e);
+                consent.push = "error";
+            }
         }
-        reportConsentFlow(attStatus, pushStatus).catch(() => {});
+        consent.reported = true;
+        reportConsentFlow();
 
         // TikTok/link-in-bio inicializam para SKAdNetwork/atribuição agregada (não recebem IDFA
         // do nosso código); cada um grava o próprio atributo no RevenueCat quando sobe.

@@ -1,5 +1,6 @@
-// Utils.handleReady: esconde o splash na hora (até a 1.5.6 segurava 3 s sem motivo) e dispara a cadeia de
-// consentimento 2 s depois, como antes. Um hideAsync rejeitado não pode parar a cadeia (UMP, ATT, push, fase 2).
+// Utils.handleReady: esconde o splash e dispara a cadeia de consentimento na hora, sem espera fixa (até a 1.5.6: 3 s
+// no splash + 2 s até a cadeia, gambiarra para o ATT — hoje o portão de permissões espera o app ativo por evento).
+// Um hideAsync rejeitado não pode parar a cadeia (UMP, ATT, push, fase 2).
 // Importa o Utils.ts de verdade, com todas as dependências mockadas (nenhuma está instalada neste repo).
 // O bootDone é de módulo: handleReady roda 1x por arquivo, então o teste é um fluxo só, em ordem.
 import {afterAll, expect, jest, mock, test} from "bun:test";
@@ -52,6 +53,7 @@ mock.module("@react-native-firebase/remote-config", () => ({getRemoteConfig: stu
 mock.module("@react-native-firebase/messaging", () => ({
     getMessaging: stub(),
     requestPermission: resolved(),
+    hasPermission: resolved(1),
     onMessage: stub(),
     subscribeToTopic: resolved(),
     getToken: resolved(),
@@ -79,7 +81,7 @@ mock.module("../utils/analytics", () => ({
     setUtilsUserProperty: stub(),
 }));
 mock.module("../utils/ad-revenue", () => ({initAdRevenue: stub()}));
-mock.module("../utils/attribution", () => ({runAttributionPhase1: resolved(), runAttributionPhase2: resolved(), setRcAttributesLate: stub()}));
+mock.module("../utils/attribution", () => ({runAttributionPhase1: resolved(), runAttributionPhase2: resolved(), setRcAttributesLate: stub(), refreshAttributionAfterAtt: resolved()}));
 mock.module("../utils/push-analytics", () => ({logPushOpened: stub(), logPushReceived: stub()}));
 mock.module("../utils/rc-status", () => ({getRevenueCatStatus: stub(), syncRcStatus: resolved()}));
 mock.module("../utils/retention-events", () => ({showRetentionPreview: stub()}));
@@ -102,23 +104,15 @@ const flush = async () => {
 jest.useFakeTimers();
 afterAll(() => jest.useRealTimers());
 
-test("esconde o splash na hora, sem espera fixa", async () => {
+test("esconde o splash e dispara a cadeia na hora, sem timer; hideAsync rejeitado não para a cadeia", async () => {
     Utils.handleReady();
-    expect(calls).toEqual(["hideAsync"]);
+    expect(calls).toEqual(["hideAsync", "requestTrackingWhenActive"]);
+    expect(jest.getTimerCount()).toBe(0);
+    // Sem prepare(): appConfig/appStrings do boot vazios e push permitido (o padrão).
+    expect(consentArgs).toEqual([[undefined, undefined, true]]);
     await flush();
     // O hideAsync rejeitado virou warn (com catch): não é unhandled rejection.
     expect(warns.some(([message]) => String(message).includes("hideAsync"))).toBe(true);
-});
-
-test("hideAsync rejeitado não para a cadeia: o consentimento sai 2 s depois, como antes", async () => {
-    jest.advanceTimersByTime(1999);
-    await flush();
-    expect(calls).toEqual(["hideAsync"]);
-    jest.advanceTimersByTime(1);
-    await flush();
-    expect(calls).toEqual(["hideAsync", "requestTrackingWhenActive"]);
-    // Sem prepare(): appConfig/appStrings do boot vazios e push permitido (o padrão).
-    expect(consentArgs).toEqual([[undefined, undefined, true]]);
 });
 
 test("roda 1x: o 2º onLayout não esconde de novo nem repete a cadeia", async () => {
