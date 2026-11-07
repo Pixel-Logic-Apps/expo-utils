@@ -660,9 +660,10 @@ prepare()                       Remote Config → Purchases.configure → ATRIBU
 handleReady (1º frame)          esconde o splash e dispara a cadeia na hora (sem espera fixa)
 requestTrackingWhenActive       UMP → ATT* → [FB → ATRIBUIÇÃO FASE 2] (destacada) → push* → consent_flow
                                 → TikTok → link-in-bio → update dialog
-                                * portão de permissões: pede com o app ativo, nova tentativa no próximo
-                                  "ficou ativo" (até 3 por abertura), limite de 20s por pedido; o push só
-                                  pede depois do fim do ATT (sem limite nessa ordem)
+                                * portão de permissões: pede com o app ativo, um pedido por vez na trava única
+                                  (a mesma de Utils.withPermissionPrompt), nova tentativa no próximo "ficou ativo"
+                                  (até 3 por abertura), a cadeia espera no máximo 20s; o push só pede depois do
+                                  fim do ATT (sem limite nessa ordem)
 ```
 
 **Splash e permissões sem espera fixa (1.5.7):** o `handleReady` esconde o splash assim que o 1º frame é desenhado e
@@ -673,8 +674,15 @@ não bloqueia o ATT e nenhuma espera garante o app ativo; elas só afastavam, po
 localização e do ATT que a home pede ao montar. A causa é o iOS descartar o ATT pedido com o app fora de `active` ou com
 outro pedido pendente; no lugar das esperas entrou o portão de permissões (`utils/permission-gate.ts`, regra no README,
 "Ordem de Permissões"). Ao migrar, tire do app qualquer espera própria antes do `hideAsync` (timer no layout, shim que
-repita os 3s): quem esconde o splash é a lib. O ATT próprio do app (ex.: home pedindo em 1,5s) pode ficar — se atropelar
-o da lib, ela pede de novo no próximo "ficou ativo" —, mas não é necessário. Não recoloque espera fixa.
+repita os 3s): quem esconde o splash é a lib. Não recoloque espera fixa.
+
+**Pedidos de permissão do app (obrigatório ao migrar, 1.5.7):** todo pedido que possa sair na abertura passa pela trava
+da lib, `await Utils.withPermissionPrompt(() => Location.requestForegroundPermissionsAsync())`. Procure no app com
+`grep -rnE "request[A-Za-z]*Permission" src/`. No Android, sem a trava, a localização pedida ao montar a home pode cair na
+mesma janela do pedido de notificação da lib: a resposta se perde, a promessa do `expo-location` nunca resolve, e a tela
+que espera por ela fica sem responder ao toque até a próxima abertura. Sem resposta no limite, a promessa rejeita: deixe
+a chamada num `try/catch` e trate como "sem permissão". Não ponha rede nem outra permissão dentro de `fn`. O ATT próprio do
+app (ex.: home pedindo em 1,5s) não é necessário, porque a lib já pede; se ficar, passe pela mesma trava.
 
 - **Fase 1** (sem consentimento): AdServices (iOS), `$firebaseAppInstanceId`, atributos de contexto
   (`language`, `locale`, `device_region`, `currency`, `timezone`, `store_country`, `app_version`…),

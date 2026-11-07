@@ -1841,8 +1841,9 @@ O iOS tem um comportamento específico com diálogos de permissão:
    pedido em silêncio: o retorno chega em milissegundos como `not-determined`, igual a "nunca perguntado", e a doc da
    Apple manda pedir de novo. O `expo-tracking-transparency` pede uma vez só.
 
-No Android, um pedido de permissão feito enquanto outro está aberto é cancelado pelo sistema, e a promessa do RN pode
-ficar pendurada (o RN guarda um listener de permissão só).
+No Android, o RN guarda um listener de permissão só. Um 2º pedido feito antes de o 1º diálogo pausar a Activity troca o
+listener e a resposta do 1º se perde. Se o 1º era do Expo (ex.: `expo-location`), a promessa nunca resolve e todo pedido
+do Expo depois dela fica parado até a próxima abertura; uma tela que espera essa promessa fica sem responder ao toque.
 
 **Regra do expo-utils (uma só, para ATT e notificação, iOS e Android — `utils/permission-gate.ts`):**
 - Ordem: UMP → ATT → notificação, depois do 1º frame (`Utils.handleReady`).
@@ -1851,22 +1852,42 @@ ficar pendurada (o RN guarda um listener de permissão só).
 - Relê o status (e confere o app ativo de novo) logo antes de cada pedido: nunca pede o que já foi respondido.
 - Pedido descartado (ATT volta `undetermined`) ou cancelado (Android: negado sem o diálogo aparecer) → pede de novo no
   próximo "ficou ativo", até 3 vezes por abertura. A próxima abertura tenta de novo.
-- Um pedido por vez, e a notificação só é pedida **depois do fim do ATT** (resposta ou 3 pedidos perdidos), sem limite
-  nessa espera: mesmo com o ATT na tela além de 20s, ou com o app fora de `active` e os dois esperando o mesmo "ficou
-  ativo", a notificação não sai junto nem antes dele.
-- Todo pedido tem limite de tempo (20s): se a resposta não vem, a cadeia segue (Facebook, atribuição, TikTok e o
-  diálogo de update não travam). ATT concedido depois disso avisa o Facebook (`setAdvertiserTrackingEnabled(true)`) e
-  recoleta os identificadores da atribuição.
+- Um pedido por vez, na trava única (abaixo), e a notificação só é pedida **depois do fim do ATT** (resposta ou 3
+  pedidos perdidos), sem limite nessa espera: mesmo com o ATT na tela além do limite, ou com o app fora de `active` e os
+  dois esperando o mesmo "ficou ativo", a notificação não sai junto nem antes dele.
+- Todo pedido tem limite de tempo, e a cadeia espera no máximo 20s: se a resposta não vem, ela segue (Facebook,
+  atribuição, TikTok e o diálogo de update não travam). ATT concedido depois disso avisa o Facebook
+  (`setAdvertiserTrackingEnabled(true)`) e recoleta os identificadores da atribuição.
 - Com o ATT pendente (sem resposta e o UMP ainda rodando antes dele, ou nova tentativa armada), o anúncio de abertura
   não aparece naquela volta ao app.
 - Telemetria: `consent_flow` traz `att_attempts` e `push_attempts` (ver `docs/ANALYTICS-EVENTS.md`).
+
+**Pedido de permissão do app: `Utils.withPermissionPrompt`.** Todo pedido do app que possa sair na abertura passa pela
+mesma trava de ATT e notificação da lib:
+
+```ts
+import {Utils} from "expo-utils"; // ou {withPermissionPrompt}
+
+const {status} = await Utils.withPermissionPrompt(() => Location.requestForegroundPermissionsAsync());
+```
+
+- Uma permissão de cada vez, nos dois sistemas. Quem pede primeiro vai primeiro: sem ordem fixa e sem reserva de lugar.
+  Com a home pedindo localização ao montar, a ordem fica localização → ATT → notificação.
+- Espera a vez e o app ativo (por evento, sem temporizador), roda `fn` e solta a trava. `Utils.requestPushPermission()`
+  já passa por ela.
+- Em `fn` vai só o pedido, sem rede nem outra permissão dentro.
+- Se a resposta não vier no limite (promessa pendurada), a promessa **rejeita** e a trava solta: trate como "sem
+  permissão", com `try/catch`. O limite é de 20s no Android e 60s no iOS, e só corre com o app ativo: com o diálogo
+  tirando o app de `active` (Android e iOS 26), ele não corre e nada sai por cima. No iOS 27 o alerta não tira o app de
+  `active`; se a pessoa deixar o alerta aberto além dos 60s, o próximo pedido sai por cima dele, como acontecia sem a
+  trava.
 
 **Sem espera fixa.** Até a 1.5.6 a lib segurava o splash 3s, esperava mais 2s até a cadeia, e o ATT esperava 1s e "até
 4s pelo `active`, depois pede mesmo assim". Os 3s eram para o ATT (às vezes o app abria e o prompt não aparecia), mas
 eram gambiarra: o splash não bloqueia o ATT (o alerta do iOS aparece por cima dele) e nenhuma espera garante o app
 ativo — elas só afastavam, por acaso, o pedido da lib do alerta de localização e do ATT que a home pede ao montar.
-Não recoloque espera fixa no app nem na lib. Pedido de ATT próprio do app continua funcionando (se atropelar o da lib,
-ela pede de novo), mas não é necessário: a lib já pede.
+Não recoloque espera fixa no app nem na lib. Pedido de ATT próprio do app não é necessário, porque a lib já pede. Se ficar,
+passe por `withPermissionPrompt`: fora da trava, ele pode ser descartado pelo iOS se sair com outro alerta na tela.
 
 ### Ordem de Inicialização de SDKs
 

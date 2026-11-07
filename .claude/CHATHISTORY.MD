@@ -2935,3 +2935,74 @@ os reais, explicar os que não são, rodar os testes, commit e push na main, sem
 
 ### Versão
 1.5.7 (sem mudar `package.json`; tag `v1.5.7` não movida).
+
+## 2026-11-07 — 1.5.7: trava única de permissão (`withPermissionPrompt`)
+
+### Pedido
+O dono pediu uma solução simples, que "não vai causar novos erros e nem rollback de erro que já aconteceu", e aprovou o
+desenho ("ok, implemente isso."): o pedido de localização do app passa pela mesma fila da expo-utils, uma permissão de
+cada vez, nos dois sistemas.
+
+### O problema
+Apontado pelo revisor, por leitura de código; não foi reproduzido em aparelho. No Android, sem as esperas antigas e com
+anúncio desligado (`setupMobileAds` volta na hora: trava da loja, revisão, gradual, `is_ads_enabled=false`), o
+POST_NOTIFICATIONS da lib sai poucos ms depois do `onLayout`, na mesma janela em que a home pede localização ao montar e
+antes de a Activity pausar. O `ReactActivityDelegate` (RN 0.88) troca o listener e a resposta da localização se perde. O
+`PermissionsService` do Expo fica com `mCurrentPermissionListener` preso, a promessa do `expo-location` nunca resolve e
+todo pedido do Expo depois dela entra numa fila que não anda até a próxima abertura. No eleicoes-160 a home do 1º uso fica
+escurecida e sem responder ao toque.
+
+### O que foi feito
+- `createPermissionLock` em `utils/permission-gate.ts`: uma fila na ordem de chegada, um `fn` por vez. Quando chega a vez,
+  espera o app `active` (por evento), roda `fn` e solta a trava no fim, na rejeição ou no limite. Sem reserva de lugar,
+  sem ordem fixa, sem esperar UMP nem `initialize`, sem espera fixa nova e sem dependência nativa.
+- `Utils.withPermissionPrompt(fn)`, também exportada de forma nomeada (`index.ts`, `index.d.ts`). Sem resposta no limite,
+  a promessa rejeita e a trava solta: no eleicoes-160 o `try/catch` de `lugarPelaLocalizacao` devolve `null` e a home segue.
+- ATT e notificação pedem na mesma trava: o portão relê o status e confere o `active` dentro da vez dele, então nada se
+  gasta (tentativa nem limite) enquanto espera na fila. A opção `requestLimitMs` saiu do portão e deu lugar a `lock`.
+  `after` continua: ATT antes da notificação, sem limite. UMP antes do ATT continua na cadeia.
+- `Utils.requestPushPermission()` público também passa pela trava (usado no onboarding do expo-eye-identifier). A cadeia
+  chama o pedido real direto (`askPushPermission`), porque já está na trava.
+- Ordem resultante no Eleições e no Diego, quando usarem a trava: localização → ATT → notificação.
+
+### Limite estourado com diálogo real na tela
+Conferido no fonte do RN 0.88 (`JavaTimerManager`, `AppStateModule`, `ReactActivityDelegate`):
+- Android: os timers do JS congelam com a Activity pausada, mas isso sozinho não protege: seguem durante tarefa headless
+  (`isRunningTasks`), e o timer vencido dispara na retomada, junto com a resposta do diálogo. Por isso o limite da trava
+  só corre com o app `active` e recomeça do zero a cada "ficou ativo". O `background` limpa o timer; na volta, o
+  `onHostResume` avisa `active` antes de o `onResume` entregar a resposta, e a resposta lenta não vira estouro.
+- iOS 26: o alerta deixa o app `inactive`, o limite não corre, e o próximo espera o `active` depois da resposta.
+- iOS 27: o alerta NÃO tira o app de `active`, e nada no JS separa alerta aberto de promessa pendurada. Por isso o limite é
+  60 s no iOS (20 s no Android): no iOS não há caso conhecido de pendurar. Passou de 60 s com o alerta aberto, o próximo
+  sai por cima dele e quem pediu recebe a rejeição. É o caso que sobra, e o teste o deixa registrado. Sem a trava já era
+  assim: no iOS 27 o ATT aparece por cima do alerta de localização (6 de 6). ATT → notificação continua protegido pelo
+  `after`.
+
+### Verificação
+- `tests/run.sh` no repo: 491 pass; só os 2 testes do plugin falham, porque falta `@expo/config-plugins`, igual antes.
+- Na cópia com dependências (scratchpad `eu-gate/repo`): `tests/run.sh` com 502 pass e 0 fail, e `tsc --noEmit` exit 0.
+  `permission-gate.ts` também passa com `--strict`, e o `--strict` do projeto não acusa nada na trava.
+- Testes novos: `tests/permission-gate.test.ts` (concorrência, ordem de chegada, `fn` que rejeita, lança ou pendura, app
+  inativo, diálogo além do limite no Android, iOS 26 e iOS 27, ATT e localização em sequência) e
+  `tests/consent-flow.test.ts` (Utils de verdade: Android com anúncio desligado, a cadeia pedindo primeiro, localização
+  pendurada, iOS 26 localização → ATT → notificação, iOS 27 com 60 s).
+- Mutação: 15 alterações no código da trava (sem fila, sem esperar o active, sem limite, limite correndo com o app inativo,
+  ATT ou notificação fora da trava comum etc.). Todas derrubam ao menos um teste.
+- Não testado em aparelho nem em simulador. O mecanismo do Android segue como leitura de código; a ordem
+  localização → ATT → notificação foi medida no protótipo do iOS (33 de 33), não com este código.
+
+### Riscos anotados
+- A trava só protege quem passa por ela. Falta nos apps: `src/services/localizacao.ts:229-231` do eleicoes-160 e os ATTs
+  próprios das telas (ex.: `(_home)/index.tsx:200`, 1,5 s depois de montar), que seguem fora da fila até serem trocados.
+- A mensagem de IDFA do UMP e pedidos de SDK de terceiros continuam fora da trava.
+- Com a home pedindo primeiro, o ATT espera a resposta da localização: se a pessoa demorar mais de 20 s, a cadeia segue
+  (FB sobe com `false`, `att=undetermined`, `push=timeout`) e a resposta tardia corrige.
+- `withPermissionPrompt` rejeita no limite: chamada sem `try/catch` vira rejeição solta.
+
+### Arquivos
+`utils/permission-gate.ts`, `utils/Utils.ts`, `index.ts`, `index.d.ts`, `tests/permission-gate.test.ts`,
+`tests/consent-flow.test.ts`, `AGENTS.md`, `README.md`, `docs/UPGRADE-EXPO57-EXPO-UTILS.md`, `docs/ANALYTICS-EVENTS.md`,
+`.claude/CHATHISTORY.MD`.
+
+### Versão
+1.5.7 (sem mudar `package.json`; tag `v1.5.7` não movida).

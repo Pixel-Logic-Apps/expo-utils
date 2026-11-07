@@ -43,11 +43,12 @@ não há user property para eles.
 `consent_flow` e o portão de permissões (`utils/permission-gate.ts`): o ATT e a notificação só são pedidos com o app
 `active` e, quando o pedido se perde (ATT descartado pelo iOS = volta `undetermined`; notificação no Android negada sem
 o diálogo aparecer, ou pendurada), são pedidos de novo no próximo "ficou ativo", até 3 vezes por abertura.
-`att_attempts`/`push_attempts` = quantos pedidos saíram nesta abertura: `0` = já estava respondido (nenhum pedido) ou o
-app não ficou ativo; `1` = saiu de primeira; `2`–`3` = o 1º se perdeu (é o caso que até a 1.5.6 ficava sem ATT na
+`att_attempts`/`push_attempts` = quantos pedidos saíram nesta abertura: `0` = já estava respondido (nenhum pedido), o
+app não ficou ativo ou o pedido ainda estava na fila da trava de permissão; `1` = saiu de primeira; `2`–`3` = o 1º se perdeu (é o caso que até a 1.5.6 ficava sem ATT na
 sessão). `att=undetermined` com `att_attempts=3` = desistiu nesta abertura (a próxima tenta de novo). `push=timeout` =
-sem desfecho do push em 20s e a cadeia seguiu: pedido pendurado, app fora de `active`, ou ainda na vez do ATT (a
-notificação só é pedida depois do fim do ATT; nesse caso `push_attempts=0`); a resposta que vier depois sai num
+sem desfecho do push em 20s e a cadeia seguiu: pedido pendurado, app fora de `active`, ainda na vez do ATT (a notificação
+só é pedida depois do fim do ATT; nesse caso `push_attempts=0`) ou na fila atrás de outro pedido (ex.: a localização da
+home, `Utils.withPermissionPrompt`; também `push_attempts=0`); a resposta que vier depois sai num
 `consent_flow` novo. Leitura útil:
 `count(att_attempts>=2) ÷ count(att_attempts>=1)` = estimativa de quanto ATT se perdia com um pedido só.
 

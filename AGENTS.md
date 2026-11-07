@@ -417,8 +417,8 @@ Central initialization module with a `prepare()` function that:
   `utils/permission-gate.ts`), igual para ATT e notificacao, iOS e Android:** pede com o app `active` (senao espera o
   evento do AppState, nunca timer); rele o status e confere o AppState de novo logo antes de cada pedido; pedido
   descartado/cancelado pede de novo no proximo "ficou ativo", ate 3 vezes por abertura; todo pedido tem limite de tempo
-  (`PERMISSION_LIMIT_MS`, 20s) e a cadeia segue sem travar FB/atribuicao/TikTok/update; um pedido por vez (chamadas
-  concorrentes = o mesmo fluxo). **A notificacao so e pedida depois do fim do ATT** (resposta ou 3 perdidos; opcao
+  e a cadeia espera no maximo `PERMISSION_LIMIT_MS` (20s), sem travar FB/atribuicao/TikTok/update; um pedido por vez,
+  na trava unica (item abaixo). **A notificacao so e pedida depois do fim do ATT** (resposta ou 3 perdidos; opcao
   `after` do portao, SEM limite): o limite de 20s vale para a cadeia, nunca para essa ordem. Sem isso, com o ATT alem
   dos 20s (alerta na tela, que no iOS 27 nao deixa o app `inactive`; ou app fora de `active` e os dois portoes
   esperando o mesmo "ficou ativo"), a notificacao saia junto ou antes do ATT. Android:
@@ -431,10 +431,32 @@ Central initialization module with a `prepare()` function that:
   **Nao recoloque espera fixa** (no splash, antes da cadeia ou antes de um pedido): se um app precisar de tempo de marca,
   vira opcao do app, nunca timer no caminho do consentimento. O `catch` do `hideAsync` e obrigatorio: rejeitado sem
   catch parava UMP, ATT, push e a fase 2. Testes: `tests/handle-ready.test.ts`, `tests/permission-gate.test.ts`,
-  `tests/consent-flow.test.ts`. Limite conhecido: o portao protege so os pedidos da LIB. Pedido do proprio app (ex.:
-  localizacao da home no mount) que saia a ~100–300 ms do da lib, antes do 1º dialogo pausar a Activity, ainda pode ser
-  cancelado ou ficar pendurado no Android (RN e Expo dividem um listener de permissao) — fica para a etapa dos apps
-  (fila com a localizacao); conferir na prova de campo no Android 13+
+  `tests/consent-flow.test.ts`
+- **Trava unica de permissao (REGRA, 1.5.7): todo pedido de permissao do app que possa sair na abertura passa por
+  `Utils.withPermissionPrompt(fn)`**, ex.: `await Utils.withPermissionPrompt(() => Location.requestForegroundPermissionsAsync())`.
+  Uma permissao de cada vez, nos dois sistemas, e quem pede primeiro vai primeiro: espera a vez e o app `active` (por
+  evento), roda `fn`, solta a trava. ATT, notificacao e `Utils.requestPushPermission()` usam a mesma trava
+  (`createPermissionLock`, `utils/permission-gate.ts`). Sem reserva de lugar, sem ordem fixa, sem esperar UMP nem
+  `initialize`; dentro da cadeia da lib continua UMP → ATT → notificacao. Com a home pedindo localizacao ao montar
+  (Eleicoes, Diego), a ordem resultante e localizacao → ATT → notificacao. Em `fn` vai so o pedido, sem rede nem outra
+  permissao dentro.
+  **Gravidade no Android, se um pedido ficar fora da trava: a tela pode travar ate a proxima abertura.** Sem as esperas
+  antigas e com anuncio desligado (`setupMobileAds` volta na hora: trava da loja, revisao, gradual, `is_ads_enabled=false`),
+  o POST_NOTIFICATIONS da lib sai poucos ms depois do `onLayout`, na mesma janela em que a home pede localizacao e antes
+  de a Activity pausar. O `ReactActivityDelegate` guarda um listener so: o 2º pedido troca o listener e a resposta do 1º
+  se perde. O `PermissionsService` do Expo fica com `mCurrentPermissionListener` preso, a promessa do `expo-location`
+  nunca resolve e TODO pedido do Expo depois dela entra numa fila que nao anda ate a proxima abertura. No Eleicoes a home
+  do 1º uso fica escurecida e sem responder ao toque. Isso veio de leitura do codigo (RN 0.88 e expo-modules-core), nao
+  foi reproduzido em aparelho.
+  **Limite da trava:** 20s no Android, 60s no iOS, contados so com o app `active` e do zero a cada "ficou ativo". No
+  limite a promessa de `withPermissionPrompt` rejeita (trate como "sem permissao") e a trava solta, entao `fn` pendurada
+  nunca prende a fila. **Dialogo real na tela alem do limite:** no Android e no iOS 26 o dialogo tira o app de `active`,
+  o limite nao corre e nada sai por cima. Nao dependa so do congelamento dos timers no Android: eles seguem durante
+  tarefa headless, e o timer vencido dispara na retomada, junto com a resposta do dialogo. No iOS 27 o alerta NAO tira o
+  app de `active` e nada no JS separa alerta aberto de promessa pendurada: por isso os 60s (no iOS nao ha caso conhecido
+  de pendurar). Passou disso, o proximo pedido sai por cima do alerta, como acontecia sem a trava; ATT → notificacao
+  continua protegido pelo `after`, sem limite. Fora da trava continuam a mensagem de IDFA do UMP e os pedidos de SDK de
+  terceiros
 - Mantem a user property `rc_status`, o `user_id` do GA4 (= App User ID do RC) e os topicos FCM de assinatura
   (estado + marcos, `utils/rc-status.ts`) a cada `customerInfo`
 - Loga um evento cujo **nome é o slug do app**, 1x por instalação, via `Utils.logFirstOpenOnce()` — flag `@first_open_logged` no AsyncStorage; roda no bloco não-bloqueante do boot (não atrasa o splash). O slug passa por `.replace(/\W/g, "_").slice(0, 40)` porque nome de evento GA4 só aceita `[A-Za-z0-9_]` e no máximo 40 chars — `titulo-eleitor` vira `titulo_eleitor`.
