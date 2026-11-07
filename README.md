@@ -1848,13 +1848,17 @@ ficar pendurada (o RN guarda um listener de permissão só).
 - Ordem: UMP → ATT → notificação, depois do 1º frame (`Utils.handleReady`).
 - Pede com o app ativo (`AppState === 'active'`). Se não estiver (alerta de outro pedido na frente, diálogo do app,
   tela dividida no iPad), espera o evento de "ficou ativo" do AppState — nunca um temporizador.
-- Relê o status logo antes de cada pedido: nunca pede o que já foi respondido.
+- Relê o status (e confere o app ativo de novo) logo antes de cada pedido: nunca pede o que já foi respondido.
 - Pedido descartado (ATT volta `undetermined`) ou cancelado (Android: negado sem o diálogo aparecer) → pede de novo no
   próximo "ficou ativo", até 3 vezes por abertura. A próxima abertura tenta de novo.
-- Todo pedido tem limite de tempo (20s): se a resposta não vem, a lib segue (push, Facebook, atribuição, TikTok e o
+- Um pedido por vez, e a notificação só é pedida **depois do fim do ATT** (resposta ou 3 pedidos perdidos), sem limite
+  nessa espera: mesmo com o ATT na tela além de 20s, ou com o app fora de `active` e os dois esperando o mesmo "ficou
+  ativo", a notificação não sai junto nem antes dele.
+- Todo pedido tem limite de tempo (20s): se a resposta não vem, a cadeia segue (Facebook, atribuição, TikTok e o
   diálogo de update não travam). ATT concedido depois disso avisa o Facebook (`setAdvertiserTrackingEnabled(true)`) e
   recoleta os identificadores da atribuição.
-- Com o ATT pendente de nova tentativa, o anúncio de abertura não aparece naquela volta ao app.
+- Com o ATT pendente (sem resposta e o UMP ainda rodando antes dele, ou nova tentativa armada), o anúncio de abertura
+  não aparece naquela volta ao app.
 - Telemetria: `consent_flow` traz `att_attempts` e `push_attempts` (ver `docs/ANALYTICS-EVENTS.md`).
 
 **Sem espera fixa.** Até a 1.5.6 a lib segurava o splash 3s, esperava mais 2s até a cadeia, e o ATT esperava 1s e "até

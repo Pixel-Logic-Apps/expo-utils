@@ -661,7 +661,8 @@ handleReady (1º frame)          esconde o splash e dispara a cadeia na hora (se
 requestTrackingWhenActive       UMP → ATT* → [FB → ATRIBUIÇÃO FASE 2] (destacada) → push* → consent_flow
                                 → TikTok → link-in-bio → update dialog
                                 * portão de permissões: pede com o app ativo, nova tentativa no próximo
-                                  "ficou ativo" (até 3 por abertura), limite de 20s por pedido
+                                  "ficou ativo" (até 3 por abertura), limite de 20s por pedido; o push só
+                                  pede depois do fim do ATT (sem limite nessa ordem)
 ```
 
 **Splash e permissões sem espera fixa (1.5.7):** o `handleReady` esconde o splash assim que o 1º frame é desenhado e

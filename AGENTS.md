@@ -415,18 +415,26 @@ Central initialization module with a `prepare()` function that:
   ATT pedido com o app fora de `active` ou com outro pedido pendente, devolve `notDetermined` em milissegundos, e a
   Apple manda pedir de novo; o `expo-tracking-transparency` pede uma vez so. **Regra (portao de permissoes,
   `utils/permission-gate.ts`), igual para ATT e notificacao, iOS e Android:** pede com o app `active` (senao espera o
-  evento do AppState, nunca timer); rele o status logo antes de cada pedido; pedido descartado/cancelado pede de novo
-  no proximo "ficou ativo", ate 3 vezes por abertura; todo pedido tem limite de tempo (`PERMISSION_LIMIT_MS`, 20s) e a
-  cadeia segue sem travar push/FB/atribuicao; um pedido por vez (chamadas concorrentes = o mesmo fluxo). Android:
+  evento do AppState, nunca timer); rele o status e confere o AppState de novo logo antes de cada pedido; pedido
+  descartado/cancelado pede de novo no proximo "ficou ativo", ate 3 vezes por abertura; todo pedido tem limite de tempo
+  (`PERMISSION_LIMIT_MS`, 20s) e a cadeia segue sem travar FB/atribuicao/TikTok/update; um pedido por vez (chamadas
+  concorrentes = o mesmo fluxo). **A notificacao so e pedida depois do fim do ATT** (resposta ou 3 perdidos; opcao
+  `after` do portao, SEM limite): o limite de 20s vale para a cadeia, nunca para essa ordem. Sem isso, com o ATT alem
+  dos 20s (alerta na tela, que no iOS 27 nao deixa o app `inactive`; ou app fora de `active` e os dois portoes
+  esperando o mesmo "ficou ativo"), a notificacao saia junto ou antes do ATT. Android:
   pedido negado SEM o app sair de `active` = o dialogo nem apareceu (o sistema cancela o pedido concorrente) → nova
   tentativa; promessa pendurada (o RN guarda um listener de permissao so) → limite. Mantem: ATT so depois do 1º frame,
   UMP antes do ATT, ATT antes da notificacao, RC fresco antes de mostrar o app, trava de anuncio por versao da loja.
-  Com o ATT pendente de nova tentativa, o app open nao aparece naquela volta (`isAttPending()`); ATT concedido numa
+  Com o ATT pendente (sem resposta e o UMP ainda rodando antes dele, ou nova tentativa armada), o app open nao aparece
+  naquela volta (`isAttPending()`); ATT concedido numa
   nova tentativa depois de o FB subir com `false` → `setAdvertiserTrackingEnabled(true)` + `refreshAttributionAfterAtt`.
   **Nao recoloque espera fixa** (no splash, antes da cadeia ou antes de um pedido): se um app precisar de tempo de marca,
   vira opcao do app, nunca timer no caminho do consentimento. O `catch` do `hideAsync` e obrigatorio: rejeitado sem
   catch parava UMP, ATT, push e a fase 2. Testes: `tests/handle-ready.test.ts`, `tests/permission-gate.test.ts`,
-  `tests/consent-flow.test.ts`
+  `tests/consent-flow.test.ts`. Limite conhecido: o portao protege so os pedidos da LIB. Pedido do proprio app (ex.:
+  localizacao da home no mount) que saia a ~100–300 ms do da lib, antes do 1º dialogo pausar a Activity, ainda pode ser
+  cancelado ou ficar pendurado no Android (RN e Expo dividem um listener de permissao) — fica para a etapa dos apps
+  (fila com a localizacao); conferir na prova de campo no Android 13+
 - Mantem a user property `rc_status`, o `user_id` do GA4 (= App User ID do RC) e os topicos FCM de assinatura
   (estado + marcos, `utils/rc-status.ts`) a cada `customerInfo`
 - Loga um evento cujo **nome é o slug do app**, 1x por instalação, via `Utils.logFirstOpenOnce()` — flag `@first_open_logged` no AsyncStorage; roda no bloco não-bloqueante do boot (não atrasa o splash). O slug passa por `.replace(/\W/g, "_").slice(0, 40)` porque nome de evento GA4 só aceita `[A-Za-z0-9_]` e no máximo 40 chars — `titulo-eleitor` vira `titulo_eleitor`.

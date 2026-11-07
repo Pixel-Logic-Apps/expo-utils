@@ -2876,3 +2876,62 @@ Os apps não mudam nesta etapa. Versão continua 1.5.7; a tag não foi movida (o
 
 ### Versão
 1.5.7 (sem mudar `package.json`; tag `v1.5.7` não movida).
+
+## 2026-11-07 — 1.5.7: correções da revisão do portão de permissões
+
+### Pedido
+O revisor do portão (commits c14a0d1 e 6cca39b) pediu correções antes de levar aos apps. Conferir cada problema, corrigir
+os reais, explicar os que não são, rodar os testes, commit e push na main, sem mover a tag.
+
+### O que foi feito
+- Notificação depois do fim do ATT, sem limite nessa ordem (problema 1, real). Nova opção `after` no
+  `createPermissionGate`: cada pedido só sai depois que a promessa termina. Ela só é aguardada quando há o que pedir, e
+  depois dela o portão relê o status e confere o AppState. O `pushGate` usa `after: () => attFlowEnded`, que é o fim do
+  fluxo do ATT: resposta ou 3 pedidos perdidos, e nunca rejeita. Antes, depois do limite de 20 s, o push podia sair com
+  o ATT ainda na tela (iOS 27: o alerta não deixa o app `inactive`) ou no mesmo "ficou ativo" que o ATT (iOS 26, app
+  fora de `active` por mais de 20 s). O limite continua valendo para a cadeia: TikTok, link-in-bio e o diálogo de update
+  seguem, e `push=timeout` agora cobre também "ainda na vez do ATT" (`push_attempts=0`). Notificação já respondida não
+  espera o ATT.
+- Portão confere o AppState de novo depois da releitura que antecede o pedido (problema 5, real). Se o app saiu de
+  `active` durante essa ida ao nativo, volta a esperar o "ficou ativo". De quebra, isso estreita a janela do Android em
+  que o pedido da lib saía com a Activity já pausada (problema 3, 2º caso).
+- App open × UMP (problema 4, real). `isAttPending()` também fica true do início da cadeia até o portão do ATT rodar,
+  enquanto o UMP roda antes dele, mas só com o ATT sem resposta: lê `getTrackingPermissionsAsync` em paralelo, então
+  quem já respondeu o ATT não perde app open. Antes, uma volta ao app durante o UMP (ou logo depois de um lançamento em
+  2º plano) mostrava o app open, e o ATT saía por cima dele.
+- Docs: AGENTS.md (ordem notificação depois do ATT e limite conhecido do Android com o pedido próprio do app), README
+  ("Ordem de Permissões"), `docs/ANALYTICS-EVENTS.md` (`push=timeout`), `docs/UPGRADE-EXPO57-EXPO-UTILS.md` (diagrama) e
+  JSDoc/comentários em `Utils.ts`, `permission-gate.ts` e `appopen-ads.tsx`.
+- Testes novos: `tests/permission-gate.test.ts` +3 (app sai de active na releitura; `after` segura o pedido sem limite e
+  relê/confere depois; já respondido não espera) e `tests/consent-flow.test.ts` +4 (iOS 27 alerta além do limite → push
+  só depois da resposta; iOS 26 app inativo além do limite → no mesmo active só o ATT pede; push já respondido não
+  espera; `isAttPending` durante o UMP só com ATT sem resposta, e nunca no Android). Mutação conferida: tirar cada
+  correção derruba o teste correspondente. As reproduções do revisor (`rev-ios27`, `rev-race`) agora dão `["att:active"]`.
+
+### Não alterado (explicado ao orquestrador)
+- Versão (problema 2): continua 1.5.7, como a tarefa manda; mover a tag ou lançar como 1.5.8 é decisão do orquestrador e
+  do dono. Registro: `expo-titulo-eleitor` e `expo-bobbie-goods-skia` usam `github:Pixel-Logic-Apps/expo-utils` sem tag
+  e pegam a main no próximo install sem lock.
+- Android × pedido próprio do app (problema 3, 1º caso): o portão só protege os pedidos da lib. Para evitar a colisão
+  com a localização da home seria preciso fila nos apps (já listada como "fica para depois" no PLANO-STARTUP-ZERO 4.6) ou
+  espera fixa (proibida). O 2º caso (lib cancelada com a Activity já pausada, contada como respondida no limite) foi
+  estreitado pela reconferência do AppState. Tratar todo pedido pendurado como perdido faria a lib pedir de novo uma
+  notificação que a pessoa acabou de negar, então ficou como está (a próxima abertura tenta de novo).
+- 1º quadro (problema 6): ATT sem espera fixa é o desenho aprovado. Entre o onLayout e o pedido há sempre pelo menos
+  duas leituras nativas do status do ATT, e com anúncios ligados também o UMP ou a leitura de premium. Se o iOS 26
+  descartar, a nova tentativa cobre.
+- Telemetria (problema 7): `att_attempts`/`push_attempts` foram pedidos na própria tarefa ("telemetria mínima"). Registrar
+  as dimensões no GA4 é passo manual do dono.
+- UMP com teto de 20 s e ATT pedido pelo UMP ou por terceiros (problema 8): não mudou nesta tarefa.
+
+### Verificação
+- `tests/run.sh`: 468 pass. Só os 2 testes do plugin falham, porque falta `@expo/config-plugins`, igual antes.
+- `tsc --noEmit` na cópia com as dependências instaladas (scratchpad `eu-gate/repo`): exit 0.
+- Não testado em aparelho nem em simulador.
+
+### Arquivos
+`utils/permission-gate.ts`, `utils/Utils.ts`, `utils/appopen-ads.tsx`, `tests/permission-gate.test.ts`,
+`tests/consent-flow.test.ts`, `AGENTS.md`, `README.md`, `docs/ANALYTICS-EVENTS.md`, `docs/UPGRADE-EXPO57-EXPO-UTILS.md`.
+
+### Versão
+1.5.7 (sem mudar `package.json`; tag `v1.5.7` não movida).
