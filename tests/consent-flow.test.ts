@@ -24,6 +24,11 @@ const state = {
     events: [] as Array<{name: string; params: any}>,
     userProps: {} as Record<string, string>,
     storage: new Map<string, string>(),
+    order: [] as string[], // pedidos de permissão, em ordem
+    attHold: false, // o alerta do ATT fica na tela até answerAtt (a promessa não resolve antes)
+    answerAtt: (_status: string) => {},
+    pushAnswer: null as number | null, // o que o pedido de notificação do iOS responde (null = o status atual)
+    ump: null as Promise<any> | null, // gatherConsent controlado pelo teste (null = responde na hora)
 };
 const listeners = new Set<(next: string) => void>();
 const setAppState = async (next: string) => {
@@ -81,6 +86,15 @@ mock.module("expo-tracking-transparency", () => ({
     getTrackingPermissionsAsync: () => Promise.resolve({status: state.att}),
     requestTrackingPermissionsAsync: () => {
         state.attRequests++;
+        state.order.push("att");
+        if (state.attHold) {
+            return new Promise((resolve) => {
+                state.answerAtt = (status: string) => {
+                    state.att = status;
+                    resolve({status});
+                };
+            });
+        }
         const answer = state.attAnswers.shift();
         if (answer) state.att = answer;
         return Promise.resolve({status: state.att});
@@ -100,7 +114,11 @@ mock.module("react-native-fbsdk-next", () => ({
 mock.module("@react-native-firebase/messaging", () => ({
     getMessaging: stub(),
     hasPermission: () => Promise.resolve(state.pushStatus),
-    requestPermission: () => Promise.resolve(state.pushStatus),
+    requestPermission: () => {
+        state.order.push("push");
+        if (state.pushAnswer !== null) state.pushStatus = state.pushAnswer;
+        return Promise.resolve(state.pushStatus);
+    },
     onMessage: stub(),
     subscribeToTopic: resolved(),
     getToken: resolved(),
@@ -148,7 +166,7 @@ mock.module("react-native-purchases", () => ({
 mock.module("expo-dev-menu", () => ({registerDevMenuItems: resolved()}));
 mock.module("react-native-google-mobile-ads", () => ({
     default: () => ({initialize: resolved([])}),
-    AdsConsent: {gatherConsent: resolved({canRequestAds: true, status: "NOT_REQUIRED"})},
+    AdsConsent: {gatherConsent: () => state.ump ?? Promise.resolve({canRequestAds: true, status: "NOT_REQUIRED"})},
     AdsConsentDebugGeography: {},
 }));
 mock.module("@react-native-firebase/remote-config", () => ({getRemoteConfig: stub(), fetchAndActivate: resolved(), getValue: stub()}));
@@ -196,6 +214,11 @@ beforeEach(() => {
         events: [],
         userProps: {},
         storage: new Map(),
+        order: [],
+        attHold: false,
+        answerAtt: () => {},
+        pushAnswer: null,
+        ump: null,
     });
 });
 
@@ -284,4 +307,89 @@ test("Android: pedido de notificação pendurado → no limite a cadeia segue; p
     await flush();
     expect(state.androidRequests).toBe(2);
     expect(consentEvents()[1]).toEqual({ump: "not_required", att: "na", push: "granted", att_attempts: 0, push_attempts: 2});
+});
+
+test("iOS 27: alerta do ATT na tela além do limite (o app segue active) → a notificação não sai por cima; sai depois da resposta", async () => {
+    state.attHold = true;
+    state.pushStatus = -1; // notificação nunca perguntada
+    state.pushAnswer = 1;
+    const {default: Utils} = await load();
+    let done = false;
+    Utils.requestTrackingWhenActive(appConfig, appStrings).then(() => (done = true));
+    await advance(LIMIT + 5000);
+    expect(state.order).toEqual(["att"]);
+    expect(state.fbTracking).toEqual([false]); // a cadeia seguiu pelo limite do ATT
+    await advance(LIMIT);
+    expect(done).toBe(true); // e pelo limite do push: TikTok, link-in-bio e update não ficam presos
+    expect(state.order).toEqual(["att"]);
+    expect(consentEvents()).toEqual([{ump: "not_required", att: "undetermined", push: "timeout", att_attempts: 1, push_attempts: 0}]);
+
+    state.answerAtt("granted");
+    await flush();
+    expect(state.order).toEqual(["att", "push"]);
+    expect(state.fbTracking).toEqual([false, true]);
+    expect(consentEvents().at(-1)).toEqual({ump: "not_required", att: "granted", push: "granted", att_attempts: 1, push_attempts: 1});
+});
+
+test("iOS 26: app fora de active além do limite → no mesmo \"ficou ativo\" só o ATT pede; a notificação vem depois da resposta", async () => {
+    state.appState = "inactive";
+    state.attHold = true;
+    state.pushStatus = -1;
+    state.pushAnswer = 1;
+    const {default: Utils} = await load();
+    let done = false;
+    Utils.requestTrackingWhenActive(appConfig, appStrings).then(() => (done = true));
+    await advance(2 * LIMIT + 2000);
+    expect(done).toBe(true);
+    expect(state.order).toEqual([]);
+
+    await setAppState("active");
+    expect(state.order).toEqual(["att"]); // um pedido por vez: o push espera o ATT na tela
+    await setAppState("inactive"); // o alerta do ATT deixa o app inactive no iOS 26
+    state.answerAtt("denied");
+    await flush();
+    expect(state.order).toEqual(["att"]); // ATT respondido, mas o app ainda não voltou a active
+    await setAppState("active");
+    expect(state.order).toEqual(["att", "push"]);
+    expect(consentEvents().at(-1)).toEqual({ump: "not_required", att: "denied", push: "granted", att_attempts: 1, push_attempts: 1});
+});
+
+test("notificação já respondida: não espera o ATT", async () => {
+    state.attHold = true;
+    state.pushStatus = 1;
+    const {default: Utils} = await load();
+    Utils.requestTrackingWhenActive(appConfig, appStrings);
+    await advance(LIMIT + 1000);
+    expect(state.order).toEqual(["att"]);
+    expect(consentEvents()).toEqual([{ump: "not_required", att: "undetermined", push: "granted", att_attempts: 1, push_attempts: 0}]);
+});
+
+test("app open × UMP: com o ATT sem resposta, conta como ATT pendente já enquanto o UMP roda; respondido ou Android, não", async () => {
+    let answerUmp: () => void = () => {};
+    state.ump = new Promise((resolve) => (answerUmp = () => resolve({canRequestAds: true, status: "NOT_REQUIRED"})));
+    state.attAnswers = ["granted"];
+    const {default: Utils, isAttPending} = await load();
+    Utils.requestTrackingWhenActive(appConfig, appStrings);
+    await flush();
+    expect(state.attRequests).toBe(0);
+    expect(isAttPending()).toBe(true);
+    answerUmp();
+    await flush();
+    expect(state.attRequests).toBe(1);
+    expect(isAttPending()).toBe(false);
+
+    // ATT já respondido em outra abertura: o UMP rodando não segura o app open.
+    state.att = "denied";
+    state.ump = new Promise(() => {});
+    const second = await load();
+    second.default.requestTrackingWhenActive(appConfig, appStrings);
+    await flush();
+    expect(second.isAttPending()).toBe(false);
+
+    state.os = "android";
+    state.att = "undetermined";
+    const android = await load();
+    android.default.requestTrackingWhenActive(appConfig, appStrings);
+    await flush();
+    expect(android.isAttPending()).toBe(false);
 });

@@ -1,13 +1,15 @@
 /**
  * Portão dos pedidos de permissão da lib (ATT no iOS, notificação no Android e no iOS). Uma regra só, por evento:
  *
- *   1. Pede com o app ativo (`AppState === "active"`). Se não estiver (alerta do sistema ou diálogo do app na frente,
- *      tela dividida no iPad), espera o evento de "ficou ativo" do AppState. Nunca timer.
+ *   1. Pede com o app ativo (`AppState === "active"`, conferido de novo logo antes do pedido). Se não estiver (alerta do
+ *      sistema ou diálogo do app na frente, tela dividida no iPad), espera o evento de "ficou ativo" do AppState. Nunca
+ *      timer.
  *   2. Relê o status logo antes de cada pedido e nunca pede o que já foi respondido.
  *   3. Pedido descartado ou cancelado sem resposta: pede de novo no próximo "ficou ativo", até 3 vezes por abertura.
  *      Depois desiste; a próxima abertura tenta de novo, porque o status continua sem resposta.
  *   4. Todo pedido tem limite de tempo: promessa nativa que nunca resolve não trava quem espera.
- *   5. Um pedido por vez: chamadas concorrentes recebem o mesmo fluxo.
+ *   5. Um pedido por vez: chamadas concorrentes recebem o mesmo fluxo, e `after` faz um portão esperar a vez dele (a
+ *      notificação só pede depois do fim do ATT).
  *
  * Por que existe (06–07/11/2026). O iOS descarta o ATT em silêncio quando o app não está `active` na hora da chamada ou
  * quando há outro pedido de permissão pendente: o retorno chega em milissegundos como `notDetermined`, igual a "nunca
@@ -105,6 +107,12 @@ export type PermissionGateOptions<S> = {
     requestLimitMs: number;
     /** Pedidos por abertura. Padrão 3. */
     maxAttempts?: number;
+    /**
+     * Ordem entre portões: cada pedido só sai depois que esta promessa termina (ex.: o fim do fluxo do ATT, para a
+     * notificação não sair junto nem antes dele). Sem limite, porque é ordem e não espera de tempo; só é aguardada quando
+     * há o que pedir, e o status e o AppState são conferidos de novo depois dela.
+     */
+    after?: () => Promise<unknown>;
 };
 
 export type PermissionGate<S> = {
@@ -117,7 +125,7 @@ export type PermissionGate<S> = {
 };
 
 export const createPermissionGate = <S>(options: PermissionGateOptions<S>): PermissionGate<S> => {
-    const {appState, read, request, canAsk, requestLimitMs, maxAttempts = 3} = options;
+    const {appState, read, request, canAsk, requestLimitMs, maxAttempts = 3, after} = options;
     const lost = options.lost ?? ((status: S) => canAsk(status));
     let flow: PermissionFlow<S> | null = null;
     let running = false;
@@ -135,10 +143,13 @@ export const createPermissionGate = <S>(options: PermissionGateOptions<S>): Perm
             for (;;) {
                 let status = await read();
                 if (!canAsk(status) || attempts >= maxAttempts) return {status, attempts};
+                if (after) await after().then(noop, noop);
                 await waitForActive(appState);
                 // Relido logo antes do pedido: pode ter sido respondido enquanto o app estava inativo.
                 status = await read();
                 if (!canAsk(status)) return {status, attempts};
+                // A releitura vai ao nativo: se o app saiu de `active` nesse meio-tempo, volta a esperar o "ficou ativo".
+                if (appState.currentState !== "active") continue;
                 attempts += 1;
                 const watch = watchAppState(appState);
                 try {

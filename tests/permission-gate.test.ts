@@ -216,6 +216,25 @@ describe("ATT", () => {
         expect(att.requests).toBe(0);
     });
 
+    test("o app sai de active durante a releitura (ida ao nativo antes do pedido): não pede inativo; pede no próximo active", async () => {
+        const att = fakePermission("undetermined", ["granted"]);
+        let reads = 0;
+        const flow = createPermissionGate<string>({
+            appState,
+            read: async () => {
+                if (++reads === 2) appState.currentState = "inactive"; // a releitura logo antes do pedido
+                return att.read();
+            },
+            request: att.request,
+            canAsk: (status) => status === "undetermined",
+            requestLimitMs: LIMIT,
+        }).run();
+        await advance(60_000);
+        expect(att.requests).toBe(0);
+        await setAppState("active");
+        expect(await flow.final).toEqual({status: "granted", attempts: 1});
+    });
+
     test("alerta na tela além do limite: relê, não pede de novo e acaba quando a pessoa responde", async () => {
         let answer: (status: string) => void = () => {};
         const att = fakePermission("undetermined", [() => new Promise((resolve) => (answer = resolve))]);
@@ -281,5 +300,45 @@ describe("notificação no Android", () => {
         expect(await flow.final).toEqual({status: "denied", attempts: 1});
         await leaveAndReturn("background");
         expect(push.requests).toBe(1);
+    });
+});
+
+describe("ordem entre portões (after)", () => {
+    test("só pede depois que a vez do outro termina, sem limite; relê e confere o AppState depois", async () => {
+        let attEnded: () => void = () => {};
+        const attEnd = new Promise<void>((resolve) => (attEnded = resolve));
+        const push = fakePermission("undetermined", ["granted"]);
+        const flow = createPermissionGate<string>({
+            appState,
+            read: push.read,
+            request: push.request,
+            canAsk: (status) => status === "undetermined",
+            requestLimitMs: LIMIT,
+            after: () => attEnd,
+        }).run();
+        let first: unknown;
+        flow.first.then((value) => (first = value));
+        await advance(10 * LIMIT); // o ATT segue na tela: a notificação não sai por cima nem no limite
+        expect(push.requests).toBe(0);
+        expect(first).toBeUndefined();
+        appState.currentState = "inactive"; // o ATT foi respondido; o app ainda não voltou a active
+        attEnded();
+        await flush();
+        expect(push.requests).toBe(0);
+        await setAppState("active");
+        expect(await flow.final).toEqual({status: "granted", attempts: 1});
+    });
+
+    test("já respondido: não espera a vez do outro", async () => {
+        const push = fakePermission("granted", []);
+        const flow = createPermissionGate<string>({
+            appState,
+            read: push.read,
+            request: push.request,
+            canAsk: (status) => status === "undetermined",
+            requestLimitMs: LIMIT,
+            after: () => never<void>(),
+        }).run();
+        expect(await flow.final).toEqual({status: "granted", attempts: 0});
     });
 });

@@ -257,8 +257,9 @@ export const waitAttFlowDone = (timeoutMs = 15000): Promise<void> => {
 
 // Limite de cada pedido de permissão e de quanto a cadeia espera o ATT e a notificação. É limite, não espera: o pedido
 // sai assim que o app está ativo (utils/permission-gate.ts) e o limite só vale quando a resposta não vem — promessa
-// nativa pendurada, ou app que não volta a ficar ativo (iPad em tela dividida). Aí a lib segue sem travar push, FB,
-// atribuição, TikTok e o diálogo de update; a resposta que vier depois atualiza FB, atribuição e telemetria.
+// nativa pendurada, ou app que não volta a ficar ativo (iPad em tela dividida). Aí a cadeia segue sem travar FB,
+// atribuição, TikTok e o diálogo de update; a resposta que vier depois atualiza FB, atribuição e telemetria. O pedido de
+// notificação é a exceção: espera o fim do ATT sem limite (ATT antes da notificação, um pedido por vez).
 const PERMISSION_LIMIT_MS = 20000;
 
 // AuthorizationStatus do RNFB: -1 não determinado, 0 negado, 1 autorizado, 2 provisório, 3 efêmero
@@ -283,10 +284,15 @@ const attGate = createPermissionGate<string>({
     requestLimitMs: PERMISSION_LIMIT_MS,
 });
 
+// Fim do fluxo do ATT nesta abertura (resposta ou 3 pedidos perdidos; nunca rejeita). Android/web: já resolvido.
+let attFlowEnded: Promise<unknown> = Promise.resolve();
+
 // Notificação (Android 13+: POST_NOTIFICATIONS; iOS: Firebase messaging) pela mesma regra. No Android o status lido não
 // separa "negado" de "nunca perguntado", então o pedido conta como perdido quando volta negado SEM o app sair de
 // `active`: o diálogo nem apareceu (o sistema cancela o pedido concorrente). Antes do Android 13 não há diálogo (o RN
-// resolve na hora): um pedido só, como antes.
+// resolve na hora): um pedido só, como antes. O pedido só sai depois do fim do ATT (`after`, sem limite): ATT antes da
+// notificação e um pedido por vez, também quando o ATT passou do limite da cadeia — alerta ainda na tela (no iOS 27 ele
+// não deixa o app `inactive`) ou app fora de `active` com os dois portões esperando o mesmo "ficou ativo".
 const pushGate = createPermissionGate<string>({
     appState: AppState,
     read: readPushPermission,
@@ -297,13 +303,18 @@ const pushGate = createPermissionGate<string>({
             ? Number(Platform.Version) >= 33 && !leftActive && (status === "denied" || status === "never_ask_again")
             : status === "undetermined",
     requestLimitMs: PERMISSION_LIMIT_MS,
+    after: () => attFlowEnded,
 });
 
+// iOS: a cadeia começou, o ATT está sem resposta e o portão ainda não rodou porque o UMP vem antes (até 20 s). Para o
+// anúncio de abertura, isso já é ATT pendente.
+let attWaitingUmp = false;
+
 /**
- * O ATT ainda vai pedir (ou está pedindo) nesta abertura: o anúncio de abertura não aparece nessa volta ao app, para
- * os dois não saírem juntos (utils/appopen-ads.tsx).
+ * O ATT ainda vai pedir (ou está pedindo) nesta abertura, inclusive enquanto o UMP roda antes dele: o anúncio de
+ * abertura não aparece nessa volta ao app, para os dois não saírem juntos (utils/appopen-ads.tsx).
  */
-export const isAttPending = (): boolean => attGate.isPending();
+export const isAttPending = (): boolean => attWaitingUmp || attGate.isPending();
 
 // `consent_flow`: resultado do UMP, do ATT e do push num evento só — 1x por instalação e de
 // novo apenas quando algum dos três muda (taxa de opt-in por país/versão mexe direto no eCPM).
@@ -1134,8 +1145,11 @@ const Utils = {
      *      concedido numa nova tentativa, depois disso: FB avisado (setAdvertiserTrackingEnabled(true))
      *      e identificadores recoletados.
      *   4. Push permission (iOS + Android), se fcmTrackingAllowed, pelo mesmo portão (no Android,
-     *      pedido cancelado pelo sistema ou pendurado pede de novo no próximo active). Em seguida o
-     *      evento `consent_flow` (ump/att/push + tentativas) — 1x por instalação e quando algum muda.
+     *      pedido cancelado pelo sistema ou pendurado pede de novo no próximo active). O pedido só
+     *      sai depois do fim do ATT, sem limite nessa espera (ATT antes da notificação e um pedido por
+     *      vez, mesmo com o ATT além do limite); a cadeia espera o 1º desfecho do push por no máximo
+     *      PERMISSION_LIMIT_MS. Em seguida o evento `consent_flow` (ump/att/push + tentativas) — 1x por
+     *      instalação e quando algum muda.
      *   5. TikTok, link-in-bio e o diálogo de update obrigatório.
      *
      * @param appConfig   app.json (para FB App ID, bundle/package, etc.)
@@ -1147,13 +1161,29 @@ const Utils = {
         let granted = true;
         consent.att = "na"; // Android/web: não existe ATT
 
+        // ATT sem resposta: o anúncio de abertura já fica de fora enquanto o UMP roda (isAttPending).
+        if (Platform.OS === "ios") {
+            attWaitingUmp = true;
+            getTrackingPermissionsAsync().then(
+                ({status}) => {
+                    if (status !== "undetermined") attWaitingUmp = false;
+                },
+                () => {},
+            );
+        }
+
         // UMP antes do ATT (ver ordem no comentário acima). Memoizado e com timeout próprio.
         await Utils.setupMobileAds(appConfig ?? bootAppConfig);
+        attWaitingUmp = false; // daqui em diante quem diz é o portão (attGate.run logo abaixo, sem await no meio)
 
         let attFlow: PermissionFlow<string> | null = null;
         if (Platform.OS === "ios") {
             try {
                 attFlow = attGate.run();
+                attFlowEnded = attFlow.final.then(
+                    () => {},
+                    () => {},
+                );
                 const outcome = await withTimeout(attFlow.final, PERMISSION_LIMIT_MS);
                 // No limite a cadeia segue com o status de agora; o portão continua e a resposta tardia é tratada abaixo.
                 consent.att = outcome === TIMED_OUT ? String((await getTrackingPermissionsAsync()).status) : outcome.status;
@@ -1198,13 +1228,15 @@ const Utils = {
             () => {},
         );
 
-        // Push (iOS e Android) — não é tracking de IDFA, roda independente do ATT. A cadeia espera só o 1º desfecho:
-        // pedido perdido arma a nova tentativa sem segurar TikTok, link-in-bio e o diálogo de update.
+        // Push (iOS e Android) — não é tracking de IDFA. O portão só PEDE depois do fim do ATT (`after`, sem limite).
+        // A cadeia espera só o 1º desfecho, por no máximo PERMISSION_LIMIT_MS: pedido perdido, pendurado ou ainda na vez
+        // do ATT não segura TikTok, link-in-bio e o diálogo de update.
         consent.push = "skipped";
         if (fcmTrackingAllowed) {
             try {
                 const pushFlow = pushGate.run();
                 const outcome = await withTimeout(pushFlow.first, PERMISSION_LIMIT_MS);
+                // timeout: sem 1º desfecho no limite (pedido pendurado, app fora de `active` ou ainda na vez do ATT).
                 consent.push = outcome === TIMED_OUT ? "timeout" : outcome.status;
                 consent.pushAttempts = pushGate.attempts();
                 pushFlow.final.then(

@@ -68,7 +68,8 @@ export const setupAppOpenListener = (adUnitId?: string) => {
                 if (!unitId) return;
 
                 if (!(canShowAppOpenAgain && appState.current === "background" && nextAppState === "active")) return;
-                // O ATT vai pedir nesta volta (nova tentativa do portão, utils/permission-gate.ts): o app open não sai junto.
+                // O ATT ainda vai pedir (UMP rodando antes dele, ou nova tentativa do portão em utils/permission-gate.ts): o
+                // app open não sai junto.
                 if (isAttPending()) {
                     expoUtilsLog("[expo-utils] AppOpen: ATT pendente nesta volta — sem anúncio.");
                     return;
