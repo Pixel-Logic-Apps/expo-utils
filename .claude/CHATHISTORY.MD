@@ -2730,3 +2730,149 @@ do plano de startup (incluindo o conserto do app-open da seção 4.1) ficam como
 
 ### Versão
 1.5.7 (tag `v1.5.7`). Não publicada no npm (conta travada no 2FA).
+
+
+## 2026-11-06/07 — Pesquisa de assinatura com REA: pacote, histórico e continuidade
+
+### Pedido
+Concluir a entrega da engenharia reversa estática da assinatura em 14 apps grandes e do complemento nos apps instalados:
+colocar todo o material na Área de Trabalho, enviar por e-mail para leitura e salvar o histórico e a memória antes de
+fechar a sessão. O relatório continua sendo proposta, sem autorização para implementar as peças.
+
+### Relatório e limites
+- Fonte principal: `docs/PLANO-ASSINATURA-COMO-OS-GRANDES.md` (293 linhas), incluindo "Complemento nativo iOS" na
+  linha 33. Nenhum código da lib foi alterado nesta pesquisa e o documento segue sem commit, junto de outros docs já
+  existentes não rastreados.
+- Reinspeção estática com REA 6.8.0: três APKs Android (Cal AI, Photoroom e PictureThis) e, com Ghidra 12.1.4, os
+  executáveis ARM64 dos bundles já instalados `/Applications/Cal AI.app` e `/Applications/Flow Cycle.app`.
+- Flow Cycle é `com.mma.trackperiod` 1.0.1, **não é o Flo**. O Flo verdadeiro não foi analisado nesse complemento.
+- Foram conferidos os 15 IDs `ev_*` citados no relatório: todos aparecem nos bundles de evidência copiados. Não houve
+  execução dos fluxos, compras, criação de contas, interceptação de tráfego ou consulta a dashboards; não se descriptografou
+  nem se contornou DRM. O pseudocódigo não é o código-fonte original e as propostas não garantem aumento de receita.
+- Peça 1 sugerida: paywall respeitar previsivelmente offering `current`, placement ou ID do RevenueCat. Manter o
+  RevenueCat; não criar cobrança própria nem sobrepor outro motor de paywall.
+
+### Pacote entregue
+- Pasta: `/Users/plapps/Desktop/assinatura-rea-expo-utils-2026-11-06/`.
+- `01-relatorios/`: plano atualizado em Markdown, HTML e PDF; parecer anterior `PARECER-ASSINATURA.pdf`; versão ilustrada
+  `PARECER-ASSINATURA-ILUSTRADO.pdf`. Os pareceres anteriores não contêm o complemento iOS; o plano atualizado contém.
+- `02-evidencias-rea-ios/`: quatro bundles `*-evidence.json` (49 registros Cal AI live, 34 Flow live, 10 Flow deep e 4
+  Flow discovery; 97 no total) e quatro `*-snapshot.json`. Não copiar os binários dos apps nem os controles redundantes.
+- `03-dados-14-apps/`: os 14 JSONs por app, pesquisas, síntese, vereditos e o gerador do parecer anterior.
+- `04-historico/`: cópia deste CHATHISTORY, resumo de continuidade e o `wire.jsonl` da sessão.
+- `LEIA-ME.md` explica por onde começar e os limites; `MANIFEST-SHA256.txt` e o ZIP ao lado da pasta permitem conferir
+  a entrega.
+
+### Memória e origem dos artefatos
+- Nota nova: `~/.claude/projects/-Users-plapps-Documents-projetos-expo-utils/memory/assinatura-rea-entrega-2026-11-07.md`;
+  índice `MEMORY.md` atualizado. A nota antiga `teardown-assinatura-2026-10-27.md` continua descrevendo a pesquisa original.
+- Origem preservada: `~/appdata/teardown-assinatura-2026-10-27/`; evidências iOS em `ios-rea-kimi/`.
+- Wire original: `~/.kimi-code/sessions/wd_expo-utils_3e7279d33a07/session_5f6406a5-e406-4c47-ae86-7959b6760f6e/agents/main/wire.jsonl`.
+
+### E-mail: não enviado
+A rota obrigatória é Resend para `bruno.vmartins2@gmail.com`, mas não havia `PIXEL_REPORT_RESEND_API_KEY`,
+`DAILY_AI_REPORT_EMAIL_FROM` ou `RESEND_API_KEY` no ambiente, nem CLIs `resend`/`op`. O caminho documentado
+`~/Documents/projetos/pixel-analytics/api/.env` não existe nesta máquina. Nenhuma credencial foi lida ou exposta e não
+houve tentativa por Outlook/Mail. Portanto não existe ID de envio nem confirmação da Resend; falta uma rota autenticada
+para concluir somente essa parte.
+
+## 2026-11-06 — Teardowns dos apps grandes: fechamento (Desktop + memória; e-mail pendente)
+
+**Contexto (duas sessões anteriores, registradas aqui agora).** Depois do vídeo "I reverse engineered candy crush",
+o usuário pediu o mesmo em apps famosos e um parecer para levar ao expo-utils. Foram dois teardowns **estáticos**:
+anúncios (25 apps, 26 análises — Block Blast tem duas partes) e assinatura (14 apps: Cal AI, Flo, YAZIO, MyFitnessPal,
+Duolingo…). **Sem ok para codar** — os dois planos seguem sem commit:
+`docs/PLANO-ANUNCIOS-INTELIGENTES.md` e `docs/PLANO-ASSINATURA-COMO-OS-GRANDES.md`.
+
+**Entregáveis** em `~/appdata/teardown-anuncios-2026-10-27/` e `~/appdata/teardown-assinatura-2026-10-27/`:
+PARECER em PDF (texto e versão ilustrada de 13 MB em `ilustrado/`), página HTML animada, `dados/apps/*.json` (um por app),
+sínteses, vereditos e a auditoria do REA. iOS em `ios-rea-kimi/` (136 MB).
+
+**Metodologia (resposta a "Vc descobriu isso como?").** APK da APKPure (XAPK, versão pública mais recente, 27/10);
+assinatura de cada APK conferida com apksigner = app original (King, Kiloo, Easybrain, Moon Active…). Análise 100%
+estática, sem instalar/rodar/interceptar rede/comprar, com REA 6.8.0 (auditado antes, sem backdoor; só a CLI, sem rede).
+Por engine: Java/Kotlin via JADX; Unity IL2CPP via global-metadata.dat + desmontagem da libil2cpp.so; Block Blast (Cocos)
+lendo o JS direto; Hermes via hbc-decompiler; Candy Crush (C++) só strings/símbolos do .so; Subway com o
+gamedata AES-128-CTR (chave no header) decifrado em 46 JSONs. Regra de prova: caminho + trecho + comando. 2ª rodada
+cética re-rodou tudo — anúncios 104 achados (45 confirmados / 59 em parte / 0 derrubados); assinatura 56 (25 / 30 / 1).
+**Limite:** valores reais (nº de anúncios, testes A/B ligados) vêm do servidor; o APK dá lógica, nomes e padrões.
+Parte de assinatura usou também fontes públicas (Superwall/Cal AI, RevenueCat 2026, TechCrunch, entrevistas) e preços
+das lojas EUA/BR. iOS pelo Kimi: REA + Ghidra nos binários ARM64 dos apps instalados no Mac (FairPlay do Cal AI cifra só
+4.096 bytes — intactos). IPAs da App Store foram recusados (exigem quebrar DRM).
+
+**Achado para a lib:** `PaywallUtils.getOfferingPackages` junta a offering current com todas as outras, então
+Experiments/Targeting/Placements do RevenueCat não mudam o paywall — peça 1 (esforço S) do plano de assinatura destrava.
+Análogos da própria lib: "Try N Days Free" sem checar elegibilidade; delay de 5 s do botão fechar.
+
+**Artifacts apagados.** As duas páginas publicadas (anúncios `UcorqTV5wMxAPvgbbruec6`, assinatura
+`QUUJqFngKgw4mZTb13objH`) saíram da conta (avisos em 02 e 06/11). Cópias locais intactas; se precisar, republicar de
+`ilustrado/index.html` gera link novo (o antigo não volta).
+
+**Fechamento desta sessão ("preciso fechar"):**
+- **Área de trabalho:** `~/Desktop/Teardowns apps grandes/` (80 MB) — os 2 PDFs ilustrados no topo, as 2 páginas
+  animadas em subpastas (abrem offline) e um `LEIA.txt`.
+- **E-mail: NÃO enviado.** A regra manda usar a API da Resend com a chave em `~/Documents/projetos/pixel-analytics/api/.env`,
+  mas esse projeto **não existe mais neste Mac** e não há chave Resend em env/perfil/.env nenhum (a chave viva está só no
+  servidor trendings.app). Fica pendente até o usuário restaurar/indicar a chave; os PDFs já estão prontos na Desktop.
+- **Memória e chathistory:** atualizados.
+
+
+## 2026-11-07 — 1.5.7: portão de permissões (ATT e notificação sem espera fixa, com nova tentativa)
+
+### Pedido
+Depois da investigação nativa de 06/11 (o iOS descarta o ATT pedido com o app fora de `active` ou com outro pedido
+pendente; a Apple manda pedir de novo; o expo-tracking-transparency pede uma vez só; pedir de novo no próximo `active`
+resolveu 9/9 no laboratório), o Bruno aprovou ("ok, implemente isso") uma solução simples, sem gambiarra e sem trazer de
+volta erro antigo: nenhuma espera fixa (saem os 3 s do splash, os 2 s, o 1 s e o "4 s e pede mesmo assim", nos dois
+sistemas) e uma regra só para todas as permissões — pede com o app ativo; se atrapalhar, pede de novo quando voltar.
+Os apps não mudam nesta etapa. Versão continua 1.5.7; a tag não foi movida (o orquestrador move depois da revisão).
+
+### O que foi feito
+- `utils/permission-gate.ts` (novo, só JS, sem dependência): `waitForActive` (evento `change` do AppState, nunca timer),
+  `withTimeout` e `createPermissionGate` — relê o status antes de cada pedido, pede só com o app `active`, pedido perdido
+  pede de novo no próximo "ficou ativo" (até 3 por abertura), limite por pedido, um fluxo por abertura (chamadas
+  concorrentes recebem o mesmo), `first` (1º desfecho) e `final` (desfecho da abertura), `isPending`, `attempts`.
+- `utils/Utils.ts`: `handleReady` esconde o splash e dispara a cadeia na hora (sem o `setTimeout(2000)`). ATT pelo
+  portão (perdido = volta `undetermined`), a cadeia espera o `final` por no máximo `PERMISSION_LIMIT_MS` (20 s) e segue;
+  notificação pelo portão (Android 13+: negado SEM o app sair de `active` = diálogo cancelado pelo sistema → nova
+  tentativa; pendurado → limite; antes do 13 um pedido só, como antes; iOS: status pelo `hasPermission` do RNFB), a cadeia
+  espera só o 1º desfecho. Resposta tardia do ATT: `att_status`, `consent_flow` de novo e, se concedido depois de o FB ter
+  subido com `false`, `setAdvertiserIDCollectionEnabled(true)` + `setAdvertiserTrackingEnabled(true)` e
+  `refreshAttributionAfterAtt`. `isAttPending()` exportado. Saíram o "até 4 s pelo active, depois pede mesmo assim" e o
+  1 s antes do pedido. `requestPushPermission` público continua um pedido só, na hora.
+- `utils/attribution.ts`: `refreshAttributionAfterAtt(rckey)` — espera a fase 2, recoleta `collectDeviceIdentifiers`
+  (agora com o IDFA) e envia já.
+- `utils/appopen-ads.tsx`: com o ATT pendente (`isAttPending()`), a volta ao app não mostra app open (a janela não fecha).
+- Telemetria: `consent_flow` ganhou `att_attempts` e `push_attempts` e o valor `push=timeout`; sai de novo na mesma
+  abertura quando a resposta tardia muda `ump|att|push` (comparação do AsyncStorage igual à de antes; envio em fila).
+- `ExpoUtilsLayout.tsx` e `templates/RootLayout.tsx`: conferidos, não repetem espera (nada mudou).
+- Docs: AGENTS.md (regra nova, motivo real dos 3 s, "não recolocar espera fixa"), README (novidade do ATT, aviso do
+  boot, "Ordem de Permissões" reescrita, linha do `consent_flow`), `docs/ANALYTICS-EVENTS.md` (params novos e leitura),
+  `docs/UPGRADE-EXPO57-EXPO-UTILS.md` (§4.2.1) e JSDoc. `docs/PLANO-STARTUP-ZERO.md` corrigido ("sem motivo" estava
+  errado; 4.6 marcado como feito; decisão 8.1 respondida) — o arquivo continua SEM commit, como antes.
+- Testes novos: `tests/permission-gate.test.ts` (16: esperar ativo; ATT concedido na 1ª, descartado→concedido no
+  próximo active e nunca por timer, para em 3, negado não repete, concorrentes = 1 pedido, relê antes de pedir, alerta
+  além do limite; Android cancelado/negado no diálogo/pendurado com e sem diálogo), `tests/consent-flow.test.ts` (4, Utils
+  real: FB já `true` quando a nova tentativa cai antes do limite; FB avisado no granted tardio + atribuição recoletada +
+  `consent_flow` de novo; app nunca ativo → nenhum pedido e a cadeia segue; Android pendurado → `push=timeout` e nova
+  tentativa), `tests/attribution-late-att.test.ts` (2) e app open × ATT pendente em `tests/appopen-ads.test.ts`.
+  `tests/handle-ready.test.ts`: a cadeia sai na hora, sem timer.
+
+### Verificação
+- `tests/run.sh` no repo: 461 pass; só os 2 testes do plugin falham sem `@expo/config-plugins`, igual na main. Numa
+  cópia no scratchpad com `bun install`: 472 pass, 0 fail.
+- `tsc --noEmit` na cópia com as devDependencies do SDK 58: exit 0. `tsc` strict pela receita (symlink) contra o
+  expo-utils-lab (Expo 57, RNFB 26.4.0) e o expo-urna-v2 (RNFB 24.1.1): 0 erros.
+- Não testado em aparelho nem em simulador nesta tarefa.
+
+### Riscos anotados
+- Prova de campo pendente: iPhone com iOS 26 e iPad (o aparelho do revisor é iPad Air 11" M3 com iPadOS 26.6) em
+  instalação limpa; Android 13+ com pedido próprio da home ao montar.
+- Android: usuário com a notificação negada para sempre recebe `never_ask_again` sem diálogo, que parece cancelamento:
+  a lib repete (invisível, sem diálogo) nas próximas voltas, até 3 por abertura.
+- Pedido de ATT do UMP (mensagem de IDFA no AdMob) ou de SDK de terceiros não passa pelo portão.
+- Depois do limite de 20 s (app inativo esse tempo todo), ATT e notificação podem sair no mesmo "ficou ativo"; se o
+  ATT for descartado, a nova tentativa cobre.
+
+### Versão
+1.5.7 (sem mudar `package.json`; tag `v1.5.7` não movida).

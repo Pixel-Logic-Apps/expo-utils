@@ -657,15 +657,23 @@ Ordem real do boot:
 
 ```text
 prepare()                       Remote Config → Purchases.configure → ATRIBUIÇÃO FASE 1 (destacada) → globals → ready
-handleReady (1º frame)          esconde o splash na hora + 2s
-requestTrackingWhenActive       UMP → ATT → [FB → ATRIBUIÇÃO FASE 2] (destacada) → push → consent_flow
+handleReady (1º frame)          esconde o splash e dispara a cadeia na hora (sem espera fixa)
+requestTrackingWhenActive       UMP → ATT* → [FB → ATRIBUIÇÃO FASE 2] (destacada) → push* → consent_flow
                                 → TikTok → link-in-bio → update dialog
+                                * portão de permissões: pede com o app ativo, nova tentativa no próximo
+                                  "ficou ativo" (até 3 por abertura), limite de 20s por pedido
 ```
 
-**Splash (1.5.7):** o `handleReady` esconde o splash assim que o 1º frame é desenhado. Até a 1.5.6 o splash ficava 3s a
-mais na tela, sem motivo (−3s por abertura, medido no lab). Os 2s até a cadeia de consentimento continuam. Ao migrar,
-tire do app qualquer espera própria antes do `hideAsync` (timer no layout, shim que repita os 3s): quem esconde o splash
-é a lib.
+**Splash e permissões sem espera fixa (1.5.7):** o `handleReady` esconde o splash assim que o 1º frame é desenhado e
+dispara a cadeia de consentimento na hora. Até a 1.5.6 o splash ficava 3s a mais na tela (−3s por abertura, medido no
+lab), a cadeia esperava mais 2s e o ATT ainda 1s + "até 4s pelo `active`, depois pede mesmo assim". O motivo dos 3s era o
+ATT (dito pelo dono em 06/11/2026: às vezes o app abria e o ATT não aparecia), mas as esperas eram gambiarra — o splash
+não bloqueia o ATT e nenhuma espera garante o app ativo; elas só afastavam, por acaso, o pedido da lib do alerta de
+localização e do ATT que a home pede ao montar. A causa é o iOS descartar o ATT pedido com o app fora de `active` ou com
+outro pedido pendente; no lugar das esperas entrou o portão de permissões (`utils/permission-gate.ts`, regra no README,
+"Ordem de Permissões"). Ao migrar, tire do app qualquer espera própria antes do `hideAsync` (timer no layout, shim que
+repita os 3s): quem esconde o splash é a lib. O ATT próprio do app (ex.: home pedindo em 1,5s) pode ficar — se atropelar
+o da lib, ela pede de novo no próximo "ficou ativo" —, mas não é necessário. Não recoloque espera fixa.
 
 - **Fase 1** (sem consentimento): AdServices (iOS), `$firebaseAppInstanceId`, atributos de contexto
   (`language`, `locale`, `device_region`, `currency`, `timezone`, `store_country`, `app_version`…),

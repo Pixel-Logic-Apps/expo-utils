@@ -49,7 +49,7 @@ Corrigido o erro `No APNS token specified before fetching FCM Token`. O expo-uti
 
 ### 🔐 Prompt de ATT no momento certo
 
-O prompt de **App Tracking Transparency** é exibido **só após o primeiro frame** (app já ativo), evitando que o iOS descarte o prompt silenciosamente. Nenhum dado de tracking é coletado antes do consentimento.
+O prompt de **App Tracking Transparency** é exibido **só após o primeiro frame**, **só com o app ativo** e, se o iOS descartar o pedido em silêncio, é **pedido de novo no próximo "ficou ativo"** (até 3 vezes por abertura) — sem espera fixa (ver [Ordem de Permissões](#ordem-de-permissões)). Nenhum dado de tracking é coletado antes do consentimento.
 
 ### 🧩 `_layout` mais enxuto (opcional)
 
@@ -385,8 +385,9 @@ Utils.prepare(setAppIsReady, appConfig, AppStrings, false);
 
 > ⚠️ **ATT, UMP, permissão de push, Facebook, TikTok e a fase 2 da atribuição NÃO rodam dentro do `prepare()`** —
 > rodam depois do primeiro frame, disparados pelo `Utils.handleReady` (o `<View onLayout={Utils.handleReady} />`
-> que o `ExpoUtilsLayout` e o template `RootLayout.tsx` já renderizam). O `handleReady` esconde o splash na hora e
-> dispara essa cadeia 2s depois (até a 1.5.6 o splash ficava 3s a mais na tela). Um `_layout.tsx` legado que só chama
+> que o `ExpoUtilsLayout` e o template `RootLayout.tsx` já renderizam). O `handleReady` esconde o splash e dispara essa
+> cadeia na hora, sem espera fixa (até a 1.5.6: 3s a mais no splash e 2s até a cadeia; ver
+> [Ordem de Permissões](#ordem-de-permissões)). Um `_layout.tsx` legado que só chama
 > `Utils.prepare()` perde tudo isso em silêncio. Desde a v1.4.0 um watchdog avisa: 30s depois do `prepare()` sem
 > `handleReady`, sai um `expoUtilsWarn` (que vira o evento `expo_utils_warn` no Analytics).
 
@@ -547,7 +548,7 @@ export default {
 | O quê | Para quê |
 |-------|----------|
 | `rc_attribution` (`phase`, `steps_ok`, `steps_fail`, `ms`, `synced`, `att`) | prova em produção de que a atribuição saiu do aparelho. `count(phase=2) ÷ count(phase=1)` = taxa de entrega da fila pós-ATT |
-| `consent_flow` (`ump`, `att`, `push`) | taxa de opt-in — 1x por instalação e quando algum muda |
+| `consent_flow` (`ump`, `att`, `push`, `att_attempts`, `push_attempts`) | taxa de opt-in — 1x por instalação e quando algum muda; as tentativas dizem quantos pedidos o ATT e a notificação precisaram na abertura |
 | `paywall_view` / `paywall_product_select` / `paywall_purchase_start` / `_success` / `_cancel` / `_error` / `paywall_restore` / `paywall_close` | funil do paywall por `placement` (novo campo opcional do `usePaywall`) |
 | `review_request` / `review_prompt_show` / `review_prompt_action` / `review_store_requested` | funil do review, com `style` — é o que permite comparar os layouts do `review_style` |
 | `promo_impression` / `promo_click` com `promo_variant: "cross_promo_card"` | o cross-promo (obrigatório) passa a ser medido |
@@ -1832,20 +1833,36 @@ Antes de fixar a versão do **pod**, confira a restrição `Google-Mobile-Ads-SD
 
 ### Ordem de Permissões
 
-O iOS tem um comportamento específico com diálogos de permissão que pode causar problemas:
+O iOS tem um comportamento específico com diálogos de permissão:
 
 1. **Diálogos são exibidos "out of process"** - fora do processo do app
-2. **Quando um diálogo aparece, o app entra em estado `inactive`**
-3. **ATT (App Tracking Transparency) REQUER estado `active`**
+2. **Quando um diálogo aparece, o app entra em estado `inactive`** (no iOS 26 e anteriores)
+3. **O ATT só aparece com o app `active` e sem outro pedido de permissão pendente.** Fora disso o iOS descarta o
+   pedido em silêncio: o retorno chega em milissegundos como `not-determined`, igual a "nunca perguntado", e a doc da
+   Apple manda pedir de novo. O `expo-tracking-transparency` pede uma vez só.
 
-Se você chamar múltiplas permissões em sequência rápida, o diálogo ATT pode:
-- Não aparecer (iOS 15)
-- Retornar `not-determined` silenciosamente
-- Se sobrepor com outros diálogos
+No Android, um pedido de permissão feito enquanto outro está aberto é cancelado pelo sistema, e a promessa do RN pode
+ficar pendurada (o RN guarda um listener de permissão só).
 
-**Solução aplicada no expo-utils:**
-- As permissões são chamadas em sequência com tratamento adequado
-- Use `requestPermissions: false` se quiser controlar o timing manualmente
+**Regra do expo-utils (uma só, para ATT e notificação, iOS e Android — `utils/permission-gate.ts`):**
+- Ordem: UMP → ATT → notificação, depois do 1º frame (`Utils.handleReady`).
+- Pede com o app ativo (`AppState === 'active'`). Se não estiver (alerta de outro pedido na frente, diálogo do app,
+  tela dividida no iPad), espera o evento de "ficou ativo" do AppState — nunca um temporizador.
+- Relê o status logo antes de cada pedido: nunca pede o que já foi respondido.
+- Pedido descartado (ATT volta `undetermined`) ou cancelado (Android: negado sem o diálogo aparecer) → pede de novo no
+  próximo "ficou ativo", até 3 vezes por abertura. A próxima abertura tenta de novo.
+- Todo pedido tem limite de tempo (20s): se a resposta não vem, a lib segue (push, Facebook, atribuição, TikTok e o
+  diálogo de update não travam). ATT concedido depois disso avisa o Facebook (`setAdvertiserTrackingEnabled(true)`) e
+  recoleta os identificadores da atribuição.
+- Com o ATT pendente de nova tentativa, o anúncio de abertura não aparece naquela volta ao app.
+- Telemetria: `consent_flow` traz `att_attempts` e `push_attempts` (ver `docs/ANALYTICS-EVENTS.md`).
+
+**Sem espera fixa.** Até a 1.5.6 a lib segurava o splash 3s, esperava mais 2s até a cadeia, e o ATT esperava 1s e "até
+4s pelo `active`, depois pede mesmo assim". Os 3s eram para o ATT (às vezes o app abria e o prompt não aparecia), mas
+eram gambiarra: o splash não bloqueia o ATT (o alerta do iOS aparece por cima dele) e nenhuma espera garante o app
+ativo — elas só afastavam, por acaso, o pedido da lib do alerta de localização e do ATT que a home pede ao montar.
+Não recoloque espera fixa no app nem na lib. Pedido de ATT próprio do app continua funcionando (se atropelar o da lib,
+ela pede de novo), mas não é necessário: a lib já pede.
 
 ### Ordem de Inicialização de SDKs
 

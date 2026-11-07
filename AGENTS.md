@@ -406,12 +406,27 @@ Central initialization module with a `prepare()` function that:
 - Dispara a **fase 1 da atribuicao do RevenueCat** logo apos o `Purchases.configure` (destacada, nao atrasa o
   splash) e arma o **watchdog do `handleReady`** (30s sem `handleReady` → `expoUtilsWarn`). UMP/ATT/push/FB/
   TikTok/fase 2 NAO rodam no `prepare()`: rodam no `Utils.handleReady` → `requestTrackingWhenActive`
-- **Splash sem espera fixa (1.5.7)**: o `Utils.handleReady` esconde o splash NA HORA (`hideAsync().catch(warn)`) e
-  dispara a cadeia de consentimento 2s depois. Ate a 1.5.6 havia um `setTimeout(3000)` antes do `hideAsync`, sem
-  motivo registrado: 3s a mais em toda abertura (medido no lab, release Android). Nao recoloque espera no splash; se
-  um app precisar de tempo de marca, vira opcao do app, nunca timer no caminho do consentimento. Os +2s ficam: separam
-  os pedidos de permissao da lib dos que a home faz ao montar (tirar so com portoes por evento). O `catch` e
-  obrigatorio: `hideAsync` rejeitado sem catch parava UMP, ATT, push e a fase 2. Teste: `tests/handle-ready.test.ts`
+- **Nenhuma espera fixa no boot nem antes de permissao (1.5.7)**: o `Utils.handleReady` esconde o splash NA HORA
+  (`hideAsync().catch(warn)`) e dispara a cadeia de consentimento na hora. Ate a 1.5.6 havia 3s antes do `hideAsync`,
+  mais 2s ate a cadeia, e o ATT ainda esperava 1s e "ate 4s pelo `active`, depois pede mesmo assim". O motivo dos 3s
+  era o ATT (dito pelo dono em 06/11/2026: as vezes o app abria e o ATT nao aparecia). Era gambiarra: o splash nao
+  bloqueia o ATT (o alerta do iOS aparece por cima dele) e nenhuma espera garante o app `active`; elas so afastavam, por
+  acaso, o pedido da lib do alerta de localizacao e do ATT que a home pede ao montar. A causa real: o iOS descarta o
+  ATT pedido com o app fora de `active` ou com outro pedido pendente, devolve `notDetermined` em milissegundos, e a
+  Apple manda pedir de novo; o `expo-tracking-transparency` pede uma vez so. **Regra (portao de permissoes,
+  `utils/permission-gate.ts`), igual para ATT e notificacao, iOS e Android:** pede com o app `active` (senao espera o
+  evento do AppState, nunca timer); rele o status logo antes de cada pedido; pedido descartado/cancelado pede de novo
+  no proximo "ficou ativo", ate 3 vezes por abertura; todo pedido tem limite de tempo (`PERMISSION_LIMIT_MS`, 20s) e a
+  cadeia segue sem travar push/FB/atribuicao; um pedido por vez (chamadas concorrentes = o mesmo fluxo). Android:
+  pedido negado SEM o app sair de `active` = o dialogo nem apareceu (o sistema cancela o pedido concorrente) → nova
+  tentativa; promessa pendurada (o RN guarda um listener de permissao so) → limite. Mantem: ATT so depois do 1º frame,
+  UMP antes do ATT, ATT antes da notificacao, RC fresco antes de mostrar o app, trava de anuncio por versao da loja.
+  Com o ATT pendente de nova tentativa, o app open nao aparece naquela volta (`isAttPending()`); ATT concedido numa
+  nova tentativa depois de o FB subir com `false` → `setAdvertiserTrackingEnabled(true)` + `refreshAttributionAfterAtt`.
+  **Nao recoloque espera fixa** (no splash, antes da cadeia ou antes de um pedido): se um app precisar de tempo de marca,
+  vira opcao do app, nunca timer no caminho do consentimento. O `catch` do `hideAsync` e obrigatorio: rejeitado sem
+  catch parava UMP, ATT, push e a fase 2. Testes: `tests/handle-ready.test.ts`, `tests/permission-gate.test.ts`,
+  `tests/consent-flow.test.ts`
 - Mantem a user property `rc_status`, o `user_id` do GA4 (= App User ID do RC) e os topicos FCM de assinatura
   (estado + marcos, `utils/rc-status.ts`) a cada `customerInfo`
 - Loga um evento cujo **nome é o slug do app**, 1x por instalação, via `Utils.logFirstOpenOnce()` — flag `@first_open_logged` no AsyncStorage; roda no bloco não-bloqueante do boot (não atrasa o splash). O slug passa por `.replace(/\W/g, "_").slice(0, 40)` porque nome de evento GA4 só aceita `[A-Za-z0-9_]` e no máximo 40 chars — `titulo-eleitor` vira `titulo_eleitor`.
@@ -639,13 +654,13 @@ Hard-won lessons from debugging consumer apps — they affect anyone integrating
   toque dos filhos: pegando no início num ancestral de ScrollView, a rolagem morre. Receita em `utils/retention-modal.tsx`
   (pega no início só com o conteúdo cabendo). Duas folhas do promo (`modal-promotional-content.tsx`, as com
   `onStartShouldSetPanResponder: () => false`) têm o mesmo padrão — não testado lá.
-- **Android pausa os timers do JS com dialogo do sistema na frente** (permissao, UMP, compra): `setTimeout` so dispara quando a Activity volta. Chamada nativa e `fetch` seguem funcionando. Nada que precise sair DURANTE um prompt pode depender de timer/debounce.
+- **Android pausa os timers do JS com dialogo do sistema na frente** (permissao, UMP, compra): `setTimeout` so dispara quando a Activity volta. Chamada nativa e `fetch` seguem funcionando. Nada que precise sair DURANTE um prompt pode depender de timer/debounce. O RN manda `background` no `onHostPause` e `active` no `onHostResume`: e o evento que o portao de permissoes espera antes de pedir, e o `background` durante um pedido e o sinal de que o dialogo apareceu.
 - **`<Image>` com `require()` herda o tamanho INTRINSECO do arquivo como estilo padrao.** So `flex: 1` nao sobrescreve a largura: a imagem padrao do review (1024x572) renderizava com 1024dp num card de ~360dp e o `cover` virava um recorte gigante do "4.7" (bug da 1.3.1, publicado). Imagem que deve preencher um host leva `width: "100%", height: "100%"` explicitos.
 - **Nunca mate o Metro por porta** (`lsof -ti tcp:8082 | xargs kill`): o `netsimd` do emulador Android tambem segura conexao nessa porta (e por ele que o app fala com o Metro) e, morto, derruba o emulador ~20s depois. Mate pelo processo: `pkill -f "expo start --dev-client --port 8082"`.
 - **Emulador restaurado de snapshot fica com a conexao do FCM morta**: push de teste nao chega ate reconectar. Forcar: `adb shell cmd connectivity airplane-mode enable` / `disable`.
 - **`__DEV__` nao existe fora do runtime do RN** (headless, `bun test`): em modulo novo use `typeof __DEV__ !== "undefined" && __DEV__`.
 - **`expoUtilsWarn` emite telemetria**: além do `console.warn` (suprimível com `disableWarnings`), cada mensagem única vira 1 evento `expo_utils_warn` no Firebase Analytics (param `message`, 100 chars; dedup por sessão, cap 50; roda MESMO com `disableWarnings` — é a visibilidade de produção). Best-effort: nunca lança nem recursa.
-- **Promo × ATT**: `usePromotional.show()` espera `waitAttFlowDone()` (resolvido pelo `requestTrackingWhenActive` após o prompt do ATT, com fallback de 15s) antes de agendar o modal — a `Modal` do RN não disputa a janela do prompt do sistema. O gate só arma quando `prepare()` roda; `usePromotional` standalone não espera nada.
+- **Promo × ATT**: `usePromotional.show()` espera `waitAttFlowDone()` (resolvido pelo `requestTrackingWhenActive` após o prompt do ATT ou no limite de 20s da cadeia, com fallback de 15s) antes de agendar o modal — a `Modal` do RN não disputa a janela do prompt do sistema. O gate só arma quando `prepare()` roda; `usePromotional` standalone não espera nada.
 - **Todo o hardening de runtime de 2026-07-11** (21 itens: guards de RevenueCat não-configurado, ads que nunca penduram, banners sem crash de unitId, etc.) está documentado com tabela completa em `docs/auditoria-runtime-2026-07-11.md`.
 
 ## Testing Strategy

@@ -23,7 +23,7 @@ registrado no GA4 para aparecer nos relatórios. Fonte da verdade do código: `u
 |------|-------|--------|
 | `user_id` | App User ID do RevenueCat (`$RCAnonymousID:<32 hex>`, 47 chars) | fase 1 da atribuição e a cada `customerInfo` novo. Vai em `setUserId` (256 chars) porque **não cabe** numa user property (36) |
 | `rc_status` | `free` · `trial` · `trial_cancelled` · `intro` · `active` · `cancelled` · `billing_issue` · `trial_expired` · `expired` · `refunded` (regras em `utils/rc-status.ts` e no README, "Tópicos FCM") | boot e a cada mudança de `customerInfo` — **registrar (escopo usuário)** |
-| `att_status` | `granted` · `denied` · `undetermined` · `restricted` · `na` (Android) · `error` | depois do prompt do ATT — **registrar (escopo usuário)** |
+| `att_status` | `granted` · `denied` · `undetermined` · `restricted` · `na` (Android) · `error` | depois do prompt do ATT (ou no limite de 20s da cadeia) e de novo quando uma nova tentativa muda o resultado — **registrar (escopo usuário)** |
 
 Geo (país/estado/cidade), idioma, versão do app, modelo e SO **já são dimensões nativas do GA4** —
 não há user property para eles.
@@ -33,12 +33,21 @@ não há user property para eles.
 | Evento | Parâmetros | Registrar |
 |--------|-----------|-----------|
 | `rc_attribution` | `phase` (1\|2), `steps_ok`, `steps_fail` (`id:fail`\|`id:timeout`), `ms` (desde o início do JS), `synced` (1 enviado · 2 atributos enviados mas a busca de ofertas falhou — projeto do RC sem offering · 0 falhou · -1 SDK sem o método), `att` (só fase 2) | `phase`, `steps_fail`, `synced` |
-| `consent_flow` | `ump` (`obtained`·`not_required`·`required`·`denied`·`timeout`·`skipped`·`error`), `att`, `push` (`granted`·`denied`·`never_ask_again`·`provisional`·`ephemeral`·`undetermined`·`skipped`·`error`) | os três |
+| `consent_flow` | `ump` (`obtained`·`not_required`·`required`·`denied`·`timeout`·`skipped`·`error`), `att`, `push` (`granted`·`denied`·`never_ask_again`·`provisional`·`ephemeral`·`undetermined`·`timeout`·`skipped`·`error`), `att_attempts` e `push_attempts` (desde 07/11/2026, lib 1.5.7). 1x por instalação e de novo quando `ump`, `att` ou `push` muda (as tentativas não entram nessa comparação) — inclusive na mesma abertura, quando a resposta chega depois do limite de 20s da cadeia (nova tentativa no próximo `active`). Detalhes abaixo | os três + `att_attempts` |
 | `install_attribution` | `source` (`play_referrer` · `link_in_bio`), `matched` (1 = veio de campanha/link · 0 = orgânico ou sem match), `media_source` (ausente em install orgânico), `campaign`, `meta` (só install de anúncio da Meta: `decrypted` · `encrypted` = sem chave · `decrypt_failed` = chave errada). **1 por install e por `source`** (desde 07/10/2026): `play_referrer` só na 1ª leitura do Play Install Referrer (o resultado fica no AsyncStorage `@expo_utils_install_referrer`; antes saía a cada abertura); `link_in_bio` só quando o servidor respondeu (antes, falha de rede saía como `matched` 0) | `source`, `matched`, `media_source`, `meta` |
 | `install_attribution_error` | `source` (`link_in_bio`), `error` (`Network request failed`, `Request timeout`, erro do servidor ou de JSON — 100 chars). O match do link-in-bio não teve resposta; a lib tenta de novo na próxima abertura do app (sai no máximo 1x por abertura até dar certo). **Não entra na taxa de match** | `error` (opcional) |
 | `expo_utils_warn` | `message` (100 chars; dedup por sessão, teto de 50) | `message` |
 | `cfg_integrity` | `cfg_hash` (MD5 do bloco `utils` que o boot usou), `cfg_source` (de onde ele saiu: `settings` = parâmetro `settings` com os blocos · `legacy` = parâmetros `utils` + `screens` · `default` = sem Firebase, erro ou teto de 10s; desde a 1.5.0), `remote_hash` (o `hash` do bloco `utils`), `is_ads_enabled`, `trends_tracking_url`, `tiktokads` (hash), `clarity_id`, `min_version`, `review_type`, `repeat_ads_count`, `ios_app_id`, `id`, `slug`, `bundleid`, `version`, `runtimeversion`, `projectId`, `admob_android_app_id`, `admob_ios_app_id`, `facebook_app_id`. Build antigo (`legacy`) e novo (`settings`) da mesma plataforma com o mesmo `cfg_hash` = as cópias de `utils` que o pldev publica batem com o `settings` | `cfg_source` |
 | `<slug_do_app>` | — (1x por instalação) | — |
+
+`consent_flow` e o portão de permissões (`utils/permission-gate.ts`): o ATT e a notificação só são pedidos com o app
+`active` e, quando o pedido se perde (ATT descartado pelo iOS = volta `undetermined`; notificação no Android negada sem
+o diálogo aparecer, ou pendurada), são pedidos de novo no próximo "ficou ativo", até 3 vezes por abertura.
+`att_attempts`/`push_attempts` = quantos pedidos saíram nesta abertura: `0` = já estava respondido (nenhum pedido) ou o
+app não ficou ativo; `1` = saiu de primeira; `2`–`3` = o 1º se perdeu (é o caso que até a 1.5.6 ficava sem ATT na
+sessão). `att=undetermined` com `att_attempts=3` = desistiu nesta abertura (a próxima tenta de novo). `push=timeout` =
+o pedido não respondeu em 20s e a cadeia seguiu; a resposta que vier depois sai num `consent_flow` novo. Leitura útil:
+`count(att_attempts>=2) ÷ count(att_attempts>=1)` = estimativa de quanto ATT se perdia com um pedido só.
 
 Ids de etapa do `rc_attribution` — fase 1: `adsvc` (AdServices, iOS), `fid` (Firebase app
 instance id), `ctx` (atributos de contexto), `store` (storefront), `ref` (Play Install Referrer, só Android), `uid` (user_id do GA4);
