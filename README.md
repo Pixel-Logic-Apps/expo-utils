@@ -109,6 +109,37 @@ Desde a 1.5.0 a config fica num parâmetro só do Remote Config, **`settings`**,
 | `screens` | `global.remoteConfigScreens` | o que só o app lê (estrutura livre; `cross_promo` obrigatório) |
 | os dois | `global.remoteConfigs` | os dois juntos; em conflito vale o `utils` |
 
+#### Remote Config na abertura e na volta ao app
+
+O app só aparece com a config da rede daquela abertura. A busca sai junto com a checagem de OTA: o `initHotUpdater` (que
+os layouts chamam antes do `prepare`) já dispara o Remote Config, e o `ExpoUtilsLayout` dispara também a consulta da
+loja (`Utils.startBootRequests`); o `prepare` usa as mesmas buscas.
+
+#### Remote Config na volta ao app
+
+A config é a da abertura e só muda escondida (`resume_config` no bloco `utils`):
+
+- `"off"` (padrão): nada muda até fechar o app.
+- `"on_leave"`: ao sair do app, a lib busca a config. Se mudou e a pessoa segue fora, troca os globais e as telas
+  remontam escondidas: ela volta na mesma rota, já com a config nova (a tela perde a rolagem e recarrega os dados). Se
+  ela voltar antes de a busca terminar, nada muda na frente dela: vale na próxima saída. Busca que falha não muda nada;
+  no máximo uma busca a cada 30s. O veredito da trava da loja continua, e o anúncio só liga ou desliga se o
+  `is_ads_enabled` mudou.
+
+Quem liga é o layout: o `ExpoUtilsLayout` já remonta o que está dentro dele; layout próprio usa o hook como `key` do
+navegador (sem o hook, o `on_leave` não troca nada):
+
+```tsx
+import {useConfigVersion} from "expo-utils/utils/use-config-version";
+
+const configVersion = useConfigVersion();
+return <Stack key={configVersion} />;
+```
+
+No Android precisa do `react-native-applifecycle` no app (sem ele o AppState vira `background` em todo diálogo de
+permissão, anúncio e compra): sem o módulo, fica `off`. Antes de ligar num app, confira o que roda de novo ao remontar
+(intersticial ao focar a tela, contagens, telas de edição com câmera/galeria, pedidos de permissão ao montar).
+
 O jeito normal de editar e publicar é o pldev: `.pldev/.firebaserc/rc-config-{ios,android}.json` (`{utils, screens}`) e
 `pldev firebase rc push`. O pldev cria o `settings` com a condição `app.version >= V` e, enquanto houver build antigo
 nas lojas, publica também os parâmetros `utils` e `screens`. Sem o `settings` no formato de blocos, a lib lê os
@@ -260,6 +291,7 @@ Para uso sem hook, use `new PaywallController({t})` ou os métodos estáticos de
 | `appopen_preload_max_age_minutes` | number | Validade do app open pronto; mais velho é descartado e carrega de novo. Padrão `240` (o prazo do Google) |
 | `interstitial_preload_max_age_minutes` | number | Validade do intersticial pronto. Padrão `60` (o da react-native-google-mobile-ads) |
 | `ad_preload_error_pause_seconds` | number | Segundos sem nova pré-carga depois de um erro de carga, medidos pela hora (sem timer). Padrão `0` |
+| `resume_config` | string | Config na volta ao app: `"off"` (padrão: nada muda até fechar o app) ou `"on_leave"` (busca ao sair e, se mudou, aplica com a pessoa fora e as telas remontam) ([detalhes](#remote-config-na-volta-ao-app)) |
 | `ad_load_max_wait_seconds` | number | Espera máxima quando o app open ou o intersticial carrega na hora de mostrar: passou, o app segue sem anúncio e o que chegar depois não aparece. Padrão `0` = sem limite |
 | `promotional` | object | Configuração de conteúdo promocional (veja seção dedicada) |
 | `tiktokads` | object | Configurações do TikTok Ads SDK (`token`, `appid`, `tkappid`, `isdebug`) |
@@ -1849,7 +1881,9 @@ do Expo depois dela fica parado até a próxima abertura; uma tela que espera es
 - Ordem: UMP → ATT → notificação, depois do 1º frame (`Utils.handleReady`).
 - Pede com o app ativo (`AppState === 'active'`). Se não estiver (alerta de outro pedido na frente, diálogo do app,
   tela dividida no iPad), espera o evento de "ficou ativo" do AppState — nunca um temporizador.
-- Relê o status (e confere o app ativo de novo) logo antes de cada pedido: nunca pede o que já foi respondido.
+- Pede direto, sem ler o status antes: o pedido do sistema já respondido devolve a resposta na hora, sem mostrar nada.
+  A leitura antes (no iOS, o `getNotificationSettings` do push) às vezes não voltava, e a notificação não era pedida
+  naquela abertura.
 - Pedido descartado (ATT volta `undetermined`) ou cancelado (Android: negado sem o diálogo aparecer) → pede de novo no
   próximo "ficou ativo", até 3 vezes por abertura. A próxima abertura tenta de novo.
 - Um pedido por vez, na trava única (abaixo), e a notificação só é pedida **depois do fim do ATT** (resposta ou 3
@@ -1876,11 +1910,13 @@ const {status} = await Utils.withPermissionPrompt(() => Location.requestForegrou
 - Espera a vez e o app ativo (por evento, sem temporizador), roda `fn` e solta a trava. `Utils.requestPushPermission()`
   já passa por ela.
 - Em `fn` vai só o pedido, sem rede nem outra permissão dentro.
-- Se a resposta não vier no limite (promessa pendurada), a promessa **rejeita** e a trava solta: trate como "sem
-  permissão", com `try/catch`. O limite é de 20s no Android e 60s no iOS, e só corre com o app ativo: com o diálogo
-  tirando o app de `active` (Android e iOS 26), ele não corre e nada sai por cima. No iOS 27 o alerta não tira o app de
-  `active`; se a pessoa deixar o alerta aberto além dos 60s, o próximo pedido sai por cima dele, como acontecia sem a
-  trava.
+- O limite é de 20s no Android e 60s no iOS, e só corre com o app ativo: com o diálogo tirando o app de `active`
+  (Android e iOS 26), ele não corre e nada sai por cima. No limite a trava solta para o próximo pedido.
+  - iOS: quem pediu continua esperando a resposta de verdade. No iOS 27 o alerta não tira o app de `active`: se a
+    pessoa deixar o alerta aberto além dos 60s, o próximo pedido sai por cima dele (como sem a trava), e o "Permitir"
+    que vier depois vale.
+  - Android: estourar com o app ativo é promessa pendurada; ela **rejeita**: trate como "sem permissão", com
+    `try/catch`.
 
 **Sem espera fixa.** Até a 1.5.6 a lib segurava o splash 3s, esperava mais 2s até a cadeia, e o ATT esperava 1s e "até
 4s pelo `active`, depois pede mesmo assim". Os 3s eram para o ATT (às vezes o app abria e o prompt não aparecia), mas

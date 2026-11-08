@@ -680,9 +680,18 @@ repita os 3s): quem esconde o splash é a lib. Não recoloque espera fixa.
 da lib, `await Utils.withPermissionPrompt(() => Location.requestForegroundPermissionsAsync())`. Procure no app com
 `grep -rnE "request[A-Za-z]*Permission" src/`. No Android, sem a trava, a localização pedida ao montar a home pode cair na
 mesma janela do pedido de notificação da lib: a resposta se perde, a promessa do `expo-location` nunca resolve, e a tela
-que espera por ela fica sem responder ao toque até a próxima abertura. Sem resposta no limite, a promessa rejeita: deixe
-a chamada num `try/catch` e trate como "sem permissão". Não ponha rede nem outra permissão dentro de `fn`. O ATT próprio do
-app (ex.: home pedindo em 1,5s) não é necessário, porque a lib já pede; se ficar, passe pela mesma trava.
+que espera por ela fica sem responder ao toque até a próxima abertura. Sem resposta no limite, no Android a promessa
+rejeita: deixe a chamada num `try/catch` e trate como "sem permissão" (no iOS ela espera a resposta de verdade). Não ponha
+rede nem outra permissão dentro de `fn`. O ATT próprio do app (ex.: home pedindo em 1,5s) não é necessário, porque a lib
+já pede; se ficar, passe pela mesma trava.
+
+**Abertura mais rápida (1.5.7), sem mudar o app:** o `initHotUpdater` dispara o Remote Config junto com a checagem de OTA,
+e o `prepare` usa a mesma busca (medido no iOS: OTA 0,7–1,0 s e Remote Config 0,5–1,0 s, antes um depois do outro). A
+consulta da loja da trava de anúncios sai no começo do `prepare` (no `ExpoUtilsLayout`, junto com o OTA).
+
+**Remote Config na volta ao app (1.5.7, opcional):** `resume_config: "on_leave"` no bloco `utils` só vale em layout que
+remonta as telas (`ExpoUtilsLayout`, ou `useConfigVersion()` como `key` do navegador do layout próprio) e, no Android, com
+o `react-native-applifecycle`. Padrão `off`: nada muda. Ver README, "Remote Config na volta ao app".
 
 - **Fase 1** (sem consentimento): AdServices (iOS), `$firebaseAppInstanceId`, atributos de contexto
   (`language`, `locale`, `device_region`, `currency`, `timezone`, `store_country`, `app_version`…),
