@@ -1,10 +1,12 @@
 /**
  * Portão dos pedidos de permissão da lib (ATT no iOS, notificação no Android e no iOS). Uma regra só, por evento:
  *
- *   1. Pede com o app ativo (`AppState === "active"`, conferido de novo logo antes do pedido). Se não estiver (alerta do
- *      sistema ou diálogo do app na frente, tela dividida no iPad), espera o evento de "ficou ativo" do AppState. Nunca
+ *   1. Pede com o app ativo (`AppState === "active"`, conferido pela trava logo antes do pedido). Se não estiver (alerta
+ *      do sistema ou diálogo do app na frente, tela dividida no iPad), espera o evento de "ficou ativo" do AppState. Nunca
  *      timer.
- *   2. Relê o status logo antes de cada pedido e nunca pede o que já foi respondido.
+ *   2. Pede direto, sem ler o status antes: o pedido do sistema já respondido devolve a resposta na hora, sem mostrar
+ *      nada. A leitura antes (no iOS, `getNotificationSettings` do push) às vezes não voltava e o pedido não saía
+ *      naquela abertura (medido no iOS 27, 07/11/2026).
  *   3. Pedido descartado ou cancelado sem resposta: pede de novo no próximo "ficou ativo", até 3 vezes por abertura.
  *      Depois desiste; a próxima abertura tenta de novo, porque o status continua sem resposta.
  *   4. Todo pedido tem limite de tempo, que só corre com o app ativo: promessa nativa que nunca resolve não trava quem
@@ -152,9 +154,7 @@ export type PermissionFlow<S> = {
 
 export type PermissionGateOptions<S> = {
     appState: AppStateLike;
-    /** Status atual, sem pedir nada. */
-    read: () => Promise<S>;
-    /** Mostra o pedido do sistema e devolve o status. */
+    /** Mostra o pedido do sistema e devolve o status. Já respondido, devolve a resposta sem mostrar nada. */
     request: () => Promise<S>;
     /** Status sem resposta: pode pedir. */
     canAsk: (status: S) => boolean;
@@ -163,14 +163,16 @@ export type PermissionGateOptions<S> = {
      * `active` durante o pedido. Padrão: `canAsk(status)` (o status continua sem resposta).
      */
     lost?: (status: S, leftActive: boolean) => boolean;
-    /** A trava que faz cada pedido sair sozinho e com limite. No limite o status é relido e vale a mesma regra do `lost`. */
+    /** Status de um pedido que passou do limite sem resposta. Vale a mesma regra do `lost`. */
+    noAnswer: S;
+    /** A trava que faz cada pedido sair sozinho e com limite. */
     lock: PermissionLock;
     /** Pedidos por abertura. Padrão 3. */
     maxAttempts?: number;
     /**
      * Ordem entre portões: cada pedido só sai depois que esta promessa termina (ex.: o fim do fluxo do ATT, para a
-     * notificação não sair junto nem antes dele). Sem limite, porque é ordem e não espera de tempo; só é aguardada quando
-     * há o que pedir, antes de entrar na fila da trava, e o status e o AppState são conferidos de novo na vez do pedido.
+     * notificação não sair junto nem antes dele). Sem limite, porque é ordem e não espera de tempo; é aguardada antes de
+     * entrar na fila da trava, e o AppState é conferido de novo na vez do pedido.
      */
     after?: () => Promise<unknown>;
 };
@@ -185,7 +187,7 @@ export type PermissionGate<S> = {
 };
 
 export const createPermissionGate = <S>(options: PermissionGateOptions<S>): PermissionGate<S> => {
-    const {appState, read, request, canAsk, lock, maxAttempts = 3, after} = options;
+    const {appState, request, canAsk, noAnswer, lock, maxAttempts = 3, after} = options;
     const lost = options.lost ?? ((status: S) => canAsk(status));
     let flow: PermissionFlow<S> | null = null;
     let running = false;
@@ -201,33 +203,31 @@ export const createPermissionGate = <S>(options: PermissionGateOptions<S>): Perm
         running = true;
         const final = (async (): Promise<PermissionOutcome<S>> => {
             for (;;) {
-                let status = await read();
-                if (!canAsk(status) || attempts >= maxAttempts) return {status, attempts};
                 if (after) await after().then(noop, noop);
                 const asked: {watch?: ReturnType<typeof watchAppState>; pending?: Promise<S>} = {};
                 try {
-                    const result = await lock(async (): Promise<S> => {
-                        // Relido logo antes do pedido: pode ter sido respondido enquanto esperava a vez ou o app ficar ativo.
-                        const current = await read();
-                        // A releitura vai ao nativo: se o app saiu de `active` nesse meio-tempo, não pede e volta a esperar.
-                        if (!canAsk(current) || appState.currentState !== "active") return current;
+                    // A trava só roda o pedido com o app ativo, logo depois do evento: entre os dois não há ida ao nativo.
+                    const result = await lock((): Promise<S> => {
                         attempts += 1;
                         asked.watch = watchAppState(appState);
                         asked.pending = request();
                         return asked.pending;
                     });
                     const {watch, pending} = asked;
-                    if (!watch || !pending) {
-                        if (result !== TIMED_OUT && !canAsk(result)) return {status: result, attempts};
-                        continue;
-                    }
+                    if (!watch || !pending) return {status: noAnswer, attempts};
                     const timedOut = result === TIMED_OUT;
-                    status = result === TIMED_OUT ? await read() : result;
+                    const status = timedOut ? noAnswer : result;
                     if (!lost(status, watch.leftActive()) || attempts >= maxAttempts) return {status, attempts};
                     settleFirst({status, attempts});
                     // Nova tentativa no próximo "ficou ativo". O pedido que estourou o limite ainda pode responder (o
-                    // alerta pode seguir na tela): o que vier antes acorda a releitura do status.
-                    await (timedOut ? Promise.race([watch.nextActive, pending.then(noop, noop)]) : watch.nextActive);
+                    // alerta pode seguir na tela): se a resposta vier antes, ela vale.
+                    if (timedOut) {
+                        const none = (): typeof TIMED_OUT => TIMED_OUT;
+                        const late = await Promise.race([watch.nextActive.then(none), pending.catch(none)]);
+                        if (late !== TIMED_OUT && !lost(late, watch.leftActive())) return {status: late, attempts};
+                    } else {
+                        await watch.nextActive;
+                    }
                 } finally {
                     asked.watch?.stop();
                 }

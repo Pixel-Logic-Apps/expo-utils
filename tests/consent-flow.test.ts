@@ -241,7 +241,8 @@ test("iOS: ATT descartado e o app volta a ficar ativo antes do limite → pede d
     expect(state.fbTracking).toEqual([true]);
     expect(state.refreshed).toEqual([]);
     expect(state.userProps.att_status).toBe("granted");
-    expect(consentEvents()).toEqual([{ump: "not_required", att: "granted", push: "granted", att_attempts: 2, push_attempts: 0}]);
+    // A notificação já concedida também passa pelo pedido, que volta sem mostrar nada: 1 tentativa.
+    expect(consentEvents()).toEqual([{ump: "not_required", att: "granted", push: "granted", att_attempts: 2, push_attempts: 1}]);
 });
 
 test("iOS: ATT concedido numa nova tentativa depois do limite → FB avisado (true), atribuição recoletada e consent_flow de novo", async () => {
@@ -253,9 +254,13 @@ test("iOS: ATT concedido numa nova tentativa depois do limite → FB avisado (tr
     expect(done).toBe(false);
     expect(isAttPending()).toBe(true);
     await advance(1000);
-    expect(done).toBe(true);
     expect(state.fbTracking).toEqual([false]);
-    expect(consentEvents()).toEqual([{ump: "not_required", att: "undetermined", push: "granted", att_attempts: 1, push_attempts: 0}]);
+    // A notificação só pede depois do fim do ATT, mesmo já concedida (o pedido é o que diz o status): a cadeia espera
+    // o limite dela também.
+    expect(done).toBe(false);
+    await advance(LIMIT);
+    expect(done).toBe(true);
+    expect(consentEvents()).toEqual([{ump: "not_required", att: "undetermined", push: "timeout", att_attempts: 1, push_attempts: 0}]);
 
     state.attAnswers = ["granted"];
     await setAppState("background"); // a pessoa sai e volta: nova tentativa no próximo active
@@ -266,7 +271,7 @@ test("iOS: ATT concedido numa nova tentativa depois do limite → FB avisado (tr
     expect(state.fbTracking).toEqual([false, true]);
     expect(state.refreshed).toEqual(["appl_chave"]);
     expect(state.userProps.att_status).toBe("granted");
-    expect(consentEvents()[1]).toEqual({ump: "not_required", att: "granted", push: "granted", att_attempts: 2, push_attempts: 0});
+    expect(consentEvents().at(-1)).toEqual({ump: "not_required", att: "granted", push: "granted", att_attempts: 2, push_attempts: 1});
 });
 
 test("iOS: o app nunca fica ativo → nenhum pedido sai e a cadeia segue no limite; o ATT sai quando ficar ativo", async () => {
@@ -357,14 +362,17 @@ test("iOS 26: app fora de active além do limite → no mesmo \"ficou ativo\" s�
     expect(consentEvents().at(-1)).toEqual({ump: "not_required", att: "denied", push: "granted", att_attempts: 1, push_attempts: 1});
 });
 
-test("notificação já respondida: não espera o ATT", async () => {
+test("notificação já respondida: espera o fim do ATT, e o pedido volta sem mostrar nada", async () => {
     state.attHold = true;
     state.pushStatus = 1;
     const {default: Utils} = await load();
     Utils.requestTrackingWhenActive(appConfig, appStrings);
     await advance(LIMIT + 1000);
     expect(state.order).toEqual(["att"]);
-    expect(consentEvents()).toEqual([{ump: "not_required", att: "undetermined", push: "granted", att_attempts: 1, push_attempts: 0}]);
+    state.answerAtt("denied");
+    await flush();
+    expect(state.order).toEqual(["att", "push"]);
+    expect(consentEvents().at(-1)).toMatchObject({att: "denied", push: "granted", att_attempts: 1, push_attempts: 1});
 });
 
 test("app open × UMP: com o ATT sem resposta, conta como ATT pendente já enquanto o UMP roda; respondido ou Android, não", async () => {
@@ -516,7 +524,7 @@ test("iOS 26: localização → ATT → notificação, um de cada vez, cada um n
     expect(consentEvents().at(-1)).toMatchObject({att: "granted", push: "granted", att_attempts: 1, push_attempts: 1});
 });
 
-test("iOS 27: alerta de localização na tela com o app active → o ATT espera a resposta até 60 s; depois disso a trava solta", async () => {
+test("iOS 27: alerta de localização na tela com o app active → o ATT espera até 60 s; depois a trava solta e o \"Permitir\" tardio vale", async () => {
     (globalThis as any).isAdsEnabled = false;
     state.attAnswers = ["granted"];
     const {default: Utils, withPermissionPrompt} = await load();
@@ -526,7 +534,10 @@ test("iOS 27: alerta de localização na tela com o app active → o ATT espera 
     expect(state.order).toEqual(["location"]);
     expect(location.seen).toEqual({});
     await advance(1000);
+    // ATT respondido na hora; a notificação já concedida volta sem mostrar nada.
+    expect(state.order).toEqual(["location", "att", "push"]);
+    expect(location.seen).toEqual({}); // a home continua esperando a resposta de verdade, sem erro
+    location.answer("granted");
     await location.done;
-    expect(location.seen.error?.message).toContain("sem resposta no limite");
-    expect(state.order).toEqual(["location", "att"]);
+    expect(location.seen.status).toBe("granted");
 });

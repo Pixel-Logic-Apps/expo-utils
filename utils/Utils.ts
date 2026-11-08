@@ -71,7 +71,7 @@ import {
     fetchAndActivate,
     getValue,
 } from "@react-native-firebase/remote-config";
-import {getMessaging, requestPermission, hasPermission, onMessage, subscribeToTopic, getToken, setBackgroundMessageHandler, experimentalSetDeliveryMetricsExportedToBigQueryEnabled, registerDeviceForRemoteMessages, isDeviceRegisteredForRemoteMessages, getAPNSToken, onNotificationOpenedApp, getInitialNotification} from "@react-native-firebase/messaging";
+import {getMessaging, requestPermission, onMessage, subscribeToTopic, getToken, setBackgroundMessageHandler, experimentalSetDeliveryMetricsExportedToBigQueryEnabled, registerDeviceForRemoteMessages, isDeviceRegisteredForRemoteMessages, getAPNSToken, onNotificationOpenedApp, getInitialNotification} from "@react-native-firebase/messaging";
 import {getApp} from "@react-native-firebase/app";
 import TiktokAdsEvents, {TikTokStandardEvents, TikTokWaitForConfig} from "expo-tiktok-ads-events";
 import {trackLinkInBioInstall} from "./link-in-bio";
@@ -277,30 +277,27 @@ const permissionLock = createPermissionLock(AppState, Platform.OS === "ios" ? 60
  * pedido da lib: a resposta se perde, a promessa do Expo nunca resolve e todo pedido do Expo depois dele fica parado até
  * a próxima abertura. Em `fn` vai só o pedido, sem rede nem outra permissão dentro.
  *
- * Sem resposta no limite (promessa pendurada), rejeita e solta a trava: trate como "sem permissão". O limite não corre com
- * o diálogo tirando o app de `active`.
+ * No limite a trava solta para o próximo pedido. O limite não corre com o diálogo tirando o app de `active`. No iOS 27 o
+ * alerta não tira o app de `active`: no limite ele pode seguir na tela, e quem pediu continua esperando a resposta de
+ * verdade (o "Permitir" depois de 60 s vale, como antes da trava). No Android, estourar com o app ativo é promessa
+ * pendurada: rejeita, e quem pediu trata como "sem permissão".
  *
  * @example const {status} = await Utils.withPermissionPrompt(() => Location.requestForegroundPermissionsAsync());
  */
 export const withPermissionPrompt = async <T>(fn: () => Promise<T>): Promise<T> => {
-    const result = await permissionLock(fn);
-    if (result === TIMED_OUT) throw new Error("withPermissionPrompt: pedido de permissão sem resposta no limite");
-    return result;
+    const asked: {pending?: Promise<T>} = {};
+    const result = await permissionLock(() => (asked.pending = fn()));
+    if (result !== TIMED_OUT) return result;
+    if (Platform.OS === "ios" && asked.pending) return asked.pending;
+    throw new Error("withPermissionPrompt: pedido de permissão sem resposta no limite");
 };
 
 // AuthorizationStatus do RNFB: -1 não determinado, 0 negado, 1 autorizado, 2 provisório, 3 efêmero
 const pushStatusLabel = (status: number): string =>
     status === 1 ? "granted" : status === 2 ? "provisional" : status === 3 ? "ephemeral" : status === 0 ? "denied" : "undetermined";
 
-// Status da notificação sem pedir nada. Android: POST_NOTIFICATIONS concedida ou não (o RN não diz se já foi perguntada).
-const readPushPermission = async (): Promise<string> => {
-    if (Platform.OS === "android") {
-        return (await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS)) ? "granted" : "denied";
-    }
-    return pushStatusLabel(Number(await hasPermission(getMessaging(getApp()))));
-};
-
 // Pedido real da notificação (Android: POST_NOTIFICATIONS; iOS: Firebase messaging), sem a trava: quem chama já está nela.
+// Já respondido, o sistema devolve a resposta sem mostrar nada.
 const askPushPermission = async (): Promise<string> => {
     try {
         if (Platform.OS === "android") {
@@ -318,25 +315,25 @@ const askPushPermission = async (): Promise<string> => {
 // próximo "ficou ativo", até 3 vezes. Regras e motivo em utils/permission-gate.ts.
 const attGate = createPermissionGate<string>({
     appState: AppState,
-    read: async () => String((await getTrackingPermissionsAsync()).status),
     request: async () => String((await requestTrackingPermissionsAsync()).status),
     canAsk: (status) => status === "undetermined",
+    noAnswer: "undetermined",
     lock: permissionLock,
 });
 
 // Fim do fluxo do ATT nesta abertura (resposta ou 3 pedidos perdidos; nunca rejeita). Android/web: já resolvido.
 let attFlowEnded: Promise<unknown> = Promise.resolve();
 
-// Notificação (Android 13+: POST_NOTIFICATIONS; iOS: Firebase messaging) pela mesma regra. No Android o status lido não
-// separa "negado" de "nunca perguntado", então o pedido conta como perdido quando volta negado SEM o app sair de
+// Notificação (Android 13+: POST_NOTIFICATIONS; iOS: Firebase messaging) pela mesma regra. No Android a resposta não
+// separa "negado" de "o sistema cancelou", então o pedido conta como perdido quando volta negado SEM o app sair de
 // `active`: o diálogo nem apareceu (o sistema cancela o pedido concorrente). Antes do Android 13 não há diálogo (o RN
 // resolve na hora): um pedido só, como antes. O pedido só sai depois do fim do ATT (`after`, sem limite): ATT antes da
 // notificação e um pedido por vez, também quando o ATT passou do limite da cadeia — alerta ainda na tela (no iOS 27 ele
 // não deixa o app `inactive`) ou app fora de `active` com os dois portões esperando o mesmo "ficou ativo".
 const pushGate = createPermissionGate<string>({
     appState: AppState,
-    read: readPushPermission,
     request: askPushPermission,
+    noAnswer: Platform.OS === "android" ? "denied" : "undetermined",
     canAsk: (status) => (Platform.OS === "android" ? status !== "granted" : status === "undetermined"),
     lost: (status, leftActive) =>
         Platform.OS === "android"
@@ -1170,8 +1167,8 @@ const Utils = {
      *   1. UMP + init do Google Mobile Ads (setupMobileAds): consentimento de ads vem ANTES do
      *      ATT — ordem recomendada pelo Google e o iOS só exibe um modal de sistema por vez.
      *      Fora de EEA/UK/US regulado não mostra nada e sai rápido.
-     *   2. ATT (somente iOS), pelo portão de permissões (utils/permission-gate.ts): relê o status e
-     *      só pede quando 'undetermined'; pede só com o app `active` (senão espera o evento, nunca
+     *   2. ATT (somente iOS), pelo portão de permissões (utils/permission-gate.ts): pede direto (já
+     *      respondido, o iOS devolve a resposta sem mostrar nada); pede só com o app `active` (senão espera o evento, nunca
      *      timer) e na trava única de permissão (withPermissionPrompt: se a home já pediu localização,
      *      espera a resposta dela); se o iOS descartar (volta 'undetermined'), pede de novo no próximo
      *      "ficou ativo", até 3 vezes por abertura. A cadeia espera o resultado por no máximo PERMISSION_LIMIT_MS e
@@ -1222,8 +1219,9 @@ const Utils = {
                     () => {},
                 );
                 const outcome = await withTimeout(attFlow.final, PERMISSION_LIMIT_MS);
-                // No limite a cadeia segue com o status de agora; o portão continua e a resposta tardia é tratada abaixo.
-                consent.att = outcome === TIMED_OUT ? String((await getTrackingPermissionsAsync()).status) : outcome.status;
+                // No limite a cadeia segue sem resposta (sem ler o status: a leitura também pode não voltar); o portão
+                // continua e a resposta tardia é tratada abaixo.
+                consent.att = outcome === TIMED_OUT ? "undetermined" : outcome.status;
                 consent.attAttempts = attGate.attempts();
                 granted = consent.att === "granted";
             } catch (e) {
