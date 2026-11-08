@@ -32,36 +32,38 @@ const SafeBanner = memo(({unitId}: {unitId: string | undefined}) => {
     );
 });
 
+/**
+ * O banner só aparece com o anúncio confirmado ligado: `global.isAdsEnabled === true` (o boot pôs, e nem o Remote
+ * Config, nem a trava da loja, nem o app desligou) e `is_ads_enabled === true` no Remote Config da sessão. Valor
+ * ausente ou indefinido não liga. Em DEV vale o toggle "Ads" do dev-menu (o Remote Config de DEV vem desligado).
+ */
+export const bannerConfirmed = (remote?: {is_ads_enabled?: unknown} | null): boolean =>
+    global.isAdsEnabled === true && (remote?.is_ads_enabled === true || __DEV__);
+
 export default function BannerAdComponent({unitId}: {unitId?: string}) {
-    const [isAdsEnabled, setIsAdsEnabled] = useState(global.isAdsEnabled);
+    // Só aparece depois da confirmação (bannerConfirmed), nunca antes.
+    const [isAdsEnabled, setIsAdsEnabled] = useState(false);
     const adUnits = (global as any).adUnits || {};
     const bannerUnitId = unitId ?? adUnits.banner;
 
     useEffect(() => {
+        let mounted = true;
         (async () => {
             // Premium unificado (DEV: @isPremium; produção: RevenueCat).
             const isPremium = await PremiumUtils.getIsPremiumStatus();
             expoUtilsLog("isPremium", isPremium);
-
-            if (isPremium) {
-                setIsAdsEnabled(false);
-                return;
-            }
+            if (isPremium) return;
 
             // Memoizado no Utils — todos os banners compartilham o fetch do prepare().
             const remote = await Utils.getRemoteConfigUtils();
             expoUtilsLog("remote.is_ads_enabled", remote.is_ads_enabled);
-
-            if (global.isAdsEnabled === true) {
-                // Ligado EXPLICITAMENTE (toggle "Ads" do dev-menu, app de teste) vence o default
-                // do Remote Config (is_ads_enabled=false em DEV). Mesma regra do banner-ad.
-                setIsAdsEnabled(true);
-            } else if (global.isAdsEnabled !== false) {
-                setIsAdsEnabled(remote.is_ads_enabled);
-            }
+            if (mounted) setIsAdsEnabled(bannerConfirmed(remote));
 
             expoUtilsLog("bannerUnitId", bannerUnitId);
         })().catch(() => {});
+        return () => {
+            mounted = false;
+        };
     }, []);
 
     // Em produção, sem unitId o <BannerAd> lança no render — sem ad é melhor que crash.

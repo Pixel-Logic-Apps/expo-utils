@@ -4,9 +4,11 @@ import Utils, {expoUtilsLog} from "./Utils";
 import {generatePlacementId, isPlacementBlocked} from "./AdPlacementTracker";
 import {PremiumUtils} from "./PremiumUtils";
 import {logAdRevenue} from "./ad-revenue";
+import {bannerConfirmed} from "./safe-banner-ad";
 
 export default function BannerAdComponent({unitId, tag}: {unitId?: string; tag?: string}) {
-    const [IS_ADS_ENABLED, setIsAdsEnabled] = useState(global.isAdsEnabled);
+    // Só aparece com o anúncio confirmado ligado (bannerConfirmed), nunca antes da confirmação.
+    const [IS_ADS_ENABLED, setIsAdsEnabled] = useState(false);
     const adUnits = (global as any).adUnits || {};
     const bannerUnitId = unitId ?? adUnits.banner;
 
@@ -20,6 +22,7 @@ export default function BannerAdComponent({unitId, tag}: {unitId?: string; tag?:
     const [isBlocked, setIsBlocked] = useState(() => isPlacementBlocked(placementId));
 
     useEffect(() => {
+        let mounted = true;
         const didLoaded = async () => {
             // Re-check blocklist in case it was loaded after mount
             if (isPlacementBlocked(placementId)) {
@@ -30,24 +33,17 @@ export default function BannerAdComponent({unitId, tag}: {unitId?: string; tag?:
             // Premium unificado (DEV: @isPremium; produção: RevenueCat).
             const isPremium = await PremiumUtils.getIsPremiumStatus();
             expoUtilsLog("isPremium", isPremium);
-            if (isPremium) {
-                setIsAdsEnabled(false);
-                return;
-            }
+            if (isPremium) return;
             // Memoizado no Utils — todos os banners compartilham o fetch do prepare().
             const remoteConfigSettings = await Utils.getRemoteConfigUtils();
             expoUtilsLog("isAdsEnabled", global.isAdsEnabled);
-            if (global.isAdsEnabled === true) {
-                // Ligado EXPLICITAMENTE (toggle "Ads" do dev-menu, app de teste): vence o
-                // default do Remote Config, que em DEV é is_ads_enabled=false — senão o toggle
-                // não conseguia ligar banner nenhum em debug build.
-                setIsAdsEnabled(true);
-            } else if (global.isAdsEnabled !== false) {
-                setIsAdsEnabled(remoteConfigSettings.is_ads_enabled);
-            }
+            if (mounted) setIsAdsEnabled(bannerConfirmed(remoteConfigSettings));
             expoUtilsLog("bannerUnitIds", bannerUnitId);
         };
         didLoaded().catch(() => {});
+        return () => {
+            mounted = false;
+        };
     }, []);
 
     if (isBlocked) {
