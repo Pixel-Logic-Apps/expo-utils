@@ -289,7 +289,7 @@ Para uso sem hook, use `new PaywallController({t})` ou os métodos estáticos de
 | `ad_blocklist` | string[] | Lista de placement IDs bloqueados |
 | `taichi_events` | string[] | Nomes Taichi habilitados: ausente = todos os 60; `[]` = sem emissões; lista = apenas os nomes indicados. A soma é mantida. |
 | `appopen_preload_enabled` | boolean | Pré-carga do app open: guarda um anúncio pronto (o 1º depois do UMP/ATT, os outros a cada fechamento) e mostra na volta sem esperar. Padrão `false` = carrega na volta ([detalhes](#app-open-volta-ao-app-e-pré-carga)) |
-| `interstitial_preload_enabled` | boolean | Pré-carga do intersticial: a partir do fechamento do 1º da sessão, guarda o próximo pronto. Padrão `false` = carrega na chamada |
+| `interstitial_preload_enabled` | boolean | Pré-carga do intersticial: o 1º da sessão fica pronto quando o fluxo de consentimento da abertura termina (UMP e ATT; fora da Europa o UMP responde na hora) e, a cada fechamento, o próximo. Padrão `false` = carrega na chamada |
 | `appopen_preload_max_age_minutes` | number | Validade do app open pronto; mais velho é descartado e carrega de novo. Padrão `240` (o prazo do Google) |
 | `interstitial_preload_max_age_minutes` | number | Validade do intersticial pronto. Padrão `60` (o da react-native-google-mobile-ads) |
 | `ad_preload_error_pause_seconds` | number | Segundos sem nova pré-carga depois de um erro de carga, medidos pela hora (sem timer). Padrão `0` |

@@ -7,7 +7,7 @@ import {
 } from "react-native-google-mobile-ads";
 import {getAnalytics, logEvent} from "@react-native-firebase/analytics";
 import {getApp} from "@react-native-firebase/app";
-import {expoUtilsWarn, expoUtilsLog} from "./Utils";
+import {expoUtilsWarn, expoUtilsLog, whenConsentFlowDone} from "./Utils";
 import {generatePlacementId, isAdTypeBlocked, isPlacementBlocked} from "./AdPlacementTracker";
 import {PremiumUtils} from "./PremiumUtils";
 import {logAdRevenue} from "./ad-revenue";
@@ -67,7 +67,8 @@ const resolveAdRequest = async (kind: "interstitial" | "rewarded", unitId?: stri
 type AdRequest = {placementId: string; adUnitId: string};
 
 // Reserva da pré-carga (`interstitial_preload_enabled`, desligada por padrão): um intersticial pronto para a próxima
-// chamada. O primeiro da sessão carrega na chamada; a pré-carga começa quando ele fecha.
+// chamada, desde o 1º da sessão (carregado quando o fluxo de consentimento da abertura termina) e de novo a cada
+// fechamento.
 const interstitialPreloader = createAdPreloader("interstitial", (adUnitId) => InterstitialAd.createForAdRequest(adUnitId, {}));
 
 // Pré-carga com as checagens da exibição que não dependem do placement: bloqueio do tipo (`interstitial` ou `*` no
@@ -83,6 +84,15 @@ const preloadInterstitial = async (adUnitId: string) => {
         expoUtilsWarn("preloadInterstitial:", e);
     }
 };
+
+// O 1º da sessão: com a pré-carga ligada, fica pronto quando o fluxo de consentimento da abertura termina (UMP e ATT),
+// como o app open, para o pedido sair depois do consentimento. Fora da Europa o UMP responde na hora, sem mostrar nada.
+whenConsentFlowDone()
+    .then(() => {
+        const unitId = (global as any).adUnits?.interstitial;
+        if (typeof unitId === "string" && unitId) return preloadInterstitial(unitId);
+    })
+    .catch(() => {});
 
 // Mostra um intersticial já carregado, com os listeners desta chamada: placement e PAID são os da exibição, nunca os
 // da pré-carga. Resolve true no CLOSED e false em erro.

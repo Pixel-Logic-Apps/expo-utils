@@ -276,8 +276,8 @@ export interface RemoteConfigUtilsType {
      */
     appopen_preload_enabled?: boolean;
     /**
-     * Guarda um intersticial pronto para a próxima chamada (carregado quando o anterior fecha). Desligado: carrega na
-     * hora de mostrar.
+     * Guarda um intersticial pronto para a próxima chamada: o 1º quando o fluxo de consentimento da abertura termina
+     * (UMP e ATT), os outros quando o anterior fecha. Desligado: carrega na hora de mostrar.
      * @section Anúncios
      * @label Pré-carga do intersticial
      * @default desligado

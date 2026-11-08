@@ -229,6 +229,59 @@ describe("pré-carga ligada (interstitial_preload_enabled)", () => {
     });
 });
 
+describe("o 1º da sessão já pronto (pré-carga ligada)", () => {
+    const consentDone = () => {
+        let done: () => void = () => {};
+        ads.consentFlow = new Promise<void>((resolve) => (done = resolve));
+        return done;
+    };
+
+    test("o fluxo de consentimento termina → o 1º fica pronto e a 1ª chamada mostra na hora, sem carregar", async () => {
+        (globalThis as any).remoteConfigUtils = {interstitial_preload_enabled: true};
+        const done = consentDone();
+        const manager = await load();
+        await flush();
+        expect(interstitials()).toHaveLength(0); // antes do consentimento nada carrega
+        done();
+        await flush();
+        expect(interstitials()).toHaveLength(1);
+        const ready = interstitials()[0];
+        expect([ready.unitId, ready.loads, ready.shows]).toEqual([UNIT, 1, 0]);
+        ready.emit("loaded");
+        await flush();
+        const first = manager.showInterstitial(undefined, "a");
+        await flush();
+        expect(ready.shows).toBe(1);
+        expect(interstitials()).toHaveLength(1); // nenhuma carga na chamada
+        await watch(ready, {load: false});
+        expect(await first).toBe(true);
+        expect(interstitials()).toHaveLength(2); // e já prepara o próximo
+    });
+
+    test("pré-carga desligada (padrão): o fim do consentimento não carrega nada", async () => {
+        const done = consentDone();
+        await load();
+        done();
+        await flush();
+        expect(interstitials()).toHaveLength(0);
+    });
+
+    test("premium, anúncio desligado ou intersticial bloqueado: o fim do consentimento não carrega nada", async () => {
+        for (const caso of ["premium", "desligado", "bloqueado"]) {
+            resetAds();
+            setBlocklist(caso === "bloqueado" ? ["interstitial"] : []);
+            ads.premium = caso === "premium";
+            (globalThis as any).isAdsEnabled = caso !== "desligado";
+            (globalThis as any).remoteConfigUtils = {interstitial_preload_enabled: true};
+            const done = consentDone();
+            await load();
+            done();
+            await flush();
+            expect([caso, interstitials().length]).toEqual([caso, 0]);
+        }
+    });
+});
+
 describe("espera máxima (ad_load_max_wait_seconds)", () => {
     test("passou do limite: resolve true; o que chega depois não aparece nem gera evento; sem pré-carga é descartado", async () => {
         (globalThis as any).remoteConfigUtils = {ad_load_max_wait_seconds: 3};

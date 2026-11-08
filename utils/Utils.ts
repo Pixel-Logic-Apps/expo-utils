@@ -262,6 +262,12 @@ export const waitAttFlowDone = (timeoutMs = 15000): Promise<void> => {
     return Promise.race([attFlowDonePromise, new Promise<void>((resolve) => setTimeout(resolve, timeoutMs))]);
 };
 
+/**
+ * Resolve quando o fluxo de consentimento da abertura termina (UMP e, no iOS, ATT respondido ou no limite da cadeia),
+ * sem teto. Sem o boot da lib (handleReady), nunca resolve. Para pedir anúncio só depois do consentimento.
+ */
+export const whenConsentFlowDone = (): Promise<void> => attFlowDonePromise;
+
 // Quanto a cadeia espera o ATT e a notificação. É limite, não espera: o pedido sai assim que chega a vez dele com o app
 // ativo (utils/permission-gate.ts) e o limite só vale quando a resposta não vem — pedido na fila atrás de um diálogo,
 // promessa nativa pendurada, ou app que não volta a ficar ativo (iPad em tela dividida). Aí a cadeia segue sem travar FB,

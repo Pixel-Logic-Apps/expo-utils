@@ -74,6 +74,7 @@ export const ads = {
     lifecycleModule: true, // NativeModules.ReactNativeAppLifecycle presente (app instalou o react-native-applifecycle)
     premium: false,
     attGate: Promise.resolve() as Promise<void>, // waitAttFlowDone()
+    consentFlow: new Promise<void>(() => {}) as Promise<void>, // whenConsentFlowDone(): sem o boot, nunca termina
     attPending: false, // isAttPending(): o ATT ainda vai pedir nesta abertura
     attTimeouts: [] as Array<number | undefined>,
     appStateListeners: [] as Array<(state: string) => void>,
@@ -90,6 +91,7 @@ export function resetAds() {
     ads.lifecycleModule = true;
     ads.premium = false;
     ads.attGate = Promise.resolve();
+    ads.consentFlow = new Promise<void>(() => {});
     ads.attPending = false;
     ads.attTimeouts.length = 0;
     ads.appStateListeners.length = 0;
@@ -161,6 +163,7 @@ export function installAdsMocks() {
             ads.attTimeouts.push(timeoutMs);
             return ads.attGate;
         },
+        whenConsentFlowDone: () => ads.consentFlow,
     }));
     mock.module("../../utils/PremiumUtils", () => ({
         PremiumUtils: {getIsPremiumStatus: () => Promise.resolve(ads.premium)},
