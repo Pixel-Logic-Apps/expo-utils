@@ -76,6 +76,8 @@ export const ads = {
     attGate: Promise.resolve() as Promise<void>, // waitAttFlowDone()
     consentFlow: new Promise<void>(() => {}) as Promise<void>, // whenConsentFlowDone(): sem o boot, nunca termina
     attPending: false, // isAttPending(): o ATT ainda vai pedir nesta abertura
+    adsConsent: Promise.resolve() as Promise<void>, // whenAdsConsentReady(): com ads_wait_consent_enabled desligada, na hora
+    adsConsentReady: true, // isAdsConsentReady()
     attTimeouts: [] as Array<number | undefined>,
     appStateListeners: [] as Array<(state: string) => void>,
     lifecycleListeners: [] as Array<{event: string; fn: (event: any) => void}>,
@@ -93,6 +95,8 @@ export function resetAds() {
     ads.attGate = Promise.resolve();
     ads.consentFlow = new Promise<void>(() => {});
     ads.attPending = false;
+    ads.adsConsent = Promise.resolve();
+    ads.adsConsentReady = true;
     ads.attTimeouts.length = 0;
     ads.appStateListeners.length = 0;
     ads.lifecycleListeners.length = 0;
@@ -164,6 +168,8 @@ export function installAdsMocks() {
             return ads.attGate;
         },
         whenConsentFlowDone: () => ads.consentFlow,
+        whenAdsConsentReady: () => ads.adsConsent,
+        isAdsConsentReady: () => ads.adsConsentReady,
     }));
     mock.module("../../utils/PremiumUtils", () => ({
         PremiumUtils: {getIsPremiumStatus: () => Promise.resolve(ads.premium)},

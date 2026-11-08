@@ -1,6 +1,6 @@
 import {AppOpenAd, AdEventType} from "react-native-google-mobile-ads";
 import {generatePlacementId, isAdTypeBlocked, isPlacementBlocked} from "./AdPlacementTracker";
-import {expoUtilsLog, expoUtilsWarn, isAttPending, waitAttFlowDone} from "./Utils";
+import {expoUtilsLog, expoUtilsWarn, isAdsConsentReady, isAttPending, waitAttFlowDone, whenAdsConsentReady} from "./Utils";
 import {PremiumUtils} from "./PremiumUtils";
 import {logAdRevenue} from "./ad-revenue";
 import {addAppLifecycleListener} from "./app-lifecycle";
@@ -69,8 +69,8 @@ export const setupAppOpenListener = (adUnitId?: string) => {
 
                 if (!(canShowAppOpenAgain && appState.current === "background" && nextAppState === "active")) return;
                 // O ATT ainda vai pedir (UMP rodando antes dele, ou nova tentativa do portão em utils/permission-gate.ts): o
-                // app open não sai junto.
-                if (isAttPending()) {
+                // app open não sai junto. Com ads_wait_consent_enabled, também não antes do UMP e da resposta do ATT.
+                if (isAttPending() || !isAdsConsentReady()) {
                     expoUtilsLog("[expo-utils] AppOpen: ATT pendente nesta volta — sem anúncio.");
                     return;
                 }
@@ -136,5 +136,5 @@ export const setupAppOpenListener = (adUnitId?: string) => {
     // Pré-carga ligada: o 1º app open carrega quando o fluxo de UMP/ATT da lib termina, para o pedido não sair antes
     // do consentimento. O teto padrão de 15 s (o do promo) passaria com o formulário do UMP ainda aberto; 2 min só
     // existe para layout sem handleReady, onde o fluxo nunca termina.
-    if (readAdPreloadSettings("appopen").enabled) void waitAttFlowDone(2 * 60_000).then(() => preloadAppOpen(adUnitId));
+    if (readAdPreloadSettings("appopen").enabled) void waitAttFlowDone(2 * 60_000).then(() => whenAdsConsentReady()).then(() => preloadAppOpen(adUnitId));
 };

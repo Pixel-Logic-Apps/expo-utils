@@ -557,3 +557,87 @@ test("iOS: pedido do app pendurado (a resposta nunca vem) → espera mais um lim
     await location.done;
     expect(location.seen.error?.message).toContain("sem resposta no limite");
 });
+
+// Anúncio só depois do consentimento (`ads_wait_consent_enabled`, desligada por padrão): whenAdsConsentReady espera o UMP
+// e, no iOS, a resposta do ATT — não o limite de 20 s da cadeia —, com limite de segurança de 60 s depois do UMP.
+const watchAds = (whenAdsConsentReady: () => Promise<void>) => {
+    const seen = {ready: false};
+    whenAdsConsentReady().then(() => (seen.ready = true));
+    return seen;
+};
+
+test("ads_wait_consent_enabled desligada (padrão): anúncio liberado na hora, antes do UMP e do ATT", async () => {
+    (globalThis as any).remoteConfigUtils = {};
+    const {whenAdsConsentReady, isAdsConsentReady} = await load();
+    const seen = watchAds(whenAdsConsentReady);
+    await flush();
+    expect(seen.ready).toBe(true);
+    expect(isAdsConsentReady()).toBe(true);
+    delete (globalThis as any).remoteConfigUtils;
+});
+
+test("ligada, iOS: o ATT na fila atrás da localização → não libera no limite de 20 s da cadeia; libera com a resposta do ATT", async () => {
+    (globalThis as any).remoteConfigUtils = {ads_wait_consent_enabled: true};
+    state.attAnswers = ["granted"];
+    const {default: Utils, withPermissionPrompt, whenAdsConsentReady, isAdsConsentReady, whenConsentFlowDone} = await load();
+    const location = homeLocation(withPermissionPrompt); // a localização da home chegou primeiro
+    const seen = watchAds(whenAdsConsentReady);
+    let flow = false;
+    whenConsentFlowDone().then(() => (flow = true));
+    Utils.requestTrackingWhenActive(appConfig, appStrings);
+    await advance(LIMIT + 1000);
+    expect(flow).toBe(true); // a cadeia seguiu no limite...
+    expect(state.order).toEqual(["location"]); // ...com o ATT ainda na fila
+    expect(seen.ready).toBe(false);
+    expect(isAdsConsentReady()).toBe(false);
+    location.answer("granted");
+    await flush();
+    expect(state.order.slice(0, 2)).toEqual(["location", "att"]);
+    expect(seen.ready).toBe(true);
+    expect(isAdsConsentReady()).toBe(true);
+    delete (globalThis as any).remoteConfigUtils;
+});
+
+test("ligada, iOS: ATT na tela sem resposta → libera no limite de segurança de 60 s depois do UMP", async () => {
+    (globalThis as any).remoteConfigUtils = {ads_wait_consent_enabled: true};
+    state.attHold = true;
+    const {default: Utils, whenAdsConsentReady, isAdsConsentReady} = await load();
+    const seen = watchAds(whenAdsConsentReady);
+    Utils.requestTrackingWhenActive(appConfig, appStrings);
+    await advance(59000);
+    expect(state.attRequests).toBe(1);
+    expect(seen.ready).toBe(false);
+    await advance(1000);
+    expect(seen.ready).toBe(true);
+    expect(isAdsConsentReady()).toBe(true);
+    delete (globalThis as any).remoteConfigUtils;
+});
+
+test("ligada, iOS: ATT já respondido numa abertura anterior → libera logo depois do UMP, sem pedir", async () => {
+    (globalThis as any).remoteConfigUtils = {ads_wait_consent_enabled: true};
+    state.att = "denied";
+    const {default: Utils, whenAdsConsentReady} = await load();
+    const seen = watchAds(whenAdsConsentReady);
+    Utils.requestTrackingWhenActive(appConfig, appStrings);
+    await flush();
+    expect(state.attRequests).toBe(0);
+    expect(seen.ready).toBe(true);
+    delete (globalThis as any).remoteConfigUtils;
+});
+
+test("ligada, Android: espera o UMP e libera assim que ele responde (não há ATT)", async () => {
+    (globalThis as any).remoteConfigUtils = {ads_wait_consent_enabled: true};
+    state.os = "android";
+    let answerUmp: () => void = () => {};
+    state.ump = new Promise((resolve) => (answerUmp = () => resolve({canRequestAds: true, status: "NOT_REQUIRED"})));
+    const {default: Utils, whenAdsConsentReady, isAdsConsentReady} = await load();
+    const seen = watchAds(whenAdsConsentReady);
+    Utils.requestTrackingWhenActive(appConfig, appStrings);
+    await advance(3000);
+    expect(seen.ready).toBe(false);
+    expect(isAdsConsentReady()).toBe(false);
+    answerUmp();
+    await flush();
+    expect(seen.ready).toBe(true);
+    delete (globalThis as any).remoteConfigUtils;
+});

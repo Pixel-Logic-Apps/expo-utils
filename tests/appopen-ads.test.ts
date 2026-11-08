@@ -353,3 +353,30 @@ describe("espera máxima (ad_load_max_wait_seconds)", () => {
         expect(appOpens()).toHaveLength(2);
     });
 });
+
+describe("anúncio só depois do consentimento (ads_wait_consent_enabled)", () => {
+    test("consentimento da abertura ainda não terminou: a volta não mostra app open; terminou, a próxima volta mostra", async () => {
+        const {setupAppOpenListener} = await load();
+        setupAppOpenListener();
+        ads.adsConsentReady = false;
+        await leaveAndReturn();
+        expect(appOpens()).toHaveLength(0);
+        // A janela não fechou: a próxima volta, já com o consentimento, mostra.
+        ads.adsConsentReady = true;
+        await leaveAndReturn();
+        expect(appOpens()).toHaveLength(1);
+    });
+
+    test("pré-carga ligada: o 1º espera o UMP/ATT da lib E o whenAdsConsentReady", async () => {
+        (globalThis as any).remoteConfigUtils = {appopen_preload_enabled: true};
+        let releaseConsent: () => void = () => {};
+        ads.adsConsent = new Promise<void>((resolve) => (releaseConsent = resolve));
+        const {setupAppOpenListener} = await load();
+        setupAppOpenListener();
+        await flush();
+        expect(appOpens()).toHaveLength(0); // attGate já liberado (padrão do mock), mas o consentimento dos anúncios não
+        releaseConsent();
+        await flush();
+        expect(appOpens()).toHaveLength(1);
+    });
+});

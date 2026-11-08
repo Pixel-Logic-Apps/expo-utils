@@ -1,6 +1,6 @@
 import React, {useEffect, useRef, useState} from "react";
 import {BannerAd, BannerAdSize} from "react-native-google-mobile-ads";
-import Utils, {expoUtilsLog} from "./Utils";
+import Utils, {expoUtilsLog, whenAdsConsentReady} from "./Utils";
 import {generatePlacementId, isPlacementBlocked} from "./AdPlacementTracker";
 import {PremiumUtils} from "./PremiumUtils";
 import {logAdRevenue} from "./ad-revenue";
@@ -37,7 +37,10 @@ export default function BannerAdComponent({unitId, tag}: {unitId?: string; tag?:
             // Memoizado no Utils — todos os banners compartilham o fetch do prepare().
             const remoteConfigSettings = await Utils.getRemoteConfigUtils();
             expoUtilsLog("isAdsEnabled", global.isAdsEnabled);
-            if (mounted) setIsAdsEnabled(bannerConfirmed(remoteConfigSettings));
+            const confirmed = bannerConfirmed(remoteConfigSettings);
+            // ads_wait_consent_enabled: só depois do UMP e da resposta do ATT (desligada, na hora).
+            if (confirmed) await whenAdsConsentReady();
+            if (mounted) setIsAdsEnabled(confirmed);
             expoUtilsLog("bannerUnitIds", bannerUnitId);
         };
         didLoaded().catch(() => {});

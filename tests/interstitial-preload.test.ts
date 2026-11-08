@@ -359,3 +359,37 @@ describe("espera máxima (ad_load_max_wait_seconds)", () => {
         expect(names()).toEqual(["AdLOADED", "OPENED", "AdCLOSED"]);
     });
 });
+
+describe("anúncio só depois do consentimento (ads_wait_consent_enabled)", () => {
+    test("consentimento da abertura ainda não terminou: intersticial e rewarded seguem sem anúncio (true), sem carregar; terminou, carregam", async () => {
+        const manager = await load();
+        ads.adsConsentReady = false;
+        expect(await manager.showInterstitial(undefined, "a")).toBe(true);
+        expect(await manager.showRewarded(undefined, "b")).toBe(true);
+        expect(FakeAd.created).toHaveLength(0);
+        expect(names()).toEqual([]);
+
+        ads.adsConsentReady = true;
+        const shown = manager.showInterstitial(undefined, "a");
+        await flush();
+        expect(interstitials()).toHaveLength(1);
+        await watch(interstitials()[0]);
+        expect(await shown).toBe(true);
+    });
+
+    test("pré-carga ligada: o 1º espera o fluxo de consentimento E o whenAdsConsentReady (a resposta do ATT)", async () => {
+        (globalThis as any).remoteConfigUtils = {interstitial_preload_enabled: true};
+        let consentFlowDone: () => void = () => {};
+        let adsConsentDone: () => void = () => {};
+        ads.consentFlow = new Promise<void>((resolve) => (consentFlowDone = resolve));
+        ads.adsConsent = new Promise<void>((resolve) => (adsConsentDone = resolve));
+        await load();
+        await flush();
+        consentFlowDone(); // o fluxo liberou (ex.: no limite de 20 s da cadeia), mas o ATT ainda não respondeu
+        await flush();
+        expect(interstitials()).toHaveLength(0);
+        adsConsentDone();
+        await flush();
+        expect(interstitials()).toHaveLength(1);
+    });
+});

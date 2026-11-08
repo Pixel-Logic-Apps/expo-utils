@@ -270,6 +270,30 @@ export const waitAttFlowDone = (timeoutMs = 15000): Promise<void> => {
  */
 export const whenConsentFlowDone = (): Promise<void> => attFlowDonePromise;
 
+// Anúncio depois do consentimento (`ads_wait_consent_enabled` no bloco `utils`, desligado por padrão). Ligado: banner,
+// intersticial, rewarded e app open só carregam depois do UMP e, no iOS, da resposta do ATT. O whenConsentFlowDone não
+// serve para isso: ele libera no limite de 20 s da cadeia, com o ATT ainda na fila atrás de outro diálogo. Limite de
+// segurança: 60 s depois do UMP, para um ATT que não chega não deixar a sessão inteira sem anúncio. Desligado: como antes.
+const ADS_CONSENT_LIMIT_MS = 60000;
+let adsConsentDone = false;
+let settleAdsConsent: () => void = () => {};
+const adsConsentPromise = new Promise<void>((resolve) => {
+    settleAdsConsent = () => {
+        adsConsentDone = true;
+        resolve();
+    };
+});
+const adsWaitConsent = (): boolean => (global as any).remoteConfigUtils?.ads_wait_consent_enabled === true;
+
+/**
+ * Resolve quando o anúncio pode carregar. Com `ads_wait_consent_enabled` desligada (padrão), na hora. Ligada, depois do
+ * UMP e, no iOS, da resposta do ATT, ou no limite de segurança de 60 s. Para anúncio do próprio app (ex.: nativo).
+ */
+export const whenAdsConsentReady = (): Promise<void> => (adsWaitConsent() ? adsConsentPromise : Promise.resolve());
+
+/** A mesma regra, sem esperar: true com a chave desligada ou com o consentimento da abertura já resolvido. */
+export const isAdsConsentReady = (): boolean => !adsWaitConsent() || adsConsentDone;
+
 // Quanto a cadeia espera o ATT e a notificação. É limite, não espera: o pedido sai assim que chega a vez dele com o app
 // ativo (utils/permission-gate.ts) e o limite só vale quando a resposta não vem — pedido na fila atrás de um diálogo,
 // promessa nativa pendurada, ou app que não volta a ficar ativo (iPad em tela dividida). Aí a cadeia segue sem travar FB,
@@ -1167,7 +1191,10 @@ const Utils = {
             // `expo_utils_warn` no Analytics e denuncia o app em produção.
             preparePromise.then(() => {
                 setTimeout(() => {
-                    if (!bootDone) expoUtilsWarn("handleReady nunca foi chamado: ATT, push, FB, TikTok e atribuição não rodam. Use o ExpoUtilsLayout ou <View onLayout={Utils.handleReady} />.");
+                    if (bootDone) return;
+                    expoUtilsWarn("handleReady nunca foi chamado: ATT, push, FB, TikTok e atribuição não rodam. Use o ExpoUtilsLayout ou <View onLayout={Utils.handleReady} />.");
+                    // Sem o handleReady não há UMP nem ATT para esperar: o anúncio não fica preso (ads_wait_consent_enabled).
+                    settleAdsConsent();
                 }, HANDLE_READY_WATCHDOG_MS);
             });
         }
@@ -1369,6 +1396,11 @@ const Utils = {
         await Utils.setupMobileAds(appConfig ?? bootAppConfig);
         attWaitingUmp = false; // daqui em diante quem diz é o portão (attGate.run logo abaixo, sem await no meio)
 
+        // Anúncio depois do consentimento (ads_wait_consent_enabled): sem ATT, libera aqui, depois do UMP; no iOS, com a
+        // resposta do ATT (o final do portão, sem o limite da cadeia) ou no limite de segurança.
+        if (Platform.OS === "ios") setTimeout(settleAdsConsent, ADS_CONSENT_LIMIT_MS);
+        else settleAdsConsent();
+
         let attFlow: PermissionFlow<string> | null = null;
         if (Platform.OS === "ios") {
             try {
@@ -1377,6 +1409,7 @@ const Utils = {
                     () => {},
                     () => {},
                 );
+                void attFlowEnded.then(settleAdsConsent);
                 const outcome = await withTimeout(attFlow.final, PERMISSION_LIMIT_MS);
                 // No limite a cadeia segue com o status de agora; o portão continua e a resposta tardia é tratada abaixo.
                 consent.att = outcome === TIMED_OUT ? String((await getTrackingPermissionsAsync()).status) : outcome.status;
@@ -1386,6 +1419,7 @@ const Utils = {
                 expoUtilsWarn("requestTrackingWhenActive:", e);
                 granted = false;
                 consent.att = "error";
+                settleAdsConsent();
             }
         }
 

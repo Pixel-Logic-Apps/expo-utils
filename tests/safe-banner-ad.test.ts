@@ -7,7 +7,7 @@ import {beforeEach, expect, mock, test} from "bun:test";
 let states: any[] = [];
 let hook = 0;
 let effects: Array<() => unknown> = [];
-const session = {remote: {is_ads_enabled: true} as any, premium: false};
+const session = {remote: {is_ads_enabled: true} as any, premium: false, consent: Promise.resolve() as Promise<void>, consentCalls: 0};
 const element = (type: any, props: any) => ({type, props});
 mock.module("react", () => ({
     memo: (fn: any) => fn,
@@ -26,7 +26,14 @@ mock.module("react-native-google-mobile-ads", () => ({
     BannerAdSize: {ANCHORED_ADAPTIVE_BANNER: "ANCHORED_ADAPTIVE_BANNER"},
     TestIds: {BANNER: "test-banner"},
 }));
-mock.module("../utils/Utils", () => ({default: {getRemoteConfigUtils: async () => session.remote}, expoUtilsLog: () => {}}));
+mock.module("../utils/Utils", () => ({
+    default: {getRemoteConfigUtils: async () => session.remote},
+    expoUtilsLog: () => {},
+    whenAdsConsentReady: () => {
+        session.consentCalls++;
+        return session.consent;
+    },
+}));
 mock.module("../utils/PremiumUtils", () => ({PremiumUtils: {getIsPremiumStatus: async () => session.premium}}));
 mock.module("../utils/ad-revenue", () => ({logAdRevenue: () => {}}));
 
@@ -58,6 +65,8 @@ beforeEach(() => {
     effects = [];
     session.remote = {is_ads_enabled: true};
     session.premium = false;
+    session.consent = Promise.resolve();
+    session.consentCalls = 0;
     (globalThis as any).isAdsEnabled = true;
     (globalThis as any).adUnits = {banner: "ca-app-pub-1/banner"};
 });
@@ -113,4 +122,28 @@ test("premium: não aparece", async () => {
     session.premium = true;
     await mount();
     expect(render()).toBeNull();
+});
+
+test("ads_wait_consent_enabled: confirmado, espera o consentimento da abertura (UMP e ATT) antes de aparecer", async () => {
+    let release: () => void = () => {};
+    session.consent = new Promise<void>((resolve) => (release = resolve));
+    await mount();
+    expect(render()).toBeNull(); // confirmado, mas o UMP/ATT ainda não terminou
+    expect(session.consentCalls).toBe(1);
+    release();
+    for (let i = 0; i < 20; i++) await Promise.resolve();
+    expect(render()).not.toBeNull();
+});
+
+test("não confirmado (Remote Config desligado ou premium): nem espera o consentimento", async () => {
+    session.consent = new Promise<void>(() => {});
+    session.remote = {is_ads_enabled: false};
+    await mount();
+    expect(render()).toBeNull();
+    states = [];
+    session.remote = {is_ads_enabled: true};
+    session.premium = true;
+    await mount();
+    expect(render()).toBeNull();
+    expect(session.consentCalls).toBe(0);
 });

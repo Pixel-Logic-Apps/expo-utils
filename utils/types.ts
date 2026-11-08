@@ -313,6 +313,16 @@ export interface RemoteConfigUtilsType {
      */
     ad_load_max_wait_seconds?: number;
     /**
+     * Anúncio só depois do consentimento da abertura: banner, intersticial, rewarded e app open (e as pré-cargas) esperam
+     * o UMP e, no iPhone, a resposta do ATT, para o pedido já sair com o IDFA de quem permitiu. Intersticial e rewarded
+     * pedidos antes disso não aparecem (o app segue sem anúncio). Limite de segurança: 60 s depois do UMP, para um ATT que
+     * não chega não deixar a sessão sem anúncio. Desligado: carregam como antes (o banner já na primeira tela).
+     * @section Anúncios
+     * @label Anúncio só depois do consentimento
+     * @default desligado
+     */
+    ads_wait_consent_enabled?: boolean;
+    /**
      * O que acontece com a config quando a pessoa sai do app e volta. off: nada muda até fechar o app. on_leave: ao sair,
      * a lib busca a config de novo; se mudou, aplica com a pessoa fora e as telas voltam já com a config nova (perdem a
      * rolagem e recarregam os dados). Se ela voltar antes de a busca terminar, nada muda na frente dela: vale na próxima

@@ -295,6 +295,7 @@ Para uso sem hook, use `new PaywallController({t})` ou os métodos estáticos de
 | `ad_preload_error_pause_seconds` | number | Segundos sem nova pré-carga depois de um erro de carga, medidos pela hora (sem timer). Padrão `0` |
 | `resume_config` | string | Config na volta ao app: `"off"` (padrão: nada muda até fechar o app) ou `"on_leave"` (busca ao sair e, se mudou, aplica com a pessoa fora e as telas remontam) ([detalhes](#remote-config-na-volta-ao-app)) |
 | `ad_load_max_wait_seconds` | number | Espera máxima quando o app open ou o intersticial carrega na hora de mostrar: passou, o app segue sem anúncio e o que chegar depois não aparece. Padrão `0` = sem limite |
+| `ads_wait_consent_enabled` | boolean | Anúncio só depois do consentimento da abertura: banner, intersticial, rewarded e app open (e as pré-cargas) esperam o UMP e, no iPhone, a resposta do ATT (o pedido já sai com o IDFA de quem permitiu). Intersticial e rewarded pedidos antes disso não aparecem. Limite de segurança de 60 s depois do UMP. Anúncio do próprio app: `await whenAdsConsentReady()` (de `expo-utils/utils/Utils`) antes de carregar. Padrão `false` = como antes (o banner já na primeira tela) |
 | `promotional` | object | Configuração de conteúdo promocional (veja seção dedicada) |
 | `tiktokads` | object | Configurações do TikTok Ads SDK (`token`, `appid`, `tkappid`, `isdebug`) |
 | `clarity_id` | string | Project ID do Microsoft Clarity |

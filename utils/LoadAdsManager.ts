@@ -7,7 +7,7 @@ import {
 } from "react-native-google-mobile-ads";
 import {getAnalytics, logEvent} from "@react-native-firebase/analytics";
 import {getApp} from "@react-native-firebase/app";
-import {expoUtilsWarn, expoUtilsLog, whenConsentFlowDone} from "./Utils";
+import {expoUtilsWarn, expoUtilsLog, isAdsConsentReady, whenAdsConsentReady, whenConsentFlowDone} from "./Utils";
 import {generatePlacementId, isAdTypeBlocked, isPlacementBlocked} from "./AdPlacementTracker";
 import {PremiumUtils} from "./PremiumUtils";
 import {logAdRevenue} from "./ad-revenue";
@@ -53,6 +53,11 @@ const resolveAdRequest = async (kind: "interstitial" | "rewarded", unitId?: stri
     expoUtilsLog("isPremium", isPremium);
     if (isPremium) return null;
     if (adsDisabled()) return null;
+    // ads_wait_consent_enabled: antes do UMP e da resposta do ATT o app segue sem anúncio (sem esperar nem segurar a tela).
+    if (!isAdsConsentReady()) {
+        expoUtilsLog(`[expo-utils] ${kind}: consentimento da abertura ainda não terminou — sem anúncio.`);
+        return null;
+    }
     expoUtilsLog("isAdsEnabled", global.isAdsEnabled);
     const adUnitId = unitId ?? ((global as any).adUnits || {})[kind];
     if (!adUnitId || typeof adUnitId !== "string") {
@@ -87,7 +92,9 @@ const preloadInterstitial = async (adUnitId: string) => {
 
 // O 1º da sessão: com a pré-carga ligada, fica pronto quando o fluxo de consentimento da abertura termina (UMP e ATT),
 // como o app open, para o pedido sair depois do consentimento. Fora da Europa o UMP responde na hora, sem mostrar nada.
+// Com ads_wait_consent_enabled, espera também a resposta do ATT (o fluxo libera no limite da cadeia).
 whenConsentFlowDone()
+    .then(() => whenAdsConsentReady())
     .then(() => {
         const unitId = (global as any).adUnits?.interstitial;
         if (typeof unitId === "string" && unitId) return preloadInterstitial(unitId);
