@@ -406,7 +406,7 @@ Central initialization module with a `prepare()` function that:
 - Dispara a **fase 1 da atribuicao do RevenueCat** logo apos o `Purchases.configure` (destacada, nao atrasa o
   splash) e arma o **watchdog do `handleReady`** (30s sem `handleReady` → `expoUtilsWarn`). UMP/ATT/push/FB/
   TikTok/fase 2 NAO rodam no `prepare()`: rodam no `Utils.handleReady` → `requestTrackingWhenActive`
-- **Nenhuma espera fixa no boot nem antes de permissao (1.5.7)**: o `Utils.handleReady` esconde o splash NA HORA
+- **Nenhuma espera fixa no boot nem antes de permissao (splash na 1.5.7; permissões na 1.5.8)**: o `Utils.handleReady` esconde o splash NA HORA
   (`hideAsync().catch(warn)`) e dispara a cadeia de consentimento na hora. Ate a 1.5.6 havia 3s antes do `hideAsync`,
   mais 2s ate a cadeia, e o ATT ainda esperava 1s e "ate 4s pelo `active`, depois pede mesmo assim". O motivo dos 3s
   era o ATT (dito pelo dono em 06/11/2026: as vezes o app abria e o ATT nao aparecia). Era gambiarra: o splash nao
@@ -432,7 +432,7 @@ Central initialization module with a `prepare()` function that:
   vira opcao do app, nunca timer no caminho do consentimento. O `catch` do `hideAsync` e obrigatorio: rejeitado sem
   catch parava UMP, ATT, push e a fase 2. Testes: `tests/handle-ready.test.ts`, `tests/permission-gate.test.ts`,
   `tests/consent-flow.test.ts`
-- **Trava unica de permissao (REGRA, 1.5.7): todo pedido de permissao do app que possa sair na abertura passa por
+- **Trava unica de permissao (REGRA, 1.5.8): todo pedido de permissao do app que possa sair na abertura passa por
   `Utils.withPermissionPrompt(fn)`**, ex.: `await Utils.withPermissionPrompt(() => Location.requestForegroundPermissionsAsync())`.
   Uma permissao de cada vez, nos dois sistemas, e quem pede primeiro vai primeiro: espera a vez e o app `active` (por
   evento), roda `fn`, solta a trava. ATT, notificacao e `Utils.requestPushPermission()` usam a mesma trava
@@ -453,7 +453,7 @@ Central initialization module with a `prepare()` function that:
   rejeita (promessa pendurada: trate como "sem permissao"); no iOS quem pediu continua esperando a resposta de verdade
   por mais um limite com o app ativo (no iOS 27 o alerta pode seguir na tela, e o "Permitir" depois de 60s vale) e so
   entao rejeita.
-  **Leitura antes do pedido (1.5.7):** o portao le o status so com leitura que nao pendura: ATT (`getTrackingPermissionsAsync`,
+  **Leitura antes do pedido (1.5.8):** o portao le o status so com leitura que nao pendura: ATT (`getTrackingPermissionsAsync`,
   propriedade sincrona do ATTrackingManager) e notificacao no Android (`PermissionsAndroid.check`). A notificacao no iOS
   pede direto (sem `hasPermission`): a leitura dela (`getNotificationSettings`) as vezes nao voltava e a notificacao nao
   saia. Ja respondida, o iOS devolve a resposta sem mostrar nada; ela espera o fim do ATT (`after`) e conta 1 tentativa.

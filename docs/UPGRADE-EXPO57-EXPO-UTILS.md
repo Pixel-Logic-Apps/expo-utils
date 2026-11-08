@@ -666,7 +666,7 @@ requestTrackingWhenActive       UMP → ATT* → [FB → ATRIBUIÇÃO FASE 2] (d
                                   fim do ATT (sem limite nessa ordem)
 ```
 
-**Splash e permissões sem espera fixa (1.5.7):** o `handleReady` esconde o splash assim que o 1º frame é desenhado e
+**Splash e permissões sem espera fixa (splash na 1.5.7; permissões na 1.5.8):** o `handleReady` esconde o splash assim que o 1º frame é desenhado e
 dispara a cadeia de consentimento na hora. Até a 1.5.6 o splash ficava 3s a mais na tela (−3s por abertura, medido no
 lab), a cadeia esperava mais 2s e o ATT ainda 1s + "até 4s pelo `active`, depois pede mesmo assim". O motivo dos 3s era o
 ATT (dito pelo dono em 06/11/2026: às vezes o app abria e o ATT não aparecia), mas as esperas eram gambiarra — o splash
@@ -676,7 +676,7 @@ outro pedido pendente; no lugar das esperas entrou o portão de permissões (`ut
 "Ordem de Permissões"). Ao migrar, tire do app qualquer espera própria antes do `hideAsync` (timer no layout, shim que
 repita os 3s): quem esconde o splash é a lib. Não recoloque espera fixa.
 
-**Pedidos de permissão do app (obrigatório ao migrar, 1.5.7):** todo pedido que possa sair na abertura passa pela trava
+**Pedidos de permissão do app (obrigatório ao migrar, 1.5.8):** todo pedido que possa sair na abertura passa pela trava
 da lib, `await Utils.withPermissionPrompt(() => Location.requestForegroundPermissionsAsync())`. Procure no app com
 `grep -rnE "request[A-Za-z]*Permission" src/`. No Android, sem a trava, a localização pedida ao montar a home pode cair na
 mesma janela do pedido de notificação da lib: a resposta se perde, a promessa do `expo-location` nunca resolve, e a tela
@@ -686,11 +686,11 @@ um limite e só então rejeita). Não ponha
 rede nem outra permissão dentro de `fn`. O ATT próprio do app (ex.: home pedindo em 1,5s) não é necessário, porque a lib
 já pede; se ficar, passe pela mesma trava.
 
-**Abertura mais rápida (1.5.7), sem mudar o app:** o `initHotUpdater` dispara o Remote Config junto com a checagem de OTA,
+**Abertura mais rápida (1.5.8), sem mudar o app:** o `initHotUpdater` dispara o Remote Config junto com a checagem de OTA,
 e o `prepare` usa a mesma busca (medido no iOS: OTA 0,7–1,0 s e Remote Config 0,5–1,0 s, antes um depois do outro). A
 consulta da loja da trava de anúncios sai no começo do `prepare` (no `ExpoUtilsLayout`, junto com o OTA).
 
-**Remote Config na volta ao app (1.5.7, opcional):** `resume_config: "on_leave"` no bloco `utils` só vale em layout que
+**Remote Config na volta ao app (1.5.8, opcional):** `resume_config: "on_leave"` no bloco `utils` só vale em layout que
 remonta as telas (`ExpoUtilsLayout`, ou `useConfigVersion()` como `key` do navegador do layout próprio) e, no Android, com
 o `react-native-applifecycle`. Padrão `off`: nada muda. Ver README, "Remote Config na volta ao app".
 
