@@ -50,6 +50,8 @@ export function ExpoUtilsLayout({appConfig, appStrings, children, onReady, fcmTr
             try {
                 // Remote Config e versão na loja saem junto com a checagem de OTA; o prepare usa as duas já em voo.
                 Utils.startBootRequests(appConfig);
+                // Espera o OTA antes da 1ª tela de propósito: se houver atualização obrigatória, o app reinicia ainda no
+                // splash e a pessoa não vê a tela abrir e piscar.
                 await initHotUpdater(appStrings?.hotUpdaterUrl, {apiKey: appStrings?.hotUpdaterApiKey});
                 await Utils.prepare(setAppIsReady, appConfig, appStrings, fcmTrackingAllowed);
                 if (!onReadyRan.current) {

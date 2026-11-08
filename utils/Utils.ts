@@ -169,6 +169,8 @@ function getExpoUtilsOption(appConfig: any, key: string): any {
 // "expo-utils/utils/Utils" e chamam no próprio layout, antes do prepare. A busca do Remote Config sai junto com a checagem
 // de OTA, e o prepare usa a mesma (memoizada): os apps de layout próprio ganham o tempo sem mudar nada (ver
 // startBootRequests).
+// Os layouts esperam (await) o initHotUpdater antes da 1ª tela de propósito: se houver atualização obrigatória, o app
+// reinicia ainda no splash e a pessoa não vê a tela abrir e piscar. Não tire essa espera.
 export const initHotUpdater = (target?: string | object | null, options?: InitHotUpdaterOptions): Promise<void> => {
     Utils.getRemoteConfigUtils().catch(() => {});
     return runHotUpdater(target, {beforeReload: () => Utils.getRemoteConfigUtils(), ...options});
