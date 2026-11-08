@@ -8,6 +8,7 @@ import AskForReviewOverlay, {AskForReviewEvents} from "./ask-for-review";
 import PromotionalContent, {usePromotional} from "./modal-promotional-content";
 import {RetentionModalSlot} from "./retention-modal";
 import type {AppStrings} from "./types";
+import {useConfigVersion} from "./use-config-version";
 
 // Mantém o splash visível até o app estar pronto (roda no import, antes do mount).
 SplashScreen.setOptions({duration: 150, fade: true});
@@ -36,6 +37,9 @@ type Props = {
 export function ExpoUtilsLayout({appConfig, appStrings, children, onReady, fcmTrackingAllowed = true}: Props) {
     const [appIsReady, setAppIsReady] = useState(false);
     const [showReviewOverlay, setShowReviewOverlay] = useState(false);
+    // Remote Config novo aplicado com o app fora de vista (`resume_config: "on_leave"`): as telas remontam e leem a config
+    // nova. O expo-router guarda a rota fora daqui, então a pessoa volta na mesma tela.
+    const configVersion = useConfigVersion();
     const pathname = usePathname();
     const {visible: showPromo, show: showPromoModal, hide: hidePromoModal} = usePromotional(pathname);
     // onReady roda 1x mesmo com StrictMode (dev) rodando o effect 2x — o ref sobrevive ao double-effect.
@@ -73,7 +77,7 @@ export function ExpoUtilsLayout({appConfig, appStrings, children, onReady, fcmTr
 
     return (
         <>
-            {children}
+            <React.Fragment key={configVersion}>{children}</React.Fragment>
             <PromotionalContent visible={showPromo} onClose={hidePromoModal} />
             <AskForReviewOverlay
                 visible={showReviewOverlay}

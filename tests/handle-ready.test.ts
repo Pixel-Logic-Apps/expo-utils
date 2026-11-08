@@ -28,6 +28,11 @@ mock.module("react-native", () => ({
     DevSettings: {addMenuItem: stub()},
     PermissionsAndroid: {request: resolved("granted"), PERMISSIONS: {}, RESULTS: {GRANTED: "granted"}},
     NativeModules: {},
+    NativeEventEmitter: class {
+        addListener() {
+            return {remove: () => {}};
+        }
+    },
 }));
 mock.module("expo-localization", () => ({getLocales: () => [{languageCode: "pt", regionCode: "BR"}]}));
 mock.module("expo-tracking-transparency", () => ({

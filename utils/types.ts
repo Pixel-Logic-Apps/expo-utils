@@ -227,6 +227,9 @@ export type RetentionConfig = {
 /** Como o app pede a avaliação (`review_type`). */
 export type ReviewType = "store-review" | "popup" | "dialog";
 
+/** O que a volta ao app faz com o Remote Config (`resume_config`; regra em utils/resume-config.ts). */
+export type ResumeConfig = "off" | "on_leave";
+
 /**
  * Bloco `utils` do Remote Config: o que a lib lê. Fica no parâmetro `settings` (`{utils, screens}`) ou, nos apps que
  * ainda não migraram, no parâmetro `utils`. Ver docs/PLANO-SETTINGS.md.
@@ -309,6 +312,16 @@ export interface RemoteConfigUtilsType {
      * @default 0 (sem limite)
      */
     ad_load_max_wait_seconds?: number;
+    /**
+     * O que acontece com a config quando a pessoa sai do app e volta. off: nada muda até fechar o app. on_leave: ao sair,
+     * a lib busca a config de novo; se mudou, aplica com a pessoa fora e as telas voltam já com a config nova (perdem a
+     * rolagem e recarregam os dados). Se ela voltar antes de a busca terminar, nada muda na frente dela: vale na próxima
+     * saída. No Android precisa do react-native-applifecycle no app.
+     * @section Remote Config
+     * @label Atualizar a config ao sair do app
+     * @default off
+     */
+    resume_config?: ResumeConfig;
     /**
      * Abaixo desta versão o app pede para atualizar.
      * @section Loja e versão

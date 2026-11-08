@@ -83,6 +83,11 @@ mock.module("react-native", () => ({
         RESULTS: {GRANTED: "granted"},
     },
     NativeModules: {},
+    NativeEventEmitter: class {
+        addListener() {
+            return {remove: () => {}};
+        }
+    },
 }));
 mock.module("expo-tracking-transparency", () => ({
     getTrackingPermissionsAsync: () => Promise.resolve({status: state.att}),

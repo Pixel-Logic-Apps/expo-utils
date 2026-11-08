@@ -56,9 +56,9 @@ import * as Clarity from "@microsoft/react-native-clarity";
 import {Settings as FbsdkSettings} from "react-native-fbsdk-next";
 import Purchases, {LOG_LEVEL, type CustomerInfo} from "react-native-purchases";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import {Alert, AppState, Platform, Linking, LogBox, DevSettings, PermissionsAndroid} from "react-native";
+import {Alert, AppState, Platform, Linking, LogBox, DevSettings, NativeModules, PermissionsAndroid} from "react-native";
 import {registerDevMenuItems} from "expo-dev-menu";
-import {initHotUpdater, type InitHotUpdaterOptions} from "./hot-updater";
+import {initHotUpdater as runHotUpdater, type InitHotUpdaterOptions} from "./hot-updater";
 import mobileAds, {AdsConsent, AdsConsentDebugGeography} from "react-native-google-mobile-ads";
 import {reportConfigIntegrity} from "./config-integrity";
 import {mergeRemoteConfigBlocks, readRemoteConfigBlocks, type RemoteConfigSource} from "./settings";
@@ -79,6 +79,8 @@ import {logUtilsEvent, setUtilsUserProperty} from "./analytics";
 import {initAdRevenue} from "./ad-revenue";
 import {refreshAttributionAfterAtt, runAttributionPhase1, runAttributionPhase2, setRcAttributesLate} from "./attribution";
 import {createPermissionGate, createPermissionLock, TIMED_OUT, withTimeout, type PermissionFlow} from "./permission-gate";
+import {createResumeConfig, type ConfigSnapshot} from "./resume-config";
+import {addAppLifecycleListener, APP_LIFECYCLE_MODULE, pickAppLifecycleSource} from "./app-lifecycle";
 import {logPushOpened, logPushReceived} from "./push-analytics";
 import {getRevenueCatStatus as classifyRevenueCatStatus, syncRcStatus, type RcStatus} from "./rc-status";
 import {showRetentionPreview} from "./retention-events";
@@ -163,9 +165,14 @@ function getExpoUtilsOption(appConfig: any, key: string): any {
     return undefined;
 }
 
-// OTA (Hot Updater v0 e v1): implementação em ./hot-updater; reexportado aqui porque os apps importam
-// `initHotUpdater` de "expo-utils/utils/Utils".
-export {initHotUpdater};
+// OTA (Hot Updater v0 e v1): implementação em ./hot-updater; exposto aqui porque os apps importam `initHotUpdater` de
+// "expo-utils/utils/Utils" e chamam no próprio layout, antes do prepare. A busca do Remote Config sai junto com a checagem
+// de OTA, e o prepare usa a mesma (memoizada): os apps de layout próprio ganham o tempo sem mudar nada (ver
+// startBootRequests).
+export const initHotUpdater = (target?: string | object | null, options?: InitHotUpdaterOptions): Promise<void> => {
+    Utils.getRemoteConfigUtils().catch(() => {});
+    return runHotUpdater(target, options);
+};
 
 // Memoiza o portão de APNs: o token (ou a ausência dele) não muda dentro de uma sessão,
 // então pollamos uma única vez e reusamos o resultado em requestFCMToken/setupMessagingTopics/etc.
@@ -396,6 +403,9 @@ let remoteConfigUtilsPromise: Promise<RemoteConfigUtilsType> | null = null;
 // com os defaults (sem Firebase, erro ou teto de 10s) e vai no `cfg_source` do cfg_integrity.
 let remoteConfigScreensBlock: Record<string, any> | null = null;
 let remoteConfigSource: RemoteConfigSource | "default" = "default";
+// Os blocos da rede que a sessão usa, como chegaram (sem o que a trava da loja muda nos globais): a volta ao app compara
+// a config nova com eles (utils/resume-config.ts). null = a abertura seguiu com os defaults.
+let sessionConfig: ConfigSnapshot | null = null;
 let preparePromise: Promise<void> | null = null;
 // UMP + mobileAds().initialize() rodam UMA vez por sessão (o fluxo do ATT pode ser reentrante).
 let mobileAdsSetupPromise: Promise<void> | null = null;
@@ -501,6 +511,54 @@ const disableAdsByStoreGate = () => {
 // StrictMode/chamada dupla — mesmo padrão do apnsReadyPromise).
 let storeGatePromise: Promise<boolean> | null = null;
 
+// Volta ao app com `resume_config: "on_leave"` (utils/resume-config.ts): no máximo uma busca a cada 30 s, para quem troca
+// de app várias vezes seguidas não disparar uma busca por troca.
+const RESUME_MIN_INTERVAL_MS = 30_000;
+
+// Busca a config de novo, na saída do app. Sem gravar settings/defaults: no iOS o setter cancela o fetch em voo, e o
+// intervalo 0 já foi gravado na abertura. Falhou (sem rede, limite do Firebase): null, e a config fica como está.
+const refreshRemoteConfig = async (): Promise<ConfigSnapshot | null> => {
+    try {
+        const remoteConfig = getRemoteConfig(getApp());
+        await fetchAndActivate(remoteConfig);
+        const blocks = readRemoteConfigBlocks((key) => getValue(remoteConfig, key).asString());
+        return {utils: {is_ads_enabled: !__DEV__, min_version: 1.0, ...blocks.utils}, screens: blocks.screens};
+    } catch {
+        return null;
+    }
+};
+
+const currentConfig = (): ConfigSnapshot =>
+    sessionConfig ?? {utils: (global as any).remoteConfigUtils ?? {}, screens: (global as any).remoteConfigScreens ?? {}};
+
+// Troca a config da sessão pela nova, como o boot faz (setupGlobalConfigs). O liga-desliga dos anúncios só muda quando o
+// `is_ads_enabled` mudou, e o veredito da trava da loja continua valendo (a versão da loja não muda na sessão).
+const applyRemoteConfig = (next: ConfigSnapshot) => {
+    const adsChanged = currentConfig().utils.is_ads_enabled !== next.utils.is_ads_enabled;
+    sessionConfig = next;
+    remoteConfigScreensBlock = next.screens;
+    remoteConfigUtilsPromise = Promise.resolve(next.utils as RemoteConfigUtilsType);
+    (global as any).remoteConfigUtils = {...next.utils};
+    (global as any).remoteConfigScreens = next.screens;
+    (global as any).remoteConfigs = mergeRemoteConfigBlocks((global as any).remoteConfigUtils, next.screens);
+    if (adsChanged) global.isAdsEnabled = !__DEV__ && next.utils.is_ads_enabled !== false;
+    if (global.adsDisabledByStoreGate) disableAdsByStoreGate();
+    setBlocklist(next.utils.ad_blocklist);
+    expoUtilsLog("[expo-utils] Remote Config novo aplicado na saída do app.");
+};
+
+let resumeConfigStarted = false;
+// Versão da config da sessão: sobe a cada Remote Config novo aplicado na saída do app (useConfigVersion).
+let configVersion = 0;
+const configListeners = new Set<() => void>();
+export const getConfigVersion = (): number => configVersion;
+export const onConfigApplied = (listener: () => void): (() => void) => {
+    configListeners.add(listener);
+    return () => {
+        configListeners.delete(listener);
+    };
+};
+
 // FAIL-CLOSED: ads só permanecem ligados com versão da loja CONFIRMADA e build local <= loja.
 // App não publicado (review da 1ª versão!), lookup vazio, erro de rede ou timeout → ads OFF.
 // Fail-open não cobre justamente a 1ª submissão: app sem versão na loja mostraria ads durante
@@ -566,7 +624,8 @@ const runPrepare = async (appConfig?: any, appStrings?: AppStrings): Promise<voi
     }
     const rckey = usableRcKey(appStrings?.rckey);
     const adUnits = appStrings?.adUnits;
-    // Layout sem o ExpoUtilsLayout: as idas à rede saem aqui (no ExpoUtilsLayout já saíram junto com a checagem de OTA).
+    // A consulta da loja sai aqui nos layouts próprios (o Remote Config já saiu no initHotUpdater); no ExpoUtilsLayout as
+    // duas já saíram junto com a checagem de OTA.
     Utils.startBootRequests(appConfig);
     try {
         //Setup do remoteconfig (Precisa de internet). Trabalho NÃO-tracking — sempre roda.
@@ -663,12 +722,47 @@ const Utils = {
      * Dispara as idas à rede de que a abertura depende — Remote Config e, com a trava da loja ligada, a versão na loja
      * — sem esperar. Chame antes do `await initHotUpdater` (o ExpoUtilsLayout faz isso): as duas correm junto com a
      * checagem de OTA em vez de uma depois da outra (medido no iOS: OTA 0,7–1,0 s, Remote Config 0,5–1,0 s, loja
-     * ~0,2 s em fila). As regras não mudam: o app só aparece com o Remote Config da rede, e o veredito da loja sai antes
-     * do setAppIsReady. Idempotente (as duas são memoizadas).
+     * ~0,2 s em fila). O initHotUpdater já dispara o Remote Config sozinho (layouts próprios); sem esta chamada, a loja
+     * sai no começo do prepare. As regras não mudam: o app só aparece com o Remote Config da rede, e o veredito da loja
+     * sai antes do setAppIsReady. Idempotente (as duas são memoizadas).
      */
     startBootRequests: (appConfig?: any): void => {
         Utils.getRemoteConfigUtils().catch(() => {});
         if (getExpoUtilsDisableAdsIfBuildIsNewerThanStore(appConfig)) lookupStoreVersion().catch(() => {});
+    },
+
+    /**
+     * Remote Config na volta ao app (`resume_config` no bloco `utils`; regra em utils/resume-config.ts). Com `on_leave`,
+     * a lib busca a config quando o app sai de vista e, se mudou com a pessoa ainda fora, troca a config e sobe a versão
+     * (getConfigVersion/onConfigApplied) para o layout redesenhar as telas. Quem liga é o useConfigVersion (o
+     * ExpoUtilsLayout usa; layout próprio usa no navegador): app que não redesenha não troca nada. No Android precisa do
+     * react-native-applifecycle (sem ele o AppState vira `background` em todo diálogo de permissão, anúncio e compra):
+     * sem o módulo, fica como `off`. Idempotente.
+     */
+    setupResumeConfig: (): void => {
+        if (resumeConfigStarted) return;
+        resumeConfigStarted = true;
+        const nativeModule = Platform.OS === "android" ? NativeModules[APP_LIFECYCLE_MODULE] : undefined;
+        if (Platform.OS === "android" && pickAppLifecycleSource(Platform.OS, nativeModule) !== "process-lifecycle") {
+            if ((global as any).remoteConfigUtils?.resume_config === "on_leave") {
+                expoUtilsWarn("resume_config on_leave: no Android precisa do react-native-applifecycle instalado no app. Fica desligado.");
+            }
+            return;
+        }
+        addAppLifecycleListener(
+            createResumeConfig({
+                mode: () => (global as any).remoteConfigUtils?.resume_config,
+                refresh: refreshRemoteConfig,
+                current: currentConfig,
+                apply: (next) => {
+                    applyRemoteConfig(next);
+                    configVersion += 1;
+                    configListeners.forEach((listener) => listener());
+                },
+                now: () => Date.now(),
+                minIntervalMs: RESUME_MIN_INTERVAL_MS,
+            }),
+        );
     },
 
     getRemoteConfigUtils: (): Promise<RemoteConfigUtilsType> => {
@@ -706,7 +800,9 @@ const Utils = {
                     remoteConfigSource = blocks.source;
                     // Coalesce com DEFAULT: se o bloco `utils` existir mas vier sem is_ads_enabled,
                     // não cai em undefined (que apagaria o banner) — herda o default (ON em prod).
-                    return {...DEFAULT, ...blocks.utils};
+                    const utils = {...DEFAULT, ...blocks.utils};
+                    sessionConfig = {utils, screens: blocks.screens};
+                    return utils;
                 } catch {
                     return DEFAULT;
                 }
@@ -1374,7 +1470,7 @@ const Utils = {
     },
 
     maybeApplyUpdate: async (target?: string | object | null, options?: InitHotUpdaterOptions) => {
-        await initHotUpdater(target, options);
+        await runHotUpdater(target, options);
     },
 
     // Estado do assinante (free/trial/trial_cancelled/intro/active/cancelled/billing_issue/
