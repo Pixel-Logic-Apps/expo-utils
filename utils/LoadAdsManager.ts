@@ -40,9 +40,17 @@ const logAdEvent = (analytics: any, name: string, e: any, placementId: string) =
 
 const adsDisabled = () => global.isAdsEnabled === false || global?.remoteConfigUtils?.is_ads_enabled === false;
 
+// ads_wait_consent_enabled com o consentimento da abertura pendente: o intersticial segue sem anúncio (true, a navegação
+// não trava) e o rewarded devolve false (sem recompensa sem anúncio).
+const CONSENT_PENDING = "consent_pending" as const;
+
 // Checks compartilhados dos dois formatos. Retorna a request pronta, ou null quando o fluxo
 // deve seguir SEM ad (bloqueado/premium/ads off/sem unitId) — nunca lança.
-const resolveAdRequest = async (kind: "interstitial" | "rewarded", unitId?: string, tag?: string) => {
+const resolveAdRequest = async (
+    kind: "interstitial" | "rewarded",
+    unitId?: string,
+    tag?: string,
+): Promise<AdRequest | null | typeof CONSENT_PENDING> => {
     const placementId = generatePlacementId(kind, tag);
     if (isPlacementBlocked(placementId)) {
         expoUtilsLog(`[expo-utils] ${kind} blocked: ${placementId}`);
@@ -56,7 +64,7 @@ const resolveAdRequest = async (kind: "interstitial" | "rewarded", unitId?: stri
     // ads_wait_consent_enabled: antes do UMP e da resposta do ATT o app segue sem anúncio (sem esperar nem segurar a tela).
     if (!isAdsConsentReady()) {
         expoUtilsLog(`[expo-utils] ${kind}: consentimento da abertura ainda não terminou — sem anúncio.`);
-        return null;
+        return CONSENT_PENDING;
     }
     expoUtilsLog("isAdsEnabled", global.isAdsEnabled);
     const adUnitId = unitId ?? ((global as any).adUnits || {})[kind];
@@ -179,7 +187,7 @@ const LoadAdsManager: LoadAdsManagerType = {
     showInterstitial: async (unitId?: string, tag?: string): Promise<boolean> => {
         try {
             const request = await resolveAdRequest("interstitial", unitId, tag);
-            if (!request) return true;
+            if (!request || request === CONSENT_PENDING) return true;
             const app = getFirebaseApp();
             const analytics = app ? getAnalytics(app) : null;
             // Pré-carga ligada: o pronto (mesmo unitId, dentro da idade) aparece na hora. O AdLOADED sai aqui, com o
@@ -198,6 +206,7 @@ const LoadAdsManager: LoadAdsManagerType = {
     showRewarded: async (unitId?: string, tag?: string): Promise<boolean> => {
         try {
             const request = await resolveAdRequest("rewarded", unitId, tag);
+            if (request === CONSENT_PENDING) return false;
             if (!request) return true;
             const app = getFirebaseApp();
             const analytics = app ? getAnalytics(app) : null;

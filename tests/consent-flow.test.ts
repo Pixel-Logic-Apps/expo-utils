@@ -641,3 +641,66 @@ test("ligada, Android: espera o UMP e libera assim que ele responde (não há AT
     expect(seen.ready).toBe(true);
     delete (globalThis as any).remoteConfigUtils;
 });
+
+test("ligada, iOS: o limite de 60 s não conta o segundo plano — volta depois de 2 min e não libera junto com a nova tentativa", async () => {
+    (globalThis as any).remoteConfigUtils = {ads_wait_consent_enabled: true};
+    state.attHold = true;
+    const {default: Utils, whenAdsConsentReady} = await load();
+    const seen = watchAds(whenAdsConsentReady);
+    Utils.requestTrackingWhenActive(appConfig, appStrings);
+    await advance(10000);
+    await setAppState("background");
+    await advance(120000);
+    await setAppState("active");
+    await advance(1000);
+    expect(seen.ready).toBe(false); // o timer do JS venceu fora, mas o limite parou no background
+    await advance(58000);
+    expect(seen.ready).toBe(false);
+    await advance(2000);
+    expect(seen.ready).toBe(true); // 60 s inteiros depois da volta
+    delete (globalThis as any).remoteConfigUtils;
+});
+
+test("ligada, Android: o formulário do UMP aberto passa dos 20 s → a cadeia segue, mas o anúncio espera a resposta de verdade", async () => {
+    (globalThis as any).remoteConfigUtils = {ads_wait_consent_enabled: true};
+    state.os = "android";
+    let answerUmp: () => void = () => {};
+    state.ump = new Promise((resolve) => (answerUmp = () => resolve({canRequestAds: true, status: "OBTAINED"})));
+    const {default: Utils, whenAdsConsentReady, whenConsentFlowDone} = await load();
+    const seen = watchAds(whenAdsConsentReady);
+    let flow = false;
+    whenConsentFlowDone().then(() => (flow = true));
+    Utils.requestTrackingWhenActive(appConfig, appStrings);
+    await advance(25000);
+    expect(flow).toBe(true); // a cadeia seguiu no limite de 20 s do UMP
+    expect(seen.ready).toBe(false);
+    answerUmp();
+    await flush();
+    expect(seen.ready).toBe(true);
+    delete (globalThis as any).remoteConfigUtils;
+});
+
+test("ligada: UMP nega (canRequestAds=false) → nenhum anúncio na sessão, nem no limite de 60 s", async () => {
+    (globalThis as any).remoteConfigUtils = {ads_wait_consent_enabled: true};
+    state.att = "denied";
+    state.ump = Promise.resolve({canRequestAds: false, status: "REQUIRED"});
+    const {default: Utils, whenAdsConsentReady, isAdsConsentReady} = await load();
+    const seen = watchAds(whenAdsConsentReady);
+    Utils.requestTrackingWhenActive(appConfig, appStrings);
+    await advance(120000);
+    expect(seen.ready).toBe(false);
+    expect(isAdsConsentReady()).toBe(false);
+    delete (globalThis as any).remoteConfigUtils;
+});
+
+test("antes do Remote Config chegar: isAdsConsentReady() = true (como antes da chave) e isAdsConsentReady(true) = false", async () => {
+    delete (globalThis as any).remoteConfigUtils;
+    const {isAdsConsentReady} = await load();
+    expect(isAdsConsentReady()).toBe(true);
+    expect(isAdsConsentReady(true)).toBe(false);
+    (globalThis as any).remoteConfigUtils = {};
+    expect(isAdsConsentReady(true)).toBe(true);
+    (globalThis as any).remoteConfigUtils = {ads_wait_consent_enabled: true};
+    expect(isAdsConsentReady(true)).toBe(false);
+    delete (globalThis as any).remoteConfigUtils;
+});

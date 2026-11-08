@@ -361,11 +361,11 @@ describe("espera máxima (ad_load_max_wait_seconds)", () => {
 });
 
 describe("anúncio só depois do consentimento (ads_wait_consent_enabled)", () => {
-    test("consentimento da abertura ainda não terminou: intersticial e rewarded seguem sem anúncio (true), sem carregar; terminou, carregam", async () => {
+    test("consentimento da abertura ainda não terminou: intersticial segue sem anúncio (true) e rewarded devolve false (sem recompensa), sem carregar; terminou, carregam", async () => {
         const manager = await load();
         ads.adsConsentReady = false;
         expect(await manager.showInterstitial(undefined, "a")).toBe(true);
-        expect(await manager.showRewarded(undefined, "b")).toBe(true);
+        expect(await manager.showRewarded(undefined, "b")).toBe(false);
         expect(FakeAd.created).toHaveLength(0);
         expect(names()).toEqual([]);
 
