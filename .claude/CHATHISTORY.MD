@@ -3006,3 +3006,34 @@ Conferido no fonte do RN 0.88 (`JavaTimerManager`, `AppStateModule`, `ReactActiv
 
 ### Versão
 1.5.7 (sem mudar `package.json`; tag `v1.5.7` não movida).
+
+## 2026-11-07 — 1.5.8: permissões, abertura mais rápida, Remote Config na volta e anúncios do Diego na lib
+
+### Pedido
+"o que você precisa corrigir, e não dá para corrigir, resolver esse tempo também. Além disso ... quando o cara saísse e voltasse no app lá no Expo Utils, ele precisava atualizar o remote config." Depois: "Pode fazer todas de uma vez. Aí você testa tudo." Sobre o Diego: regras de anúncio só na lib ("o banner só aparecer depois de confirmado que o anúncio está ligado"; o UMP não desliga anúncio). Sobre o intersticial: "se o Preloading tá ligado, já deve funcionar desde o primeiro". Por fim: bump para 1.5.8 e a etiqueta.
+
+### Ações
+- Trava de permissão (`utils/permission-gate.ts`): leitura antes do pedido só onde não pendura (ATT; notificação no Android). No iOS a notificação é pedida direto (`getNotificationSettings` às vezes não voltava no iOS 27). `withPermissionPrompt` no iOS espera mais 60 s com o app ativo depois do limite, então o "Permitir" dado depois de 60 s volta a valer.
+- Abertura: o `initHotUpdater` do Utils dispara o Remote Config junto com a checagem de OTA; `startBootRequests(appConfig)` dispara também a versão da loja (usado no ExpoUtilsLayout e no modelo); `beforeReload` espera o RC em voo antes de um OTA forçado.
+- `resume_config` (`off` | `on_leave`, padrão `off`) em `utils/resume-config.ts` + hook `useConfigVersion()`: no Android aplica na mesma saída; no iOS, no começo da saída seguinte.
+- Banner só com anúncio confirmado (`bannerConfirmed`); 1º intersticial carregado no `whenConsentFlowDone()` quando `interstitial_preload_enabled` está ligado.
+- Achados da revisão corrigidos (a290171). Versão 1.5.8 (bb3e49e), etiqueta `v1.5.8`; a `v1.5.7` ficou no 36bceb6.
+- A pasta Documents ficou bloqueada pelo macOS (tccd) e o trabalho foi feito num clone fora dela, já enviado ao GitHub.
+
+### Arquivos
+`utils/permission-gate.ts`, `utils/Utils.ts`, `utils/resume-config.ts`, `utils/use-config-version.ts`, `utils/ExpoUtilsLayout.tsx`, `templates/RootLayout.tsx`, `utils/hot-updater.ts`, `utils/safe-banner-ad.tsx`, `utils/banner-ad.tsx`, `utils/LoadAdsManager.ts`, `utils/types.ts`, testes em `tests/`, `README.md`, `AGENTS.md`, `docs/`.
+
+### Resultado
+Testes da lib e `tsc` ok. Os 3 apps de eleição passaram para `expo-utils#v1.5.8`.
+
+## 2026-11-08 — 1.5.8 testada nos apps; comentário do OTA
+
+### Pedido
+Testar tudo; depois: "é o importante colocar um comentário dizendo isso: q isso existe pq se tiver uma atualização o usuário não vê a tela piscar."
+
+### Ações
+- Testes no simulador e no emulador (entregas em `~/Downloads/claude/permissoes-157b` e `permissoes-158`): permissões certas no iPhone, iPad e Android; abertura no Android 1,0–2,2 s mais rápida (Eleições 4,1→2,3 s, Urna 4,4→2,2 s, Diego 2,9→1,9 s); no iPhone 0,1–0,55 s, porque na 1ª abertura o Remote Config espera o registro do Firebase Installations (provado no log do Firebase); `on_leave` funcionou como desenhado (com o print antigo do sistema por 0,2–0,6 s na volta).
+- Comentário (dc6476e) no `initHotUpdater`, no ExpoUtilsLayout e no modelo: a 1ª tela espera o OTA de propósito, para o app reiniciar ainda no splash e a tela não piscar.
+
+### Versão
+Continua 1.5.8; a etiqueta `v1.5.8` fica no bb3e49e (o comentário entra na próxima versão).
