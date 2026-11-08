@@ -438,12 +438,23 @@ const fetchWithTimeout = (url: string, ms = 5000): Promise<Response> => {
     return fetch(url, {signal: controller.signal}).finally(() => clearTimeout(timer));
 };
 
-// Versão publicada na loja: iTunes lookup (iOS) / página do Play Store (Android).
-// NUNCA rejeita — qualquer falha cai no fallback do Remote Config, para a válvula
-// pós-lançamento (ios_store_version/android_store_version) valer até com o lookup fora do ar.
-const getStoreVersion = async (): Promise<string | null> => {
+// Versão publicada na loja, pela rede: iTunes lookup (iOS) / página do Play Store (Android). null quando não achou.
+// Memo: a consulta sai no começo da abertura, junto com o Remote Config e a checagem de OTA (startBootRequests), e a
+// trava da loja usa a mesma. NUNCA rejeita.
+let storeLookupPromise: Promise<string | null> | null = null;
+const lookupStoreVersion = (): Promise<string | null> => {
+    if (!storeLookupPromise) storeLookupPromise = fetchStoreVersion();
+    return storeLookupPromise;
+};
+
+// Versão da loja para a trava: a da rede, ou o fallback do Remote Config, para a válvula pós-lançamento
+// (ios_store_version/android_store_version) valer até com o lookup fora do ar. Lê o Remote Config na hora, depois
+// do setupGlobalConfigs.
+const getStoreVersion = async (): Promise<string | null> => (await lookupStoreVersion()) ?? getRemoteStoreVersion();
+
+const fetchStoreVersion = async (): Promise<string | null> => {
     try {
-        if (!Application.applicationId) return getRemoteStoreVersion();
+        if (!Application.applicationId) return null;
 
         if (Platform.OS === "ios") {
             // Sem `country` o lookup consulta a storefront US — um app publicado SÓ em outras
@@ -474,7 +485,7 @@ const getStoreVersion = async (): Promise<string | null> => {
     } catch (error) {
         expoUtilsWarn("getStoreVersion:", error);
     }
-    return getRemoteStoreVersion();
+    return null;
 };
 
 // Desliga os ads da sessão. adsDisabledByStoreGate é flag PRÓPRIA do gate (prepare()/
@@ -555,6 +566,8 @@ const runPrepare = async (appConfig?: any, appStrings?: AppStrings): Promise<voi
     }
     const rckey = usableRcKey(appStrings?.rckey);
     const adUnits = appStrings?.adUnits;
+    // Layout sem o ExpoUtilsLayout: as idas à rede saem aqui (no ExpoUtilsLayout já saíram junto com a checagem de OTA).
+    Utils.startBootRequests(appConfig);
     try {
         //Setup do remoteconfig (Precisa de internet). Trabalho NÃO-tracking — sempre roda.
         //HotUpdater: já é disparado no module-scope do RootLayout (initHotUpdater) — não duplicamos aqui.
@@ -644,6 +657,18 @@ const Utils = {
             expoUtilsWarn("Error looking up iOS App ID:", error);
             return null;
         }
+    },
+
+    /**
+     * Dispara as idas à rede de que a abertura depende — Remote Config e, com a trava da loja ligada, a versão na loja
+     * — sem esperar. Chame antes do `await initHotUpdater` (o ExpoUtilsLayout faz isso): as duas correm junto com a
+     * checagem de OTA em vez de uma depois da outra (medido no iOS: OTA 0,7–1,0 s, Remote Config 0,5–1,0 s, loja
+     * ~0,2 s em fila). As regras não mudam: o app só aparece com o Remote Config da rede, e o veredito da loja sai antes
+     * do setAppIsReady. Idempotente (as duas são memoizadas).
+     */
+    startBootRequests: (appConfig?: any): void => {
+        Utils.getRemoteConfigUtils().catch(() => {});
+        if (getExpoUtilsDisableAdsIfBuildIsNewerThanStore(appConfig)) lookupStoreVersion().catch(() => {});
     },
 
     getRemoteConfigUtils: (): Promise<RemoteConfigUtilsType> => {

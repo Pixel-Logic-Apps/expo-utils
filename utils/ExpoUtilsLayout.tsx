@@ -44,6 +44,8 @@ export function ExpoUtilsLayout({appConfig, appStrings, children, onReady, fcmTr
     useEffect(() => {
         (async () => {
             try {
+                // Remote Config e versão na loja saem junto com a checagem de OTA; o prepare usa as duas já em voo.
+                Utils.startBootRequests(appConfig);
                 await initHotUpdater(appStrings?.hotUpdaterUrl, {apiKey: appStrings?.hotUpdaterApiKey});
                 await Utils.prepare(setAppIsReady, appConfig, appStrings, fcmTrackingAllowed);
                 if (!onReadyRan.current) {
