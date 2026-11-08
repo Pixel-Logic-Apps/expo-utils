@@ -451,11 +451,13 @@ Central initialization module with a `prepare()` function that:
   **Limite da trava:** 20s no Android, 60s no iOS, contados so com o app `active` e do zero a cada "ficou ativo". No
   limite a trava solta, entao `fn` pendurada nunca prende a fila. No Android a promessa de `withPermissionPrompt`
   rejeita (promessa pendurada: trate como "sem permissao"); no iOS quem pediu continua esperando a resposta de verdade
-  (no iOS 27 o alerta pode seguir na tela, e o "Permitir" depois de 60s vale).
-  **Portao sem leitura antes do pedido (1.5.7):** ATT e notificacao pedem direto na vez da trava; ja respondido, o
-  sistema devolve a resposta sem mostrar nada. Nao recoloque `read`/`getTrackingPermissionsAsync`/`hasPermission` antes
-  do pedido: a leitura do push no iOS (`getNotificationSettings`) as vezes nao voltava e a notificacao nao saia. Efeito:
-  notificacao ja concedida tambem espera o fim do ATT (`after`), e ja respondido conta 1 tentativa. **Dialogo real na tela alem do limite:** no Android e no iOS 26 o dialogo tira o app de `active`,
+  por mais um limite com o app ativo (no iOS 27 o alerta pode seguir na tela, e o "Permitir" depois de 60s vale) e so
+  entao rejeita.
+  **Leitura antes do pedido (1.5.7):** o portao le o status so com leitura que nao pendura: ATT (`getTrackingPermissionsAsync`,
+  propriedade sincrona do ATTrackingManager) e notificacao no Android (`PermissionsAndroid.check`). A notificacao no iOS
+  pede direto (sem `hasPermission`): a leitura dela (`getNotificationSettings`) as vezes nao voltava e a notificacao nao
+  saia. Ja respondida, o iOS devolve a resposta sem mostrar nada; ela espera o fim do ATT (`after`) e conta 1 tentativa.
+  Com o ATT ainda pendente, a cadeia nao espera o push (registra `push=timeout` e segue). **Dialogo real na tela alem do limite:** no Android e no iOS 26 o dialogo tira o app de `active`,
   o limite nao corre e nada sai por cima. Nao dependa so do congelamento dos timers no Android: eles seguem durante
   tarefa headless, e o timer vencido dispara na retomada, junto com a resposta do dialogo. No iOS 27 o alerta NAO tira o
   app de `active` e nada no JS separa alerta aberto de promessa pendurada: por isso os 60s (no iOS nao ha caso conhecido

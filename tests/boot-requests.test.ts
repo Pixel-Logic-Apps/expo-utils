@@ -258,7 +258,14 @@ describe("resume_config na saída do app", () => {
         return loaded;
     };
 
-    test("on_leave: mudou com a pessoa fora → troca os globais, desliga o anúncio, sobe a versão e a busca memoizada vê a nova", async () => {
+    // iOS (estes testes): a config buscada na saída vale no começo da saída seguinte.
+    const leaveTwice = async () => {
+        await setAppState("background");
+        await setAppState("active");
+        await setAppState("background");
+    };
+
+    test("on_leave: mudou → na saída seguinte troca os globais, desliga o anúncio, sobe a versão e a busca memoizada vê a nova", async () => {
         const {default: Utils, getConfigVersion, onConfigApplied} = await boot({resume_config: "on_leave"}, {botao: true});
         expect((globalThis as any).isAdsEnabled).toBe(true);
         let notified = 0;
@@ -267,6 +274,9 @@ describe("resume_config na saída do app", () => {
         state.rcScreens = {botao: false};
         await setAppState("background");
         expect(state.rcFetches).toBe(2);
+        expect(getConfigVersion()).toBe(0); // buscou; a pessoa pode estar voltando
+        await setAppState("active");
+        await setAppState("background");
         expect(getConfigVersion()).toBe(1);
         expect(notified).toBe(1);
         expect((globalThis as any).isAdsEnabled).toBe(false);
@@ -297,10 +307,19 @@ describe("resume_config na saída do app", () => {
         const {getConfigVersion} = await boot({resume_config: "on_leave", is_ads_enabled: false});
         expect((globalThis as any).adsDisabledByStoreGate).toBe(true);
         state.rcUtils = {resume_config: "on_leave", is_ads_enabled: true};
-        await setAppState("background");
+        await leaveTwice();
         expect(getConfigVersion()).toBe(1);
         expect((globalThis as any).isAdsEnabled).toBe(false);
         expect((globalThis as any).remoteConfigUtils.is_ads_enabled).toBe(false);
+    });
+
+    test("anúncio desligado na abertura e religado no Remote Config novo: sem o UMP e o initialize da sessão, fica para a próxima abertura", async () => {
+        const {getConfigVersion} = await boot({resume_config: "on_leave", is_ads_enabled: false});
+        expect((globalThis as any).isAdsEnabled).toBe(false);
+        state.rcUtils = {resume_config: "on_leave", is_ads_enabled: true};
+        await leaveTwice();
+        expect(getConfigVersion()).toBe(1);
+        expect((globalThis as any).isAdsEnabled).toBe(false);
     });
 
     test("off (padrão): a saída não busca", async () => {

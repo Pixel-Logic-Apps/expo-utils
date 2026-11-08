@@ -122,9 +122,11 @@ A config é a da abertura e só muda escondida (`resume_config` no bloco `utils`
 - `"off"` (padrão): nada muda até fechar o app.
 - `"on_leave"`: ao sair do app, a lib busca a config. Se mudou e a pessoa segue fora, troca os globais e as telas
   remontam escondidas: ela volta na mesma rota, já com a config nova (a tela perde a rolagem e recarrega os dados). Se
-  ela voltar antes de a busca terminar, nada muda na frente dela: vale na próxima saída. Busca que falha não muda nada;
-  no máximo uma busca a cada 30s. O veredito da trava da loja continua, e o anúncio só liga ou desliga se o
-  `is_ads_enabled` mudou.
+  ela voltar antes de a busca terminar, nada muda na frente dela: vale na próxima saída. No iOS a config buscada sempre
+  vale no começo da saída seguinte (lá o JS para logo depois do background, e a busca pode terminar já com a pessoa no
+  app). Busca que falha não muda nada; no máximo uma busca a cada 30s. O veredito da trava da loja continua; o anúncio
+  só muda se o `is_ads_enabled` mudou, e religar só vale se o UMP e o `initialize` da sessão já rodaram (senão, na
+  próxima abertura).
 
 Quem liga é o layout: o `ExpoUtilsLayout` já remonta o que está dentro dele; layout próprio usa o hook como `key` do
 navegador (sem o hook, o `on_leave` não troca nada):
@@ -1881,9 +1883,9 @@ do Expo depois dela fica parado até a próxima abertura; uma tela que espera es
 - Ordem: UMP → ATT → notificação, depois do 1º frame (`Utils.handleReady`).
 - Pede com o app ativo (`AppState === 'active'`). Se não estiver (alerta de outro pedido na frente, diálogo do app,
   tela dividida no iPad), espera o evento de "ficou ativo" do AppState — nunca um temporizador.
-- Pede direto, sem ler o status antes: o pedido do sistema já respondido devolve a resposta na hora, sem mostrar nada.
-  A leitura antes (no iOS, o `getNotificationSettings` do push) às vezes não voltava, e a notificação não era pedida
-  naquela abertura.
+- Lê o status antes (ATT e notificação no Android, leituras que não penduram) e nunca pede o que já foi respondido. A
+  notificação no iOS pede direto: a leitura dela (`getNotificationSettings`) às vezes não voltava e a notificação não era
+  pedida naquela abertura; já respondida, o iOS devolve a resposta sem mostrar nada.
 - Pedido descartado (ATT volta `undetermined`) ou cancelado (Android: negado sem o diálogo aparecer) → pede de novo no
   próximo "ficou ativo", até 3 vezes por abertura. A próxima abertura tenta de novo.
 - Um pedido por vez, na trava única (abaixo), e a notificação só é pedida **depois do fim do ATT** (resposta ou 3
@@ -1912,9 +1914,9 @@ const {status} = await Utils.withPermissionPrompt(() => Location.requestForegrou
 - Em `fn` vai só o pedido, sem rede nem outra permissão dentro.
 - O limite é de 20s no Android e 60s no iOS, e só corre com o app ativo: com o diálogo tirando o app de `active`
   (Android e iOS 26), ele não corre e nada sai por cima. No limite a trava solta para o próximo pedido.
-  - iOS: quem pediu continua esperando a resposta de verdade. No iOS 27 o alerta não tira o app de `active`: se a
-    pessoa deixar o alerta aberto além dos 60s, o próximo pedido sai por cima dele (como sem a trava), e o "Permitir"
-    que vier depois vale.
+  - iOS: quem pediu continua esperando a resposta de verdade por mais 60s (com o app ativo). No iOS 27 o alerta não tira
+    o app de `active`: se a pessoa deixar o alerta aberto além dos 60s, o próximo pedido sai por cima dele (como sem a
+    trava), e o "Permitir" que vier depois vale. Sem resposta nem assim (promessa pendurada), rejeita.
   - Android: estourar com o app ativo é promessa pendurada; ela **rejeita**: trate como "sem permissão", com
     `try/catch`.
 

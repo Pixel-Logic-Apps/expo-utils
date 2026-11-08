@@ -5,7 +5,9 @@
  *   - `off` (padrão): nada muda até fechar o app, como sempre foi.
  *   - `on_leave`: quando o app vai para o 2º plano, busca a config de novo. Se mudou e a pessoa ainda está fora, aplica
  *     e as telas são redesenhadas escondidas: ela volta já com a config nova. Se ela voltar antes de a busca terminar,
- *     nada muda na frente dela: a config nova fica guardada e vale na próxima saída (ou na próxima abertura).
+ *     nada muda na frente dela: a config nova fica guardada e vale na próxima saída (ou na próxima abertura). No iOS a
+ *     config buscada sempre vale no começo da próxima saída (`applyAfterFetch`: lá o callback da busca pode rodar já com
+ *     a pessoa no app).
  *
  * "2º plano" é o app inteiro fora de vista: no iOS o `background` do AppState (alerta do sistema, folha de compra e
  * anúncio não chegam a ele); no Android só com o ProcessLifecycleOwner (utils/app-lifecycle.ts), porque o AppState do RN
@@ -33,6 +35,11 @@ export type ResumeConfigOptions = {
     apply: (snapshot: ConfigSnapshot) => void;
     now: () => number;
     minIntervalMs: number;
+    /**
+     * Aplicar na mesma saída, quando a busca termina com o app ainda fora (Android). false: a config buscada só vale no
+     * começo da próxima saída, dentro do próprio evento (iOS, onde o callback da busca pode rodar já com a pessoa no app).
+     */
+    applyAfterFetch: boolean;
 };
 
 const sameConfig = (a: ConfigSnapshot, b: ConfigSnapshot): boolean => {
@@ -45,7 +52,7 @@ const sameConfig = (a: ConfigSnapshot, b: ConfigSnapshot): boolean => {
 
 /** Devolve o ouvinte de primeiro/segundo plano (`active` / `background`). */
 export const createResumeConfig = (options: ResumeConfigOptions) => {
-    const {mode, refresh, current, apply, now, minIntervalMs} = options;
+    const {mode, refresh, current, apply, now, minIntervalMs, applyAfterFetch} = options;
     let state = "active";
     let fetching = false;
     let lastFetchAt = Number.NEGATIVE_INFINITY;
@@ -70,7 +77,7 @@ export const createResumeConfig = (options: ResumeConfigOptions) => {
         refresh()
             .then((snapshot) => {
                 if (!snapshot) return;
-                if (state === "background") applyIfChanged(snapshot);
+                if (applyAfterFetch && state === "background") applyIfChanged(snapshot);
                 else if (!sameConfig(snapshot, current())) pending = snapshot;
             })
             .catch(() => {})

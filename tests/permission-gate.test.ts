@@ -51,8 +51,13 @@ const fakePermission = (
 ) => {
     const permission = {
         status: initial,
+        reads: 0,
         requests: 0,
         shown: 0,
+        read: async () => {
+            permission.reads++;
+            return permission.status;
+        },
         request: (): Promise<string> => {
             permission.requests++;
             if (isAnswered(permission.status)) return Promise.resolve(permission.status);
@@ -680,5 +685,66 @@ describe("portões na trava: ATT e localização em sequência", () => {
         answerAtt("denied");
         expect(await flow.final).toEqual({status: "denied", attempts: 1});
         expect(attPermission.requests).toBe(1);
+    });
+});
+
+describe("com leitura antes do pedido (ATT; notificação no Android)", () => {
+    const attWithRead = (permission: ReturnType<typeof fakePermission>, lock = createPermissionLock(appState, LIMIT)) =>
+        createPermissionGate<string>({
+            appState,
+            read: permission.read,
+            request: permission.request,
+            canAsk: (status) => status === "undetermined",
+            noAnswer: "undetermined",
+            lock,
+        });
+
+    test("já respondido: acaba na hora, sem pedir, sem entrar na trava e sem esperar o app ativo", async () => {
+        appState.currentState = "inactive";
+        const att = fakePermission("granted", []);
+        expect(await attWithRead(att).run().final).toEqual({status: "granted", attempts: 0});
+        expect(att.requests).toBe(0);
+    });
+
+    test("já respondido com outro alerta ocupando a trava além do limite da cadeia: não espera a vez", async () => {
+        const lock = createPermissionLock(appState, LIMIT);
+        const {prompt} = prompts();
+        lock(prompt("location")); // a home pediu localização e a pessoa ainda não respondeu
+        const att = fakePermission("denied", []);
+        const flow = attWithRead(att, lock).run();
+        await flush();
+        expect(await flow.final).toEqual({status: "denied", attempts: 0});
+        expect(att.requests).toBe(0);
+    });
+
+    test("sem resposta: pede, e o descarte pede de novo no próximo active", async () => {
+        const att = fakePermission("undetermined", ["undetermined", "granted"]);
+        const flow = attWithRead(att).run();
+        expect(await flow.first).toEqual({status: "undetermined", attempts: 1});
+        await leaveAndReturn();
+        expect(await flow.final).toEqual({status: "granted", attempts: 2});
+    });
+
+    test("Android: pendurada depois do diálogo e concedida → no limite vale o status lido", async () => {
+        const push = androidPermission("denied", [
+            async () => {
+                await setAppState("background");
+                push.status = "granted"; // a pessoa concedeu; a promessa nunca resolve
+                await setAppState("active");
+                return never<string>();
+            },
+        ]);
+        const flow = createPermissionGate<string>({
+            appState,
+            read: push.read,
+            request: push.request,
+            canAsk: (status) => status !== "granted",
+            lost: (status, leftActive) => !leftActive && (status === "denied" || status === "never_ask_again"),
+            noAnswer: "denied",
+            lock: createPermissionLock(appState, LIMIT),
+        }).run();
+        for (let i = 0; i < 4; i++) await flush();
+        await advance(LIMIT);
+        expect(await flow.final).toEqual({status: "granted", attempts: 1});
     });
 });

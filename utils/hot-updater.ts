@@ -18,6 +18,12 @@ export type HotUpdaterGeneration = 0 | 1;
 export interface InitHotUpdaterOptions {
     /** Chave de cliente do servidor v1 (`x-api-key`), a `HOT_UPDATER_API_KEY` do `hot-updater init`. O v0 ignora. */
     apiKey?: string;
+    /**
+     * Esperado antes de reiniciar num OTA forçado. O Utils passa a busca do Remote Config que saiu junto com a checagem:
+     * reiniciar com ela em voo podia abrir o JS novo com a config velha (no iOS o setter do Remote Config do JS novo
+     * cancela o fetch em voo). Sem timer novo: a busca tem o teto dela.
+     */
+    beforeReload?: () => Promise<unknown>;
 }
 
 const V0_CHECK_PATH = "/api/check-update";
@@ -69,7 +75,7 @@ function v1ConfigProblem(baseURL: string, apiKey?: string): string | null {
     return null;
 }
 
-async function checkAndApply(updater: any): Promise<void> {
+async function checkAndApply(updater: any, beforeReload?: () => Promise<unknown>): Promise<void> {
     const update = await updater.checkForUpdate({updateStrategy: "appVersion"});
     if (!update) return;
     expoUtilsLog("[expo-utils] OTA:", update.status ?? "UPDATE", update.id ?? "", update.transitionKind ?? "");
@@ -77,6 +83,7 @@ async function checkAndApply(updater: any): Promise<void> {
     // próximo início; no boot isso é aceitável.
     const applied = await update.updateBundle();
     if (update.shouldForceUpdate && applied !== false) {
+        await beforeReload?.().catch(() => {});
         await updater.reload();
     }
 }
@@ -104,7 +111,7 @@ export async function initHotUpdater(target?: string | object | null, options: I
                 v0Ready = true;
                 runningBundleId = readBundleId(HU);
             }
-            await checkAndApply(HU);
+            await checkAndApply(HU, options.beforeReload);
             return;
         }
 
@@ -125,7 +132,7 @@ export async function initHotUpdater(target?: string | object | null, options: I
             instance = updater;
             runningBundleId = readBundleId(updater);
         }
-        await checkAndApply(updater);
+        await checkAndApply(updater, options.beforeReload);
     } catch (e) {
         expoUtilsWarn("initHotUpdater:", e);
     }

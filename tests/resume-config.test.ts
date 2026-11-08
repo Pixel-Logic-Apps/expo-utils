@@ -7,7 +7,7 @@ const flush = async () => {
     for (let i = 0; i < 20; i++) await Promise.resolve();
 };
 
-const setup = (initial: ConfigSnapshot, modeValue = "on_leave") => {
+const setup = (initial: ConfigSnapshot, modeValue = "on_leave", applyAfterFetch = true) => {
     let clock = 0;
     let answer: (snapshot: ConfigSnapshot | null) => void = () => {};
     const log = {fetches: 0, applied: [] as ConfigSnapshot[]};
@@ -26,6 +26,7 @@ const setup = (initial: ConfigSnapshot, modeValue = "on_leave") => {
         },
         now: () => clock,
         minIntervalMs: 30_000,
+        applyAfterFetch,
     });
     return {
         log,
@@ -59,6 +60,16 @@ describe("resume_config", () => {
         s.onState("background");
         expect(s.log.fetches).toBe(1);
         await s.answer(v2);
+        expect(s.log.applied).toEqual([v2]);
+    });
+
+    test("iOS (applyAfterFetch false): a busca nunca aplica no callback; vale no começo da próxima saída", async () => {
+        const s = setup(v1, "on_leave", false);
+        s.onState("background");
+        await s.answer(v2); // terminou ainda com o app fora, mas o JS pode estar voltando
+        expect(s.log.applied).toEqual([]);
+        s.onState("active");
+        s.onState("background");
         expect(s.log.applied).toEqual([v2]);
     });
 

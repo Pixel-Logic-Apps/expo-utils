@@ -78,7 +78,7 @@ import {trackLinkInBioInstall} from "./link-in-bio";
 import {logUtilsEvent, setUtilsUserProperty} from "./analytics";
 import {initAdRevenue} from "./ad-revenue";
 import {refreshAttributionAfterAtt, runAttributionPhase1, runAttributionPhase2, setRcAttributesLate} from "./attribution";
-import {createPermissionGate, createPermissionLock, TIMED_OUT, withTimeout, type PermissionFlow} from "./permission-gate";
+import {createPermissionGate, createPermissionLock, TIMED_OUT, withActiveLimit, withTimeout, type PermissionFlow} from "./permission-gate";
 import {createResumeConfig, type ConfigSnapshot} from "./resume-config";
 import {addAppLifecycleListener, APP_LIFECYCLE_MODULE, pickAppLifecycleSource} from "./app-lifecycle";
 import {logPushOpened, logPushReceived} from "./push-analytics";
@@ -171,7 +171,7 @@ function getExpoUtilsOption(appConfig: any, key: string): any {
 // startBootRequests).
 export const initHotUpdater = (target?: string | object | null, options?: InitHotUpdaterOptions): Promise<void> => {
     Utils.getRemoteConfigUtils().catch(() => {});
-    return runHotUpdater(target, options);
+    return runHotUpdater(target, {beforeReload: () => Utils.getRemoteConfigUtils(), ...options});
 };
 
 // Memoiza o portão de APNs: o token (ou a ausência dele) não muda dentro de uma sessão,
@@ -274,7 +274,8 @@ const PERMISSION_LIMIT_MS = 20000;
 // deixa o app `inactive`: o limite corre com ele na tela e nada no JS o separa de um pedido pendurado (no iOS nenhum caso
 // de pendurar é conhecido), por isso 60 s. Passou disso com o alerta aberto, o próximo sai por cima dele, como já acontecia
 // sem a trava (medido no iOS 27: o ATT aparece por cima do alerta de localização, 6 de 6).
-const permissionLock = createPermissionLock(AppState, Platform.OS === "ios" ? 60000 : PERMISSION_LIMIT_MS);
+const PERMISSION_LOCK_LIMIT_MS = Platform.OS === "ios" ? 60000 : PERMISSION_LIMIT_MS;
+const permissionLock = createPermissionLock(AppState, PERMISSION_LOCK_LIMIT_MS);
 
 /**
  * Faz um pedido de permissão do app na mesma trava de ATT e notificação da lib: uma permissão de cada vez, nos dois
@@ -286,8 +287,9 @@ const permissionLock = createPermissionLock(AppState, Platform.OS === "ios" ? 60
  *
  * No limite a trava solta para o próximo pedido. O limite não corre com o diálogo tirando o app de `active`. No iOS 27 o
  * alerta não tira o app de `active`: no limite ele pode seguir na tela, e quem pediu continua esperando a resposta de
- * verdade (o "Permitir" depois de 60 s vale, como antes da trava). No Android, estourar com o app ativo é promessa
- * pendurada: rejeita, e quem pediu trata como "sem permissão".
+ * verdade por mais um limite (o "Permitir" depois de 60 s vale, como antes da trava); sem resposta nem assim, rejeita
+ * (promessa nativa pendurada não prende quem chama). No Android, estourar com o app ativo é promessa pendurada: rejeita.
+ * Rejeitou: trate como "sem permissão".
  *
  * @example const {status} = await Utils.withPermissionPrompt(() => Location.requestForegroundPermissionsAsync());
  */
@@ -295,13 +297,22 @@ export const withPermissionPrompt = async <T>(fn: () => Promise<T>): Promise<T> 
     const asked: {pending?: Promise<T>} = {};
     const result = await permissionLock(() => (asked.pending = fn()));
     if (result !== TIMED_OUT) return result;
-    if (Platform.OS === "ios" && asked.pending) return asked.pending;
+    if (Platform.OS === "ios" && asked.pending) {
+        const late = await withActiveLimit(AppState, asked.pending, PERMISSION_LOCK_LIMIT_MS);
+        if (late !== TIMED_OUT) return late;
+    }
     throw new Error("withPermissionPrompt: pedido de permissão sem resposta no limite");
 };
 
 // AuthorizationStatus do RNFB: -1 não determinado, 0 negado, 1 autorizado, 2 provisório, 3 efêmero
 const pushStatusLabel = (status: number): string =>
     status === 1 ? "granted" : status === 2 ? "provisional" : status === 3 ? "ephemeral" : status === 0 ? "denied" : "undetermined";
+
+// Status da notificação no Android (POST_NOTIFICATIONS concedida ou não; o RN não diz se já foi perguntada). Não pendura.
+// No iOS não há leitura: o getNotificationSettings do push às vezes não voltava (iOS 27) e o pedido não saía; o portão
+// pede direto (já respondido, o iOS devolve a resposta sem mostrar nada).
+const readAndroidPushPermission = async (): Promise<string> =>
+    (await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS)) ? "granted" : "denied";
 
 // Pedido real da notificação (Android: POST_NOTIFICATIONS; iOS: Firebase messaging), sem a trava: quem chama já está nela.
 // Já respondido, o sistema devolve a resposta sem mostrar nada.
@@ -322,6 +333,9 @@ const askPushPermission = async (): Promise<string> => {
 // próximo "ficou ativo", até 3 vezes. Regras e motivo em utils/permission-gate.ts.
 const attGate = createPermissionGate<string>({
     appState: AppState,
+    // Leitura síncrona no nativo (ATTrackingManager.trackingAuthorizationStatus): não pendura. Já respondido, acaba sem
+    // entrar na trava nem esperar o app ativo.
+    read: async () => String((await getTrackingPermissionsAsync()).status),
     request: async () => String((await requestTrackingPermissionsAsync()).status),
     canAsk: (status) => status === "undetermined",
     noAnswer: "undetermined",
@@ -339,8 +353,9 @@ let attFlowEnded: Promise<unknown> = Promise.resolve();
 // não deixa o app `inactive`) ou app fora de `active` com os dois portões esperando o mesmo "ficou ativo".
 const pushGate = createPermissionGate<string>({
     appState: AppState,
+    read: Platform.OS === "android" ? readAndroidPushPermission : undefined,
     request: askPushPermission,
-    noAnswer: Platform.OS === "android" ? "denied" : "undetermined",
+    noAnswer: "undetermined",
     canAsk: (status) => (Platform.OS === "android" ? status !== "granted" : status === "undetermined"),
     lost: (status, leftActive) =>
         Platform.OS === "android"
@@ -409,6 +424,9 @@ let sessionConfig: ConfigSnapshot | null = null;
 let preparePromise: Promise<void> | null = null;
 // UMP + mobileAds().initialize() rodam UMA vez por sessão (o fluxo do ATT pode ser reentrante).
 let mobileAdsSetupPromise: Promise<void> | null = null;
+// O initialize da sessão terminou (UMP liberou). Sem ele, anúncio religado pelo Remote Config na volta ao app fica para a
+// próxima abertura: religar aqui pediria anúncio sem o consentimento do UMP.
+let mobileAdsReady = false;
 
 // Compara versões "a.b.c": >0 se current > store, 0 se iguais, <0 se current < store.
 const compareVersions = (current: string, store: string): number => {
@@ -532,16 +550,18 @@ const currentConfig = (): ConfigSnapshot =>
     sessionConfig ?? {utils: (global as any).remoteConfigUtils ?? {}, screens: (global as any).remoteConfigScreens ?? {}};
 
 // Troca a config da sessão pela nova, como o boot faz (setupGlobalConfigs). O liga-desliga dos anúncios só muda quando o
-// `is_ads_enabled` mudou, e o veredito da trava da loja continua valendo (a versão da loja não muda na sessão).
+// `is_ads_enabled` mudou: desligar vale na hora; religar só se o UMP e o initialize da sessão já rodaram (senão, na próxima
+// abertura). O veredito da trava da loja continua valendo (a versão da loja não muda na sessão).
 const applyRemoteConfig = (next: ConfigSnapshot) => {
     const adsChanged = currentConfig().utils.is_ads_enabled !== next.utils.is_ads_enabled;
+    const adsOn = !__DEV__ && next.utils.is_ads_enabled !== false;
     sessionConfig = next;
     remoteConfigScreensBlock = next.screens;
     remoteConfigUtilsPromise = Promise.resolve(next.utils as RemoteConfigUtilsType);
     (global as any).remoteConfigUtils = {...next.utils};
     (global as any).remoteConfigScreens = next.screens;
     (global as any).remoteConfigs = mergeRemoteConfigBlocks((global as any).remoteConfigUtils, next.screens);
-    if (adsChanged) global.isAdsEnabled = !__DEV__ && next.utils.is_ads_enabled !== false;
+    if (adsChanged && (!adsOn || mobileAdsReady)) global.isAdsEnabled = adsOn;
     if (global.adsDisabledByStoreGate) disableAdsByStoreGate();
     setBlocklist(next.utils.ad_blocklist);
     expoUtilsLog("[expo-utils] Remote Config novo aplicado na saída do app.");
@@ -744,9 +764,14 @@ const Utils = {
         resumeConfigStarted = true;
         const nativeModule = Platform.OS === "android" ? NativeModules[APP_LIFECYCLE_MODULE] : undefined;
         if (Platform.OS === "android" && pickAppLifecycleSource(Platform.OS, nativeModule) !== "process-lifecycle") {
-            if ((global as any).remoteConfigUtils?.resume_config === "on_leave") {
-                expoUtilsWarn("resume_config on_leave: no Android precisa do react-native-applifecycle instalado no app. Fica desligado.");
-            }
+            // O layout monta antes de o Remote Config chegar: o aviso espera a config da abertura.
+            Utils.getRemoteConfigUtils()
+                .then((config) => {
+                    if (config?.resume_config === "on_leave") {
+                        expoUtilsWarn("resume_config on_leave: no Android precisa do react-native-applifecycle instalado no app. Fica desligado.");
+                    }
+                })
+                .catch(() => {});
             return;
         }
         addAppLifecycleListener(
@@ -761,6 +786,10 @@ const Utils = {
                 },
                 now: () => Date.now(),
                 minIntervalMs: RESUME_MIN_INTERVAL_MS,
+                // iOS: o JS para poucos segundos depois do background e, na volta, a busca pode terminar antes do evento de
+                // `active`: aplicar ali seria com a pessoa já no app. A config buscada vale no começo da próxima saída. No
+                // Android o ProcessLifecycleOwner mantém o JS rodando fora de vista, e ela vale na mesma saída.
+                applyAfterFetch: Platform.OS === "android",
             }),
         );
     },
@@ -1209,6 +1238,7 @@ const Utils = {
                 }
 
                 const statuses = await mobileAds().initialize();
+                mobileAdsReady = true;
                 expoUtilsLog(
                     "[expo-utils] mobileAds().initialize():",
                     (statuses || [])
@@ -1288,8 +1318,8 @@ const Utils = {
      *   1. UMP + init do Google Mobile Ads (setupMobileAds): consentimento de ads vem ANTES do
      *      ATT — ordem recomendada pelo Google e o iOS só exibe um modal de sistema por vez.
      *      Fora de EEA/UK/US regulado não mostra nada e sai rápido.
-     *   2. ATT (somente iOS), pelo portão de permissões (utils/permission-gate.ts): pede direto (já
-     *      respondido, o iOS devolve a resposta sem mostrar nada); pede só com o app `active` (senão espera o evento, nunca
+     *   2. ATT (somente iOS), pelo portão de permissões (utils/permission-gate.ts): lê o status (leitura
+     *      síncrona) e só pede quando 'undetermined'; pede só com o app `active` (senão espera o evento, nunca
      *      timer) e na trava única de permissão (withPermissionPrompt: se a home já pediu localização,
      *      espera a resposta dela); se o iOS descartar (volta 'undetermined'), pede de novo no próximo
      *      "ficou ativo", até 3 vezes por abertura. A cadeia espera o resultado por no máximo PERMISSION_LIMIT_MS e
@@ -1340,9 +1370,8 @@ const Utils = {
                     () => {},
                 );
                 const outcome = await withTimeout(attFlow.final, PERMISSION_LIMIT_MS);
-                // No limite a cadeia segue sem resposta (sem ler o status: a leitura também pode não voltar); o portão
-                // continua e a resposta tardia é tratada abaixo.
-                consent.att = outcome === TIMED_OUT ? "undetermined" : outcome.status;
+                // No limite a cadeia segue com o status de agora; o portão continua e a resposta tardia é tratada abaixo.
+                consent.att = outcome === TIMED_OUT ? String((await getTrackingPermissionsAsync()).status) : outcome.status;
                 consent.attAttempts = attGate.attempts();
                 granted = consent.att === "granted";
             } catch (e) {
@@ -1391,7 +1420,9 @@ const Utils = {
         if (fcmTrackingAllowed) {
             try {
                 const pushFlow = pushGate.run();
-                const outcome = await withTimeout(pushFlow.first, PERMISSION_LIMIT_MS);
+                // ATT ainda pendente (a cadeia passou do limite dele): o push só pede depois do fim do ATT, então a cadeia não
+                // espera mais 20 s por ele; a resposta que vier depois atualiza o consent_flow.
+                const outcome = attGate.isPending() ? TIMED_OUT : await withTimeout(pushFlow.first, PERMISSION_LIMIT_MS);
                 // timeout: sem 1º desfecho no limite (pedido pendurado, app fora de `active`, ainda na vez do ATT ou na fila da trava).
                 consent.push = outcome === TIMED_OUT ? "timeout" : outcome.status;
                 consent.pushAttempts = pushGate.attempts();
@@ -1470,7 +1501,7 @@ const Utils = {
     },
 
     maybeApplyUpdate: async (target?: string | object | null, options?: InitHotUpdaterOptions) => {
-        await runHotUpdater(target, options);
+        await runHotUpdater(target, {beforeReload: () => Utils.getRemoteConfigUtils(), ...options});
     },
 
     // Estado do assinante (free/trial/trial_cancelled/intro/active/cancelled/billing_issue/

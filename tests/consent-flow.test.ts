@@ -260,10 +260,8 @@ test("iOS: ATT concedido numa nova tentativa depois do limite → FB avisado (tr
     expect(isAttPending()).toBe(true);
     await advance(1000);
     expect(state.fbTracking).toEqual([false]);
-    // A notificação só pede depois do fim do ATT, mesmo já concedida (o pedido é o que diz o status): a cadeia espera
-    // o limite dela também.
-    expect(done).toBe(false);
-    await advance(LIMIT);
+    // A notificação (iOS: pedido direto, sem leitura) só pede depois do fim do ATT; com o ATT pendente a cadeia não
+    // espera mais 20 s por ela e segue.
     expect(done).toBe(true);
     expect(consentEvents()).toEqual([{ump: "not_required", att: "undetermined", push: "timeout", att_attempts: 1, push_attempts: 0}]);
 
@@ -545,4 +543,17 @@ test("iOS 27: alerta de localização na tela com o app active → o ATT espera 
     location.answer("granted");
     await location.done;
     expect(location.seen.status).toBe("granted");
+});
+
+test("iOS: pedido do app pendurado (a resposta nunca vem) → espera mais um limite e rejeita; quem chama não fica preso", async () => {
+    (globalThis as any).isAdsEnabled = false;
+    const {withPermissionPrompt} = await load();
+    const location = homeLocation(withPermissionPrompt);
+    await advance(60000);
+    expect(location.seen).toEqual({}); // passou da trava: a resposta de verdade ainda vale
+    await advance(59000);
+    expect(location.seen).toEqual({});
+    await advance(1000);
+    await location.done;
+    expect(location.seen.error?.message).toContain("sem resposta no limite");
 });

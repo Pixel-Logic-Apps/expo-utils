@@ -44,9 +44,9 @@ não há user property para eles.
 `active` e, quando o pedido se perde (ATT descartado pelo iOS = volta `undetermined`; notificação no Android negada sem
 o diálogo aparecer, ou pendurada), são pedidos de novo no próximo "ficou ativo", até 3 vezes por abertura.
 `att_attempts`/`push_attempts` = quantos pedidos saíram nesta abertura: `0` = o app não ficou ativo ou o pedido ainda
-estava na fila da trava de permissão; `1` = saiu de primeira (desde a 1.5.7 também quando já estava respondido: a lib pede
-direto e o sistema devolve a resposta sem mostrar nada); `2`–`3` = o 1º se perdeu (é o caso que até a 1.5.6 ficava sem
-ATT na sessão). `att=undetermined` com `att_attempts=3` = desistiu nesta abertura (a próxima tenta de novo). `push=timeout` =
+estava na fila da trava de permissão (ATT ou notificação no Android já respondidos também dão `0`: a lib lê o status e
+não pede); `1` = saiu de primeira (desde a 1.5.7 a notificação no iOS já respondida também: a lib pede direto e o iOS
+devolve a resposta sem mostrar nada); `2`–`3` = o 1º se perdeu (é o caso que até a 1.5.6 ficava sem ATT na sessão). `att=undetermined` com `att_attempts=3` = desistiu nesta abertura (a próxima tenta de novo). `push=timeout` =
 sem desfecho do push em 20s e a cadeia seguiu: pedido pendurado, app fora de `active`, ainda na vez do ATT (a notificação
 só é pedida depois do fim do ATT; nesse caso `push_attempts=0`) ou na fila atrás de outro pedido (ex.: a localização da
 home, `Utils.withPermissionPrompt`; também `push_attempts=0`); a resposta que vier depois sai num

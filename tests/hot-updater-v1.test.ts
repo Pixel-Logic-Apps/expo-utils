@@ -104,6 +104,18 @@ test("URL + chave: init com baseURL, x-api-key e onError; check appVersion; baix
     expect(warns).toEqual([["initHotUpdater:", new Error("catálogo 401")]]);
 });
 
+test("OTA forçado com beforeReload: reinicia só depois de ele terminar (a busca do Remote Config em voo)", async () => {
+    checkResult = update(() => created[0], {shouldForceUpdate: true});
+    let finish: () => void = () => {};
+    const pending = new Promise<void>((resolve) => (finish = resolve));
+    const run = hu.initHotUpdater(V1_URL, {apiKey: KEY, beforeReload: () => pending});
+    for (let i = 0; i < 20; i++) await Promise.resolve();
+    expect(calls.map((c) => c.at(-1))).not.toContain("reload");
+    finish();
+    await run;
+    expect(calls.at(-1)).toEqual([expect.anything(), "reload"]);
+});
+
 test("2ª chamada (maybeApplyUpdate) reaproveita a instância: não cria outra", async () => {
     await hu.initHotUpdater(V1_URL, {apiKey: KEY});
     expect(calls).toEqual([["lib", "checkForUpdate", {updateStrategy: "appVersion"}]]);
