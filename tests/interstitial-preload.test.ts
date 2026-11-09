@@ -386,6 +386,31 @@ describe("anúncio só depois do consentimento (ads_wait_consent_enabled)", () =
         expect(await shown).toBe(true);
     });
 
+    test("UMP já negou nesta sessão: intersticial (true) e rewarded (false) voltam na hora, sem esperar os 10 s", async () => {
+        const manager = await load();
+        ads.adsConsentReady = false;
+        ads.adsConsentDenied = true;
+        expect(await manager.showInterstitial(undefined, "a")).toBe(true);
+        expect(await manager.showRewarded(undefined, "b")).toBe(false);
+        expect(jest.getTimerCount()).toBe(0);
+        expect(FakeAd.created).toHaveLength(0);
+    });
+
+    test("UMP nega durante a espera: devolve na hora, sem completar os 10 s", async () => {
+        const manager = await load();
+        ads.adsConsentReady = false;
+        ads.adsConsent = new Promise<void>(() => {});
+        let deny: () => void = () => {};
+        ads.adsDenied = new Promise<void>((resolve) => (deny = resolve));
+        const shown = manager.showInterstitial(undefined, "a");
+        await flush();
+        jest.advanceTimersByTime(3000);
+        deny();
+        await flush();
+        expect(await shown).toBe(true);
+        expect(jest.getTimerCount()).toBe(0);
+    });
+
     test("intersticial pedido antes do consentimento: o consentimento chega dentro dos 10 s → aparece", async () => {
         const manager = await load();
         ads.adsConsentReady = false;

@@ -338,10 +338,12 @@ export interface RemoteConfigUtilsType {
     /**
      * Anúncio só depois do consentimento da abertura: banner, intersticial, rewarded e app open (e as pré-cargas) esperam
      * a resposta do UMP (se ele negar, a sessão fica sem anúncio) e, no iPhone, a do ATT, para o pedido já sair com o IDFA
-     * de quem permitiu. Intersticial e rewarded pedidos antes disso esperam até 10 s; passou, o intersticial segue sem
-     * anúncio e o rewarded devolve false (sem recompensa). Limites de segurança, contados com o app fora do segundo plano:
-     * 1 min para o UMP responder, 1 min depois de o alerta do ATT aparecer e 3 min se o ATT nunca chegar a ser pedido.
-     * Desligado: carregam como antes (o banner já na primeira tela).
+     * de quem permitiu. Intersticial e rewarded pedidos antes disso esperam até 10 s; passou (ou o UMP negou), o intersticial
+     * segue sem anúncio e o rewarded devolve false (sem recompensa). Limites de segurança, contados com o app fora do segundo
+     * plano: 1 min para o pedido de rede do UMP (o formulário na tela espera a pessoa, sem limite), 1 min depois de o alerta
+     * do ATT aparecer e 3 min se o alerta não chegar a sair (inclusive com attDialogOnOpen false e o app sem pedir). Com
+     * umpDialogOnOpen false, os anúncios esperam o requestUmpConsent do app, sem limite. Desligado: carregam como antes (o
+     * banner já na primeira tela).
      * @section Anúncios
      * @label Anúncio só depois do consentimento
      * @default desligado

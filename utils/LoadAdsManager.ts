@@ -7,7 +7,7 @@ import {
 } from "react-native-google-mobile-ads";
 import {getAnalytics, logEvent} from "@react-native-firebase/analytics";
 import {getApp} from "@react-native-firebase/app";
-import {expoUtilsWarn, expoUtilsLog, isAdsConsentReady, whenAdsConsentReady, whenConsentFlowDone} from "./Utils";
+import {expoUtilsWarn, expoUtilsLog, isAdsConsentDenied, isAdsConsentReady, whenAdsConsentDenied, whenAdsConsentReady, whenConsentFlowDone} from "./Utils";
 import {generatePlacementId, isAdTypeBlocked, isPlacementBlocked} from "./AdPlacementTracker";
 import {PremiumUtils} from "./PremiumUtils";
 import {logAdRevenue} from "./ad-revenue";
@@ -46,14 +46,14 @@ const CONSENT_PENDING = "consent_pending" as const;
 const CONSENT_WAIT_MS = 10000;
 const waitAdsConsent = (): Promise<boolean> =>
     new Promise<boolean>((resolve) => {
-        const timer = setTimeout(() => resolve(false), CONSENT_WAIT_MS);
-        whenAdsConsentReady().then(
-            () => {
-                clearTimeout(timer);
-                resolve(true);
-            },
-            () => {},
-        );
+        const finish = (ready: boolean) => {
+            clearTimeout(timer);
+            resolve(ready);
+        };
+        const timer = setTimeout(() => finish(false), CONSENT_WAIT_MS);
+        whenAdsConsentReady().then(() => finish(true), () => {});
+        // O UMP negou enquanto esperava: nesta sessão não vem, não adianta esperar o resto dos 10 s.
+        whenAdsConsentDenied().then(() => finish(false), () => {});
     });
 
 // Checks compartilhados dos dois formatos. Retorna a request pronta, ou null quando o fluxo
@@ -73,8 +73,8 @@ const resolveAdRequest = async (
     expoUtilsLog("isPremium", isPremium);
     if (isPremium) return null;
     if (adsDisabled()) return null;
-    // ads_wait_consent_enabled: antes do UMP e da resposta do ATT, espera até 10 s; passou, segue sem anúncio.
-    if (!isAdsConsentReady() && !(await waitAdsConsent())) {
+    // ads_wait_consent_enabled: antes do UMP e da resposta do ATT, espera até 10 s; passou (ou o UMP negou), segue sem anúncio.
+    if (isAdsConsentDenied() || (!isAdsConsentReady() && !(await waitAdsConsent()))) {
         expoUtilsLog(`[expo-utils] ${kind}: consentimento da abertura não terminou em 10 s — sem anúncio.`);
         return CONSENT_PENDING;
     }

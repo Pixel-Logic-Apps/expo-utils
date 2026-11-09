@@ -78,6 +78,8 @@ export const ads = {
     attPending: false, // isAttPending(): o ATT ainda vai pedir nesta abertura
     adsConsent: Promise.resolve() as Promise<void>, // whenAdsConsentReady(): com ads_wait_consent_enabled desligada, na hora
     adsConsentReady: true, // isAdsConsentReady()
+    adsConsentDenied: false, // isAdsConsentDenied(): o UMP negou nesta sessão
+    adsDenied: new Promise<void>(() => {}) as Promise<void>, // whenAdsConsentDenied()
     attTimeouts: [] as Array<number | undefined>,
     appStateListeners: [] as Array<(state: string) => void>,
     lifecycleListeners: [] as Array<{event: string; fn: (event: any) => void}>,
@@ -97,6 +99,8 @@ export function resetAds() {
     ads.attPending = false;
     ads.adsConsent = Promise.resolve();
     ads.adsConsentReady = true;
+    ads.adsConsentDenied = false;
+    ads.adsDenied = new Promise<void>(() => {});
     ads.attTimeouts.length = 0;
     ads.appStateListeners.length = 0;
     ads.lifecycleListeners.length = 0;
@@ -170,6 +174,8 @@ export function installAdsMocks() {
         whenConsentFlowDone: () => ads.consentFlow,
         whenAdsConsentReady: () => ads.adsConsent,
         isAdsConsentReady: () => ads.adsConsentReady,
+        isAdsConsentDenied: () => ads.adsConsentDenied,
+        whenAdsConsentDenied: () => ads.adsDenied,
     }));
     mock.module("../../utils/PremiumUtils", () => ({
         PremiumUtils: {getIsPremiumStatus: () => Promise.resolve(ads.premium)},

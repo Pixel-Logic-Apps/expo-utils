@@ -29,7 +29,8 @@ const state = {
     attHold: false, // o alerta do ATT fica na tela até answerAtt (a promessa não resolve antes)
     answerAtt: (_status: string) => {},
     pushAnswer: null as number | null, // o que o pedido de notificação do iOS responde (null = o status atual)
-    ump: null as Promise<any> | null, // gatherConsent controlado pelo teste (null = responde na hora)
+    ump: null as Promise<any> | null, // formulário do UMP controlado pelo teste (null = responde na hora)
+    umpInfo: null as Promise<any> | null, // pedido de rede do UMP (requestInfoUpdate; null = responde na hora)
 };
 const listeners = new Set<(next: string) => void>();
 const setAppState = async (next: string) => {
@@ -173,7 +174,11 @@ mock.module("react-native-purchases", () => ({
 mock.module("expo-dev-menu", () => ({registerDevMenuItems: resolved()}));
 mock.module("react-native-google-mobile-ads", () => ({
     default: () => ({initialize: resolved([])}),
-    AdsConsent: {gatherConsent: () => state.ump ?? Promise.resolve({canRequestAds: true, status: "NOT_REQUIRED"})},
+    // O setupMobileAds chama os dois passos do gatherConsent: o pedido de rede (state.umpInfo) e o formulário (state.ump).
+    AdsConsent: {
+        requestInfoUpdate: () => state.umpInfo ?? Promise.resolve({}),
+        loadAndShowConsentFormIfRequired: () => state.ump ?? Promise.resolve({canRequestAds: true, status: "NOT_REQUIRED"}),
+    },
     AdsConsentDebugGeography: {},
 }));
 mock.module("@react-native-firebase/remote-config", () => ({getRemoteConfig: stub(), fetchAndActivate: resolved(), getValue: stub()}));
@@ -227,6 +232,7 @@ beforeEach(() => {
         answerAtt: () => {},
         pushAnswer: null,
         ump: null,
+        umpInfo: null,
     });
 });
 
@@ -726,6 +732,7 @@ test("ligada, iOS 26: localização na tela com o app inactive por muito tempo (
     (globalThis as any).remoteConfigUtils = {ads_wait_consent_enabled: true};
     const {default: Utils, withPermissionPrompt, whenAdsConsentReady} = await load();
     homeLocation(withPermissionPrompt);
+    await flush(); // o alerta de localização aparece
     await setAppState("inactive"); // o alerta de localização deixa o app inactive no iOS 26
     const seen = watchAds(whenAdsConsentReady);
     Utils.requestTrackingWhenActive(appConfig, appStrings);
@@ -737,10 +744,10 @@ test("ligada, iOS 26: localização na tela com o app inactive por muito tempo (
     delete (globalThis as any).remoteConfigUtils;
 });
 
-test("ligada, Android: UMP que nunca responde → libera no limite de 1 min (a cadeia já seguiu aos 20 s)", async () => {
+test("ligada, Android: UMP que nunca responde (pedido de rede travado) → libera no limite de 1 min (a cadeia já seguiu aos 20 s)", async () => {
     (globalThis as any).remoteConfigUtils = {ads_wait_consent_enabled: true};
     state.os = "android";
-    state.ump = new Promise(() => {});
+    state.umpInfo = new Promise(() => {});
     const {default: Utils, whenAdsConsentReady} = await load();
     const seen = watchAds(whenAdsConsentReady);
     Utils.requestTrackingWhenActive(appConfig, appStrings);
@@ -827,12 +834,123 @@ test("ads_wait_consent_enabled + attDialogOnOpen false: o anúncio espera o requ
     const {default: Utils, whenAdsConsentReady} = await load();
     const seen = watchAds(whenAdsConsentReady);
     await Utils.requestTrackingWhenActive(appConfig, appStrings, true, {att: false});
-    await advance(200000); // nem o limite de 3 min libera: o ATT ainda não foi pedido (é do app)
+    await advance(90000);
     expect(seen.ready).toBe(false);
     expect(await Utils.requestAttPermission()).toBe("denied");
     await flush();
     expect(seen.ready).toBe(true);
     delete (globalThis as any).remoteConfigUtils;
+});
+
+test("ads_wait_consent_enabled + attDialogOnOpen false e o app não pede o ATT: libera no limite de 3 min", async () => {
+    (globalThis as any).remoteConfigUtils = {ads_wait_consent_enabled: true};
+    const {default: Utils, whenAdsConsentReady} = await load();
+    const seen = watchAds(whenAdsConsentReady);
+    await Utils.requestTrackingWhenActive(appConfig, appStrings, true, {att: false});
+    await advance(179000);
+    expect(seen.ready).toBe(false);
+    await advance(2000);
+    expect(seen.ready).toBe(true);
+    expect(state.attRequests).toBe(0);
+    delete (globalThis as any).remoteConfigUtils;
+});
+
+test("ligada, Android: formulário do UMP aberto mais de 1 min → o limite não conta o formulário; libera com a resposta", async () => {
+    (globalThis as any).remoteConfigUtils = {ads_wait_consent_enabled: true};
+    state.os = "android";
+    let answer: () => void = () => {};
+    state.ump = new Promise((resolve) => (answer = () => resolve({canRequestAds: true, status: "OBTAINED"})));
+    const {default: Utils, whenAdsConsentReady} = await load();
+    const seen = watchAds(whenAdsConsentReady);
+    Utils.requestTrackingWhenActive(appConfig, appStrings);
+    await advance(90000);
+    expect(seen.ready).toBe(false); // a pessoa ainda está no formulário
+    answer();
+    await flush();
+    expect(seen.ready).toBe(true);
+    delete (globalThis as any).remoteConfigUtils;
+});
+
+test("ligada, iOS 26: localização na tela por 150 s (app inactive) e depois o ATT sem resposta → o limite de 3 min sai quando o alerta aparece", async () => {
+    (globalThis as any).remoteConfigUtils = {ads_wait_consent_enabled: true};
+    state.attHold = true;
+    const {default: Utils, withPermissionPrompt, whenAdsConsentReady} = await load();
+    const location = homeLocation(withPermissionPrompt);
+    await flush(); // o alerta de localização aparece
+    await setAppState("inactive"); // e deixa o app inactive (iOS 26)
+    const seen = watchAds(whenAdsConsentReady);
+    Utils.requestTrackingWhenActive(appConfig, appStrings);
+    await advance(150000);
+    expect(state.order).toEqual(["location"]);
+    location.answer("granted");
+    await setAppState("active");
+    await advance(1000);
+    expect(state.attRequests).toBe(1); // o ATT apareceu aos ~150 s
+    await advance(35000);
+    expect(seen.ready).toBe(false); // antes, o limite de 3 min liberava aos 180 s, com o alerta aberto
+    await advance(27000);
+    expect(seen.ready).toBe(true); // 1 min depois do alerta
+    delete (globalThis as any).remoteConfigUtils;
+});
+
+test("requestAttPermission: pedido descartado com o app ativo (iOS 27) → não fica parado; volta no limite de 60 s com o status atual", async () => {
+    state.attAnswers = [""]; // descartado: volta undetermined e o app não sai de active
+    const {default: Utils} = await load();
+    let result: string | undefined;
+    Utils.requestAttPermission().then((status) => (result = status));
+    await advance(59000);
+    expect(result).toBeUndefined();
+    await advance(2000);
+    expect(result).toBe("undetermined");
+});
+
+test("requestAttPermission e requestPushPermission esperam o formulário do UMP fechar", async () => {
+    let answer: () => void = () => {};
+    state.ump = new Promise((resolve) => (answer = () => resolve({canRequestAds: true, status: "OBTAINED"})));
+    state.attAnswers = ["granted"];
+    const {default: Utils} = await load();
+    Utils.requestTrackingWhenActive(appConfig, appStrings, false, {att: false}); // só o UMP na abertura
+    await flush();
+    const att = Utils.requestAttPermission();
+    const push = Utils.requestPushPermission();
+    await advance(5000);
+    expect(state.order).toEqual([]); // nada por cima do formulário
+    answer();
+    expect(await att).toBe("granted");
+    await push;
+    expect(state.order).toEqual(["att", "push"]);
+});
+
+test("consent_flow com pushDialogOnOpen false: o pedido do app não vira 'skipped' e o valor não vai e volta entre aberturas", async () => {
+    state.os = "android";
+    state.androidAnswers = ["granted"];
+    let answer: () => void = () => {};
+    state.ump = new Promise((resolve) => (answer = () => resolve({canRequestAds: true, status: "NOT_REQUIRED"})));
+    const first = await load();
+    const chain = first.default.requestTrackingWhenActive(appConfig, appStrings, false);
+    expect(await first.default.requestPushPermission()).toBe("granted"); // a 1ª tela pediu antes de a cadeia chegar no push
+    answer();
+    await chain;
+    await flush();
+    expect(consentEvents().map((e) => e.push)).toEqual(["granted"]);
+    // Abertura seguinte (o AsyncStorage continua): a cadeia não pede e o app também não → nada de novo.
+    state.ump = null;
+    const second = await load();
+    await second.default.requestTrackingWhenActive(appConfig, appStrings, false);
+    await flush();
+    expect(consentEvents()).toHaveLength(1);
+});
+
+test("consent_flow com umpDialogOnOpen false: 1 evento por mudança, não 2 por abertura", async () => {
+    state.os = "android";
+    for (let session = 0; session < 3; session++) {
+        const {default: Utils} = await load();
+        await Utils.requestTrackingWhenActive(appConfig, appStrings, true, {ump: false});
+        await flush();
+        await Utils.requestUmpConsent();
+        await flush();
+    }
+    expect(consentEvents().map((e) => e.ump)).toEqual(["not_asked", "not_required"]);
 });
 
 test("pushDialogOnOpen false: a cadeia não pede a notificação; o requestPushPermission depois pede e entra no consent_flow", async () => {
@@ -863,7 +981,7 @@ test("umpDialogOnOpen false: a cadeia não chama o UMP (o ATT sai mesmo assim: a
     await advance(200000);
     expect(umpCalls).toBe(0);
     expect(seen.ready).toBe(false); // com a chave ligada, os anúncios esperam o UMP que o app ainda não pediu
-    expect(consentEvents()[0].ump).toBe("skipped");
+    expect(consentEvents()[0].ump).toBe("not_asked"); // o UMP não foi pedido nesta abertura (nem antes)
     expect(await Utils.requestUmpConsent()).toBe("obtained");
     await flush();
     expect(umpCalls).toBe(1);
