@@ -61,10 +61,22 @@ const waitAdsConsent = (): Promise<boolean> =>
 // consentimento chega (vários intersticiais seguidos). A marca sai em todos os caminhos: consentimento, 10 s, UMP negou
 // ou erro.
 const waitingConsent = {interstitial: false, rewarded: false};
+// Liberado pelo consentimento, o pedido que esperou segura o formato até o anúncio dele terminar (fechou, erro ou espera
+// máxima): a troca de tela logo depois da resposta, com ele ainda carregando, também segue sem anúncio, senão saem 2
+// seguidos. Guarda a hora da liberação (0 = nenhum) e solta 1 min depois, pela hora, se o SDK não responder.
+const releasedAt = {interstitial: 0, rewarded: 0};
+const RELEASED_HOLD_MS = 60000;
+const isReleaseHeld = (kind: "interstitial" | "rewarded"): boolean => {
+    const age = Date.now() - releasedAt[kind];
+    return releasedAt[kind] > 0 && age >= 0 && age < RELEASED_HOLD_MS;
+};
 const waitAdsConsentFor = async (kind: "interstitial" | "rewarded"): Promise<boolean> => {
     waitingConsent[kind] = true;
     try {
-        return await waitAdsConsent();
+        const ready = await waitAdsConsent();
+        // Antes de a marca da espera sair: nenhum pedido passa no meio.
+        if (ready) releasedAt[kind] = Date.now();
+        return ready;
     } finally {
         waitingConsent[kind] = false;
     }
@@ -90,8 +102,14 @@ const resolveAdRequest = async (
     // ads_wait_consent_enabled: antes do UMP e da resposta do ATT, espera até 10 s; passou (ou o UMP negou), segue sem anúncio.
     const denied = isAdsConsentDenied();
     const pending = !denied && !isAdsConsentReady();
-    if (pending && waitingConsent[kind]) {
-        expoUtilsLog(`[expo-utils] ${kind}: outro pedido já espera o consentimento da abertura — sem anúncio.`);
+    // Conferido mesmo com o consentimento já pronto: ele pode ter chegado enquanto o premium deste respondia.
+    const busy = waitingConsent[kind]
+        ? "outro pedido já espera o consentimento da abertura"
+        : isReleaseHeld(kind)
+          ? "o anúncio de quem esperou o consentimento ainda não terminou"
+          : "";
+    if (busy) {
+        expoUtilsLog(`[expo-utils] ${kind}: ${busy} — sem anúncio.`);
         return CONSENT_PENDING;
     }
     if (denied || (pending && !(await waitAdsConsentFor(kind)))) {
@@ -104,12 +122,14 @@ const resolveAdRequest = async (
         // Sem o guard, createForAdRequest(undefined) lançava DENTRO do executor async da
         // promise (engolido) e o await do app pendurava pra sempre.
         expoUtilsWarn(`show ${kind}: sem unitId (global.adUnits/prepare ainda não prontos?) — seguindo sem ad.`);
+        if (pending) releasedAt[kind] = 0;
         return null;
     }
-    return {placementId, adUnitId};
+    return {placementId, adUnitId, waited: pending};
 };
 
-type AdRequest = {placementId: string; adUnitId: string};
+// waited: esperou o consentimento e segura o formato até o anúncio terminar (ver releasedAt).
+type AdRequest = {placementId: string; adUnitId: string; waited: boolean};
 
 // Reserva da pré-carga (`interstitial_preload_enabled`, desligada por padrão): um intersticial pronto para a próxima
 // chamada, desde o 1º da sessão (carregado quando o fluxo de consentimento da abertura termina) e de novo a cada
@@ -217,9 +237,11 @@ const LoadAdsManager: LoadAdsManagerType = {
     // Contrato: NUNCA pendura nem lança — resolve true quando o fluxo do app deve seguir
     // (fechou o ad / premium / ads off / bloqueado / sem unitId / passou da espera máxima) e false em erro de ad.
     showInterstitial: async (unitId?: string, tag?: string): Promise<boolean> => {
+        let waited = false;
         try {
             const request = await resolveAdRequest("interstitial", unitId, tag);
             if (!request || request === CONSENT_PENDING) return true;
+            waited = request.waited;
             const app = getFirebaseApp();
             const analytics = app ? getAnalytics(app) : null;
             // Pré-carga ligada: o pronto (mesmo unitId, dentro da idade) aparece na hora. O AdLOADED sai aqui, com o
@@ -233,13 +255,17 @@ const LoadAdsManager: LoadAdsManagerType = {
         } catch (e) {
             expoUtilsWarn("showInterstitial:", e);
             return false;
+        } finally {
+            if (waited) releasedAt.interstitial = 0;
         }
     },
     showRewarded: async (unitId?: string, tag?: string): Promise<boolean> => {
+        let waited = false;
         try {
             const request = await resolveAdRequest("rewarded", unitId, tag);
             if (request === CONSENT_PENDING) return false;
             if (!request) return true;
+            waited = request.waited;
             const app = getFirebaseApp();
             const analytics = app ? getAnalytics(app) : null;
             return await new Promise<boolean>((resolve) => {
@@ -275,6 +301,8 @@ const LoadAdsManager: LoadAdsManagerType = {
         } catch (e) {
             expoUtilsWarn("showRewarded:", e);
             return false;
+        } finally {
+            if (waited) releasedAt.rewarded = 0;
         }
     },
 };

@@ -600,4 +600,198 @@ describe("anúncio só depois do consentimento (ads_wait_consent_enabled)", () =
         await flush();
         expect(FakeAd.created.map((ad) => ad.format).sort()).toEqual(["interstitial", "rewarded"]);
     });
+
+    // Liberado pelo consentimento, o pedido que esperou segura o formato até o anúncio dele terminar.
+    const held = (kind: string) =>
+        `[expo-utils] ${kind}: o anúncio de quem esperou o consentimento ainda não terminou — sem anúncio.`;
+
+    test("pedido feito durante a espera que só confere depois do consentimento (premium ainda respondendo): segue na hora, sem anúncio; sai 1 anúncio só", async () => {
+        for (const caso of ["mesma volta", "logo depois", "premium de 500 ms"] as const) {
+            resetAds();
+            jest.clearAllTimers();
+            const manager = await load();
+            const consent = pendingConsent();
+            const first = manager.showInterstitial(undefined, "a");
+            await flush();
+            let answerPremium: (value: boolean) => void = () => {};
+            if (caso === "premium de 500 ms") (ads as any).premium = new Promise<boolean>((resolve) => (answerPremium = resolve));
+            if (caso === "logo depois") consent.release(); // o 1º ainda não saiu da espera
+            let secondDone: boolean | undefined;
+            manager.showInterstitial(undefined, "b").then((value) => (secondDone = value));
+            (ads as any).premium = false;
+            if (caso === "premium de 500 ms") {
+                await flush();
+                jest.advanceTimersByTime(200);
+            }
+            if (caso !== "logo depois") consent.release();
+            await flush();
+            if (caso === "premium de 500 ms") {
+                jest.advanceTimersByTime(300);
+                answerPremium(false);
+                await flush();
+            }
+            expect({caso, secondDone, created: interstitials().length}).toEqual({caso, secondDone: true, created: 1});
+            await watch(interstitials()[0]);
+            expect({caso, first: await first, shows: interstitials()[0].shows}).toEqual({caso, first: true, shows: 1});
+        }
+    });
+
+    test("o 2º pedido, conferindo em qualquer volta do event loop logo depois do consentimento, não passa: 1 anúncio só", async () => {
+        const afterTicks = (ticks: number) => {
+            let promise: Promise<unknown> = Promise.resolve();
+            for (let i = 0; i < ticks; i++) promise = promise.then(() => {});
+            return promise.then(() => false);
+        };
+        const created: number[] = [];
+        for (let ticks = 0; ticks <= 30; ticks++) {
+            resetAds();
+            jest.clearAllTimers();
+            const manager = await load();
+            const consent = pendingConsent();
+            manager.showInterstitial(undefined, "a");
+            await flush();
+            consent.release();
+            (ads as any).premium = afterTicks(ticks); // o premium do 2º responde nessa volta
+            manager.showInterstitial(undefined, "b");
+            (ads as any).premium = false;
+            await flush();
+            await flush();
+            created.push(interstitials().length);
+        }
+        expect(created).toEqual(Array(31).fill(1));
+    });
+
+    test("troca de tela logo depois do consentimento, com o anúncio liberado ainda carregando: segue na hora, sem anúncio (log próprio); ele fechou, a próxima é normal", async () => {
+        const manager = await load();
+        const consent = pendingConsent();
+        const first = manager.showInterstitial(undefined, "a");
+        await flush();
+        consent.release();
+        await flush();
+        ads.logs.length = 0;
+        let secondDone: boolean | undefined;
+        manager.showInterstitial(undefined, "b").then((value) => (secondDone = value));
+        await flush();
+        expect({secondDone, created: interstitials().length, logs: consentLogs()}).toEqual({
+            secondDone: true,
+            created: 1,
+            logs: [held("interstitial")],
+        });
+        const [released] = interstitials();
+        await watch(released);
+        expect(await first).toBe(true);
+        expect([released.loads, released.shows]).toEqual([1, 1]);
+        const next = manager.showInterstitial(undefined, "c");
+        await flush();
+        expect(interstitials()).toHaveLength(2);
+        await watch(interstitials()[1]);
+        expect(await next).toBe(true);
+    });
+
+    test("pré-carga ligada: a pré-carga que fica pronta antes não aparece junto com o anúncio liberado; fica para a próxima troca", async () => {
+        (globalThis as any).remoteConfigUtils = {interstitial_preload_enabled: true};
+        ads.consentFlow = Promise.resolve();
+        const consent = pendingConsent();
+        const manager = await load();
+        await flush();
+        const first = manager.showInterstitial(undefined, "a");
+        await flush();
+        consent.release();
+        await flush();
+        // As duas cargas saem no consentimento; a da pré-carga é criada antes.
+        const [preloaded, released] = interstitials();
+        expect(interstitials().map((ad) => ad.loads)).toEqual([1, 1]);
+        preloaded.emit("loaded");
+        await flush();
+        let tapDone: boolean | undefined;
+        manager.showInterstitial(undefined, "b").then((value) => (tapDone = value));
+        await flush();
+        expect({tapDone, preloadedShows: preloaded.shows}).toEqual({tapDone: true, preloadedShows: 0});
+        await watch(released);
+        expect(await first).toBe(true);
+        const next = manager.showInterstitial(undefined, "c");
+        await flush();
+        expect([released.shows, preloaded.shows, interstitials().length]).toEqual([1, 1, 2]);
+        await watch(preloaded, {load: false});
+        expect(await next).toBe(true);
+    });
+
+    test("a marca do anúncio liberado sai quando ele termina: erro de carga, espera máxima (ad_load_max_wait_seconds) ou sem unitId; SDK que não responde: 1 min depois, pela hora, sem timer (relógio que voltou também solta)", async () => {
+        for (const ending of ["erro", "espera máxima", "sem unitId", "SDK mudo", "relógio voltou"] as const) {
+            resetAds();
+            jest.clearAllTimers();
+            (globalThis as any).remoteConfigUtils = ending === "espera máxima" ? {ad_load_max_wait_seconds: 5} : {};
+            const manager = await load();
+            const consent = pendingConsent();
+            const first = manager.showInterstitial(undefined, "a");
+            await flush();
+            if (ending === "sem unitId") (globalThis as any).adUnits = {};
+            consent.release();
+            await flush();
+            if (ending === "erro") {
+                interstitials()[0].emit("error", new Error("no fill"));
+                expect(await first).toBe(false);
+            } else if (ending === "espera máxima") {
+                jest.advanceTimersByTime(5000);
+                expect(await first).toBe(true);
+            } else if (ending === "sem unitId") {
+                expect(await first).toBe(true);
+                (globalThis as any).adUnits = {interstitial: UNIT};
+            } else if (ending === "relógio voltou") {
+                jest.setSystemTime(Date.now() - 60 * MIN); // pronto vencido, como na pré-carga
+            } else {
+                expect(jest.getTimerCount()).toBe(0);
+                jest.setSystemTime(Date.now() + 59_000);
+                let lateDone: boolean | undefined;
+                manager.showInterstitial(undefined, "b").then((value) => (lateDone = value));
+                await flush();
+                expect({lateDone, created: interstitials().length}).toEqual({lateDone: true, created: 1});
+                jest.setSystemTime(Date.now() + 1_000);
+            }
+            const before = interstitials().length;
+            void manager.showInterstitial(undefined, "c");
+            await flush();
+            expect({ending, created: interstitials().length - before}).toEqual({ending, created: 1});
+        }
+    });
+
+    test("rewarded igual: com o liberado carregando, o seguinte devolve false na hora (log próprio); ganhou a recompensa, o próximo carrega", async () => {
+        const manager = await load();
+        const consent = pendingConsent();
+        const first = manager.showRewarded(REWARDED, "a");
+        await flush();
+        consent.release();
+        await flush();
+        ads.logs.length = 0;
+        let secondDone: boolean | undefined;
+        manager.showRewarded(REWARDED, "b").then((value) => (secondDone = value));
+        await flush();
+        expect({secondDone, created: rewardeds().length, logs: consentLogs()}).toEqual({
+            secondDone: false,
+            created: 1,
+            logs: [held("rewarded")],
+        });
+        const [ad] = rewardeds();
+        ad.loaded = true; // o FakeAd só marca o loaded no LOADED do intersticial
+        ad.emit("rewarded_loaded");
+        await flush();
+        ad.emit("rewarded_earned_reward");
+        expect(await first).toBe(true);
+        ad.emit("closed");
+        void manager.showRewarded(REWARDED, "c");
+        await flush();
+        expect(rewardeds()).toHaveLength(2);
+    });
+
+    test("formatos separados também depois do consentimento: o intersticial liberado carregando não segura o rewarded", async () => {
+        const manager = await load();
+        const consent = pendingConsent();
+        manager.showInterstitial();
+        await flush();
+        consent.release();
+        await flush();
+        manager.showRewarded(REWARDED);
+        await flush();
+        expect(FakeAd.created.map((ad) => ad.format).sort()).toEqual(["interstitial", "rewarded"]);
+    });
 });
