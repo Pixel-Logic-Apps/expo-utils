@@ -26,6 +26,7 @@ const state = {
     region: "BR" as "BR" | "EU", // EU: a consulta do UMP volta REQUIRED e o formulário aparece
     umpStatus: "UNKNOWN",
     umpAllows: true, // canRequestAds depois do formulário
+    umpFormError: false, // o loadAndShowConsentFormIfRequired rejeita quando há formulário (erro do SDK ao carregar)
     infoMs: 0, // a consulta do UMP responde depois disso (rede)
     infoHang: false, // a consulta do UMP nunca responde
     premium: false,
@@ -222,6 +223,7 @@ mock.module("react-native-google-mobile-ads", () => ({
         loadAndShowConsentFormIfRequired: () => {
             log("ump:formulario");
             if (state.umpStatus !== "REQUIRED") return Promise.resolve({status: state.umpStatus, canRequestAds: state.umpAllows});
+            if (state.umpFormError) return Promise.reject(new Error("formulário do UMP não carregou"));
             return show("ump").then((value) => {
                 state.umpStatus = "OBTAINED";
                 state.umpAllows = value !== "recusa";
@@ -406,6 +408,7 @@ const reset = () => {
         region: "BR",
         umpStatus: "UNKNOWN",
         umpAllows: true,
+        umpFormError: false,
         infoMs: 0,
         infoHang: false,
         premium: false,
@@ -710,12 +713,13 @@ describe("dialogOrder", () => {
         // A consulta e o initialize saem com o ATT na tela; o loadAndShowConsentFormIfRequired volta sem mostrar nada.
         expect(only("ump:", "anuncios:")).toEqual(["0s ump:consulta", "0s ump:formulario", "0s anuncios:initialize"]);
         expect(trace.indexOf("0s anuncios:initialize")).toBeLessThan(trace.indexOf("2s att:responde=granted"));
-        // FB e atribuição logo depois do ATT; o fim do consentimento (UMP e ATT) e o consent_flow depois do último.
+        // FB, atribuição e o fim do consentimento (o UMP respondeu no começo) logo depois do ATT, sem esperar a notificação,
+        // como na ordem padrão; o consent_flow depois do último.
         expect(only("fb:", "atribuicao:", "consentimento:fim", "consent_flow", "cadeia:fim")).toEqual([
             "2s fb:init",
             "2s fb:tracking=true",
+            "2s consentimento:fim",
             "2s atribuicao:fase2 att=granted",
-            "4s consentimento:fim",
             "4s consent_flow not_required|granted|granted 1/1",
             "4s cadeia:fim",
         ]);
@@ -1013,16 +1017,15 @@ describe("dialogOrder", () => {
         expect(mostOnScreen).toBe(1);
     });
 
-    test("formulário na vez dele: o anúncio de abertura fica de fora até a resposta (isAttPending), no iPhone e no Android", async () => {
+    test("formulário depois de outro diálogo: o anúncio de abertura fica de fora da consulta até a resposta dele (isAttPending), no iPhone e no Android", async () => {
         state.region = "EU";
         autoAnswer = {att: [2000, "granted"], push: [2000, "granted"], ump: [4000, "aceita"]};
         let m = await open(ELEICAO);
         await advance(9000);
+        // A consulta volta com formulário aos 0 s: pendente desde ali, também com a notificação na tela (antes da vez dele).
         expect(only("attPendente", "ump:aparece", "ump:responde")).toEqual([
             "0s attPendente=true",
-            "2s attPendente=false",
             "4s ump:aparece",
-            "4s attPendente=true",
             "8s ump:responde=aceita",
             "8s attPendente=false",
         ]);
@@ -1126,16 +1129,24 @@ describe("dialogOrder", () => {
         expect(only("anuncios:", "cadeia:fim", "consentimento:fim")).toEqual(["0s anuncios:initialize", "2s cadeia:fim", "3s consentimento:fim"]);
     });
 
-    test("umpDialogOnOpen false fica como está: o consentimento termina com o ATT, sem UMP nem initialize", async () => {
+    test("umpDialogOnOpen false: o consentimento termina na resposta do ATT (Android: na hora), como na ordem padrão, sem UMP nem initialize", async () => {
         state.initMs = 4000;
         autoAnswer = {att: [1000, "granted"], push: [1000, "granted"]};
         await open({...ELEICAO, umpDialogOnOpen: false});
         await advance(6000);
         expect(only("anuncios:", "ump:")).toEqual([]);
-        expect([times("cadeia:fim"), times("consentimento:fim")]).toEqual([["2s"], ["2s"]]);
+        expect([times("cadeia:fim"), times("consentimento:fim")]).toEqual([["2s"], ["1s"]]);
+
+        reset();
+        state.os = "android";
+        state.initMs = 4000;
+        autoAnswer = {push: [1000, "granted"]};
+        await open({...ELEICAO, umpDialogOnOpen: false});
+        await advance(3000);
+        expect([times("cadeia:fim"), times("consentimento:fim")]).toEqual([["1s"], ["0s"]]);
     });
 
-    test("premium e anúncio desligado na ordem nova: o consentimento termina com o ATT e a notificação, sem esperar nada do SDK", async () => {
+    test("premium e anúncio desligado na ordem nova: o consentimento termina na resposta do ATT, sem esperar nada do SDK nem a notificação", async () => {
         for (const setup of [() => (state.premium = true), () => (state.rcUtils = {is_ads_enabled: false})]) {
             reset();
             setup();
@@ -1144,7 +1155,7 @@ describe("dialogOrder", () => {
             await open(ELEICAO);
             await advance(5000);
             expect(only("anuncios:")).toEqual([]);
-            expect([times("cadeia:fim"), times("consentimento:fim")]).toEqual([["2s"], ["2s"]]);
+            expect([times("cadeia:fim"), times("consentimento:fim")]).toEqual([["2s"], ["1s"]]);
         }
     });
 });
@@ -1749,4 +1760,758 @@ describe("sem trava circular: ordem × *DialogOnOpen × appDialogsAfterOpen × p
             });
         }
     }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// 6. SEMPRE ATT → notificação → formulário do UMP → localização (revisão da a9eb0bd)
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// Com o UMP depois de outro diálogo: a vez do formulário espera o fim de verdade do ATT e da notificação que a cadeia pediu
+// antes dele (não só o limite de 20 s de cada um), até o prazo único de 3 min com o app ativo, o mesmo dos pedidos do app; os
+// 20 s do formulário contam de quando ele aparece; o fim do consentimento não espera a notificação; e o formulário conta como
+// pendente para o anúncio de abertura desde a consulta. As reproduções caem na a9eb0bd; as proteções passam nas duas. No fim,
+// o Brasil igual à a9eb0bd em 24 cenários.
+const askNamed = (m: any, name: string) =>
+    m.withPermissionPrompt(() => show("location")).then(
+        (status: string) => log(`app:${name}=${status}`),
+        () => log(`app:${name}=erro`),
+    );
+// O anúncio de abertura confere o isAttPending em cada volta ao app (bg → active): aqui, o que ele leria.
+const watchReturns = (m: any) => {
+    const seen: string[] = [];
+    let last = state.appState;
+    listeners.add((next) => {
+        if (last === "background" && next === "active") seen.push(`${clock / 1000}s ${m.isAttPending() ? "pendente" : "livre"}`);
+        last = next;
+    });
+    return seen;
+};
+
+// Brasil na ordem nova: 24 aberturas (iPhone e Android, com e sem appDialogsAfterOpen, ATT e notificação além do limite,
+// ATT descartado, notificação presa ou perdida, consulta lenta ou presa, initialize lento, chave dos anúncios, premium, 2ª
+// abertura e as funções do app) dão a mesma sequência da a9eb0bd, tirando o fim do consentimento (que mudou de propósito).
+type BrScenario = {name: string; setup?: () => void; options: any; ask?: boolean; run: (m: any) => Promise<void>};
+const BRASIL: BrScenario[] = [
+    {name: "iPhone, ATT 2 s e notificação 3 s, localização da Início", options: ELEICAO_APP, ask: true,
+        setup: () => (autoAnswer = {att: [2000, "granted"], push: [3000, "granted"], location: [1000, "granted"]}), run: () => advance(10000)},
+    {name: "iPhone sem appDialogsAfterOpen, localização antes do handleReady", options: ELEICAO, ask: true,
+        setup: () => (autoAnswer = {att: [2000, "granted"], push: [2000, "granted"], location: [1000, "granted"]}), run: () => advance(8000)},
+    {name: "iPhone, ATT respondido aos 25 s", options: ELEICAO_APP, ask: true,
+        setup: () => (autoAnswer = {att: [25000, "granted"], push: [2000, "granted"], location: [2000, "granted"]}), run: () => advance(35000, 1000)},
+    {name: "iPhone sem appDialogsAfterOpen, ATT respondido aos 25 s", options: ELEICAO,
+        setup: () => (autoAnswer = {att: [25000, "granted"], push: [2000, "granted"]}), run: () => advance(35000, 1000)},
+    {name: "iOS 27, ATT na tela 70 s", options: ELEICAO_APP, ask: true,
+        setup: () => (autoAnswer = {att: [70000, "granted"], push: [2000, "granted"], location: [2000, "granted"]}), run: () => advance(80000, 1000)},
+    {name: "iOS 27, notificação na tela 70 s", options: ELEICAO_APP, ask: true,
+        setup: () => (autoAnswer = {att: [2000, "granted"], push: [70000, "granted"], location: [2000, "granted"]}), run: () => advance(80000, 1000)},
+    {name: "iOS 26, ATT 3 s e notificação 3 s", options: ELEICAO_APP, ask: true,
+        setup: () => {
+            state.alerts = "ios26";
+            autoAnswer = {att: [3000, "denied"], push: [3000, "granted"], location: [1000, "granted"]};
+        }, run: () => advance(10000)},
+    {name: "ATT descartado, a pessoa sai e volta aos 40 s", options: ELEICAO_APP, ask: true,
+        setup: () => {
+            state.attDiscard = 1;
+            autoAnswer = {att: [1000, "granted"], push: [1000, "granted"], location: [1000, "granted"]};
+        },
+        run: async () => {
+            await advance(40000, 1000);
+            await setAppState("background");
+            await setAppState("active");
+            await advance(5000, 1000);
+        }},
+    {name: "ATT descartado sem nenhum 'ficou ativo': Início, toque aos 100 s e aos 250 s", options: ELEICAO_APP, ask: true,
+        setup: () => {
+            state.attDiscard = 1;
+            autoAnswer = {location: [1000, "granted"]};
+        },
+        run: async (m) => {
+            await advance(100000, 1000);
+            askNamed(m, "toque1");
+            await advance(150000, 1000);
+            askNamed(m, "toque2");
+            await advance(5000, 1000);
+        }},
+    {name: "iOS 27, resposta da notificação que não volta", options: ELEICAO_APP, ask: true,
+        setup: () => {
+            state.pushHang = true;
+            autoAnswer = {att: [2000, "granted"], push: [2000, "granted"], location: [2000, "granted"]};
+        }, run: () => advance(130000, 1000)},
+    {name: "iPhone, notificação que volta perdida na hora", options: ELEICAO_APP, ask: true,
+        setup: () => {
+            state.pushLost = true;
+            autoAnswer = {att: [1000, "granted"], location: [1000, "granted"]};
+        }, run: () => advance(5000)},
+    {name: "iPhone, consulta do UMP de 5 s", options: ELEICAO_APP, ask: true,
+        setup: () => {
+            state.infoMs = 5000;
+            autoAnswer = {att: [1000, "granted"], push: [1000, "granted"], location: [1000, "granted"]};
+        }, run: () => advance(10000)},
+    {name: "iPhone, consulta do UMP presa (ATT 5 s, notificação 5 s)", options: ELEICAO_APP, ask: true,
+        setup: () => {
+            state.infoHang = true;
+            autoAnswer = {att: [5000, "granted"], push: [5000, "granted"], location: [1000, "granted"]};
+        }, run: () => advance(40000, 1000)},
+    {name: "iPhone, initialize de 6 s", options: ELEICAO_APP, ask: true,
+        setup: () => {
+            state.initMs = 6000;
+            autoAnswer = {att: [1000, "granted"], push: [1000, "granted"], location: [1000, "granted"]};
+        }, run: () => advance(10000)},
+    {name: "iPhone, ads_wait_consent_enabled", options: ELEICAO_APP, ask: true,
+        setup: () => {
+            state.rcUtils = {ads_wait_consent_enabled: true};
+            autoAnswer = {att: [2000, "granted"], push: [2000, "granted"], location: [1000, "granted"]};
+        }, run: () => advance(8000)},
+    {name: "iPhone, premium", options: ELEICAO_APP, ask: true,
+        setup: () => {
+            state.premium = true;
+            autoAnswer = {att: [1000, "granted"], push: [1000, "granted"], location: [1000, "granted"]};
+        }, run: () => advance(5000)},
+    {name: "iPhone, 2ª abertura com a consulta de 0,8 s", options: ELEICAO_APP, ask: true,
+        setup: () => {
+            state.att = "granted";
+            state.push = 1;
+            state.infoMs = 800;
+            autoAnswer = {location: [1000, "granted"]};
+        }, run: () => advance(4000, 100)},
+    {name: "iPhone, requestAttPermission e requestPushPermission do app no 1º segundo", options: ELEICAO_APP,
+        setup: () => (autoAnswer = {att: [2000, "granted"], push: [2000, "granted"]}),
+        run: async (m) => {
+            await advance(1000);
+            m.default.requestAttPermission().then((status: string) => log(`app:att=${status}`));
+            m.default.requestPushPermission().then((status: string) => log(`app:push=${status}`));
+            await advance(6000);
+        }},
+    {name: "Android, notificação 2 s", options: ELEICAO_APP, ask: true,
+        setup: () => {
+            state.os = "android";
+            autoAnswer = {push: [2000, "granted"], location: [2000, "granted"]};
+        }, run: () => advance(6000)},
+    {name: "Android sem appDialogsAfterOpen, notificação 2 s", options: ELEICAO, ask: true,
+        setup: () => {
+            state.os = "android";
+            autoAnswer = {push: [2000, "granted"], location: [2000, "granted"]};
+        }, run: () => advance(6000)},
+    {name: "Android, notificação negada para sempre", options: ELEICAO_APP, ask: true,
+        setup: () => {
+            state.os = "android";
+            state.androidPushBlocked = true;
+            autoAnswer = {location: [1000, "granted"]};
+        }, run: () => advance(3000)},
+    {name: "Android, pedido de notificação pendurado", options: ELEICAO_APP, ask: true,
+        setup: () => {
+            state.os = "android";
+            state.androidPushHang = true;
+            autoAnswer = {location: [1000, "granted"]};
+        }, run: () => advance(25000, 1000)},
+    {name: "Android, notificação na tela 70 s", options: ELEICAO_APP, ask: true,
+        setup: () => {
+            state.os = "android";
+            autoAnswer = {push: [70000, "granted"], location: [1000, "granted"]};
+        }, run: () => advance(75000, 1000)},
+    {name: "Android, 2ª abertura", options: ELEICAO_APP, ask: true,
+        setup: () => {
+            state.os = "android";
+            state.androidPush = true;
+            autoAnswer = {location: [1000, "granted"]};
+        }, run: () => advance(3000)},
+];
+// O que a abertura faz, sem as leituras e sem o fim do consentimento.
+const brasilTrace = () =>
+    only(":aparece", ":responde", "app:", "cadeia:fim", "consent_flow", "anuncios:", "anuncio:", "attPendente", "fb:", "atribuicao:", "ump:", ":pede", "att:descartado");
+const runBrasil = async (scenario: BrScenario) => {
+    reset();
+    scenario.setup?.();
+    const m = await open(scenario.options, {beforeReady: scenario.ask ? (mm) => void askNamed(mm, "localizacao") : undefined});
+    await scenario.run(m);
+    return brasilTrace();
+};
+
+// Gravado rodando os cenários acima no Utils.ts da a9eb0bd (sem as leituras e sem o fim do consentimento).
+const BRASIL_A9EB0BD: Record<string, string[]> = {
+    "iPhone, ATT 2 s e notificação 3 s, localização da Início": [
+        "0s anuncio:liberado", "0s ump:consulta", "0s ump:formulario", "0s att:pede", "0s att:aparece",
+        "0s anuncios:initialize", "0s attPendente=true", "2s att:responde=granted", "2s fb:init", "2s fb:tracking=true",
+        "2s atribuicao:fase2 att=granted", "2s push:pede", "2s push:aparece", "2s attPendente=false",
+        "5s push:responde=granted", "5s location:aparece", "5s consent_flow not_required|granted|granted 1/1",
+        "5s cadeia:fim", "6s location:responde=granted", "6s app:localizacao=granted",
+    ],
+    "iPhone sem appDialogsAfterOpen, localização antes do handleReady": [
+        "0s anuncio:liberado", "0s ump:consulta", "0s location:aparece", "0s ump:formulario", "0s anuncios:initialize",
+        "0s attPendente=true", "1s location:responde=granted", "1s app:localizacao=granted", "1s att:pede",
+        "1s att:aparece", "3s att:responde=granted", "3s fb:init", "3s fb:tracking=true", "3s atribuicao:fase2 att=granted",
+        "3s push:pede", "3s push:aparece", "3s attPendente=false", "5s push:responde=granted",
+        "5s consent_flow not_required|granted|granted 1/1", "5s cadeia:fim",
+    ],
+    "iPhone, ATT respondido aos 25 s": [
+        "0s anuncio:liberado", "0s ump:consulta", "0s ump:formulario", "0s att:pede", "0s att:aparece",
+        "0s anuncios:initialize", "0s attPendente=true", "20s fb:init", "20s fb:tracking=false",
+        "20s atribuicao:fase2 att=undetermined", "20s consent_flow not_required|undetermined|timeout 1/0", "20s cadeia:fim",
+        "25s att:responde=granted", "25s fb:tracking=true", "25s atribuicao:recoleta",
+        "25s consent_flow not_required|granted|timeout 1/0", "25s push:pede", "25s push:aparece", "25s attPendente=false",
+        "27s push:responde=granted", "27s consent_flow not_required|granted|granted 1/1", "27s location:aparece",
+        "29s location:responde=granted", "29s app:localizacao=granted",
+    ],
+    "iPhone sem appDialogsAfterOpen, ATT respondido aos 25 s": [
+        "0s anuncio:liberado", "0s ump:consulta", "0s ump:formulario", "0s att:pede", "0s att:aparece",
+        "0s anuncios:initialize", "0s attPendente=true", "20s fb:init", "20s fb:tracking=false",
+        "20s atribuicao:fase2 att=undetermined", "20s consent_flow not_required|undetermined|timeout 1/0", "20s cadeia:fim",
+        "25s att:responde=granted", "25s fb:tracking=true", "25s atribuicao:recoleta",
+        "25s consent_flow not_required|granted|timeout 1/0", "25s push:pede", "25s push:aparece", "25s attPendente=false",
+        "27s push:responde=granted", "27s consent_flow not_required|granted|granted 1/1",
+    ],
+    "iOS 27, ATT na tela 70 s": [
+        "0s anuncio:liberado", "0s ump:consulta", "0s ump:formulario", "0s att:pede", "0s att:aparece",
+        "0s anuncios:initialize", "0s attPendente=true", "20s fb:init", "20s fb:tracking=false",
+        "20s atribuicao:fase2 att=undetermined", "20s consent_flow not_required|undetermined|timeout 1/0", "20s cadeia:fim",
+        "70s att:responde=granted", "70s fb:tracking=true", "70s atribuicao:recoleta",
+        "70s consent_flow not_required|granted|timeout 1/0", "70s push:pede", "70s push:aparece", "70s attPendente=false",
+        "72s push:responde=granted", "72s consent_flow not_required|granted|granted 1/1", "72s location:aparece",
+        "74s location:responde=granted", "74s app:localizacao=granted",
+    ],
+    "iOS 27, notificação na tela 70 s": [
+        "0s anuncio:liberado", "0s ump:consulta", "0s ump:formulario", "0s att:pede", "0s att:aparece",
+        "0s anuncios:initialize", "0s attPendente=true", "2s att:responde=granted", "2s fb:init", "2s fb:tracking=true",
+        "2s atribuicao:fase2 att=granted", "2s push:pede", "2s push:aparece", "2s attPendente=false",
+        "22s consent_flow not_required|granted|timeout 1/1", "22s cadeia:fim", "72s push:responde=granted",
+        "72s consent_flow not_required|granted|granted 1/1", "72s location:aparece", "74s location:responde=granted",
+        "74s app:localizacao=granted",
+    ],
+    "iOS 26, ATT 3 s e notificação 3 s": [
+        "0s anuncio:liberado", "0s ump:consulta", "0s ump:formulario", "0s att:pede", "0s att:aparece",
+        "0s anuncios:initialize", "0s attPendente=true", "3s att:responde=denied", "3s fb:init", "3s fb:tracking=false",
+        "3s atribuicao:fase2 att=denied", "3s push:pede", "3s push:aparece", "3s attPendente=false",
+        "6s push:responde=granted", "6s location:aparece", "6s consent_flow not_required|denied|granted 1/1",
+        "6s cadeia:fim", "7s location:responde=granted", "7s app:localizacao=granted",
+    ],
+    "ATT descartado, a pessoa sai e volta aos 40 s": [
+        "0s anuncio:liberado", "0s ump:consulta", "0s ump:formulario", "0s att:pede", "0s att:descartado",
+        "0s anuncios:initialize", "0s attPendente=true", "20s fb:init", "20s fb:tracking=false",
+        "20s atribuicao:fase2 att=undetermined", "20s consent_flow not_required|undetermined|timeout 1/0", "20s cadeia:fim",
+        "40s att:pede", "40s att:aparece", "41s att:responde=granted", "41s fb:tracking=true", "41s atribuicao:recoleta",
+        "41s consent_flow not_required|granted|timeout 2/0", "41s push:pede", "41s push:aparece", "41s attPendente=false",
+        "42s push:responde=granted", "42s consent_flow not_required|granted|granted 2/1", "42s location:aparece",
+        "43s location:responde=granted", "43s app:localizacao=granted",
+    ],
+    "ATT descartado sem nenhum 'ficou ativo': Início, toque aos 100 s e aos 250 s": [
+        "0s anuncio:liberado", "0s ump:consulta", "0s ump:formulario", "0s att:pede", "0s att:descartado",
+        "0s anuncios:initialize", "0s attPendente=true", "20s fb:init", "20s fb:tracking=false",
+        "20s atribuicao:fase2 att=undetermined", "20s consent_flow not_required|undetermined|timeout 1/0", "20s cadeia:fim",
+        "200s location:aparece", "201s location:responde=granted", "201s location:aparece", "201s app:localizacao=granted",
+        "202s location:responde=granted", "202s app:toque1=granted", "250s location:aparece",
+        "251s location:responde=granted", "251s app:toque2=granted",
+    ],
+    "iOS 27, resposta da notificação que não volta": [
+        "0s anuncio:liberado", "0s ump:consulta", "0s ump:formulario", "0s att:pede", "0s att:aparece",
+        "0s anuncios:initialize", "0s attPendente=true", "2s att:responde=granted", "2s fb:init", "2s fb:tracking=true",
+        "2s atribuicao:fase2 att=granted", "2s push:pede", "2s push:aparece", "2s attPendente=false",
+        "4s push:responde=granted", "22s consent_flow not_required|granted|timeout 1/1", "22s cadeia:fim",
+        "122s location:aparece", "124s location:responde=granted", "124s app:localizacao=granted",
+    ],
+    "iPhone, notificação que volta perdida na hora": [
+        "0s anuncio:liberado", "0s ump:consulta", "0s ump:formulario", "0s att:pede", "0s att:aparece",
+        "0s anuncios:initialize", "0s attPendente=true", "1s att:responde=granted", "1s fb:init", "1s fb:tracking=true",
+        "1s atribuicao:fase2 att=granted", "1s push:pede", "1s location:aparece",
+        "1s consent_flow not_required|granted|undetermined 1/1", "1s cadeia:fim", "1s attPendente=false",
+        "2s location:responde=granted", "2s app:localizacao=granted",
+    ],
+    "iPhone, consulta do UMP de 5 s": [
+        "0s anuncio:liberado", "0s ump:consulta", "0s att:pede", "0s att:aparece", "0s attPendente=true",
+        "1s att:responde=granted", "1s fb:init", "1s fb:tracking=true", "1s atribuicao:fase2 att=granted", "1s push:pede",
+        "1s push:aparece", "1s attPendente=false", "2s push:responde=granted", "5s ump:formulario",
+        "5s anuncios:initialize", "5s location:aparece", "5s consent_flow not_required|granted|granted 1/1",
+        "5s cadeia:fim", "6s location:responde=granted", "6s app:localizacao=granted",
+    ],
+    "iPhone, consulta do UMP presa (ATT 5 s, notificação 5 s)": [
+        "0s anuncio:liberado", "0s ump:consulta", "0s att:pede", "0s att:aparece", "0s attPendente=true",
+        "5s att:responde=granted", "5s fb:init", "5s fb:tracking=true", "5s atribuicao:fase2 att=granted", "5s push:pede",
+        "5s push:aparece", "5s attPendente=false", "10s push:responde=granted", "30s anuncios:initialize",
+        "30s location:aparece", "30s consent_flow timeout|granted|granted 1/1", "30s cadeia:fim",
+        "31s location:responde=granted", "31s app:localizacao=granted",
+    ],
+    "iPhone, initialize de 6 s": [
+        "0s anuncio:liberado", "0s ump:consulta", "0s ump:formulario", "0s att:pede", "0s att:aparece",
+        "0s anuncios:initialize", "0s attPendente=true", "1s att:responde=granted", "1s fb:init", "1s fb:tracking=true",
+        "1s atribuicao:fase2 att=granted", "1s push:pede", "1s push:aparece", "1s attPendente=false",
+        "2s push:responde=granted", "2s location:aparece", "2s consent_flow not_required|granted|granted 1/1",
+        "2s cadeia:fim", "3s location:responde=granted", "3s app:localizacao=granted",
+    ],
+    "iPhone, ads_wait_consent_enabled": [
+        "0s ump:consulta", "0s ump:formulario", "0s att:pede", "0s att:aparece", "0s anuncios:initialize",
+        "0s attPendente=true", "2s att:responde=granted", "2s fb:init", "2s fb:tracking=true",
+        "2s atribuicao:fase2 att=granted", "2s anuncio:liberado", "2s push:pede", "2s push:aparece", "2s attPendente=false",
+        "4s push:responde=granted", "4s location:aparece", "4s consent_flow not_required|granted|granted 1/1",
+        "4s cadeia:fim", "5s location:responde=granted", "5s app:localizacao=granted",
+    ],
+    "iPhone, premium": [
+        "0s anuncio:liberado", "0s att:pede", "0s att:aparece", "0s attPendente=true", "1s att:responde=granted",
+        "1s fb:init", "1s fb:tracking=true", "1s atribuicao:fase2 att=granted", "1s push:pede", "1s push:aparece",
+        "1s attPendente=false", "2s push:responde=granted", "2s location:aparece",
+        "2s consent_flow skipped|granted|granted 1/1", "2s cadeia:fim", "3s location:responde=granted",
+        "3s app:localizacao=granted",
+    ],
+    "iPhone, 2ª abertura com a consulta de 0,8 s": [
+        "0s anuncio:liberado", "0s ump:consulta", "0s fb:init", "0s fb:tracking=true", "0s atribuicao:fase2 att=granted",
+        "0s push:pede", "0.8s ump:formulario", "0.8s anuncios:initialize", "0.8s location:aparece",
+        "0.8s consent_flow not_required|granted|granted 0/1", "0.8s cadeia:fim", "1.8s location:responde=granted",
+        "1.8s app:localizacao=granted",
+    ],
+    "iPhone, requestAttPermission e requestPushPermission do app no 1º segundo": [
+        "0s anuncio:liberado", "0s ump:consulta", "0s ump:formulario", "0s att:pede", "0s att:aparece",
+        "0s anuncios:initialize", "0s attPendente=true", "2s att:responde=granted", "2s app:att=granted", "2s fb:init",
+        "2s fb:tracking=true", "2s push:pede", "2s push:aparece", "2s atribuicao:fase2 att=granted", "2s attPendente=false",
+        "4s push:responde=granted", "4s push:pede", "4s app:push=granted",
+        "4s consent_flow not_required|granted|granted 1/1", "4s cadeia:fim",
+    ],
+    "Android, notificação 2 s": [
+        "0s fb:init", "0s fb:tracking=true", "0s anuncio:liberado", "0s ump:consulta", "0s ump:formulario",
+        "0s atribuicao:fase2 att=na", "0s push:pede", "0s push:aparece", "0s anuncios:initialize",
+        "2s push:responde=granted", "2s location:aparece", "2s consent_flow not_required|na|granted 0/1", "2s cadeia:fim",
+        "4s location:responde=granted", "4s app:localizacao=granted",
+    ],
+    "Android sem appDialogsAfterOpen, notificação 2 s": [
+        "0s fb:init", "0s fb:tracking=true", "0s anuncio:liberado", "0s ump:consulta", "0s location:aparece",
+        "0s ump:formulario", "0s atribuicao:fase2 att=na", "0s anuncios:initialize", "2s location:responde=granted",
+        "2s app:localizacao=granted", "2s push:pede", "2s push:aparece", "4s push:responde=granted",
+        "4s consent_flow not_required|na|granted 0/1", "4s cadeia:fim",
+    ],
+    "Android, notificação negada para sempre": [
+        "0s fb:init", "0s fb:tracking=true", "0s anuncio:liberado", "0s ump:consulta", "0s ump:formulario",
+        "0s atribuicao:fase2 att=na", "0s push:pede", "0s anuncios:initialize", "0s location:aparece",
+        "0s consent_flow not_required|na|never_ask_again 0/1", "0s cadeia:fim", "1s location:responde=granted",
+        "1s app:localizacao=granted", "1s push:pede",
+    ],
+    "Android, pedido de notificação pendurado": [
+        "0s fb:init", "0s fb:tracking=true", "0s anuncio:liberado", "0s ump:consulta", "0s ump:formulario",
+        "0s atribuicao:fase2 att=na", "0s push:pede", "0s anuncios:initialize",
+        "20s consent_flow not_required|na|timeout 0/1", "20s cadeia:fim", "20s location:aparece",
+        "21s location:responde=granted", "21s app:localizacao=granted", "21s push:pede",
+    ],
+    "Android, notificação na tela 70 s": [
+        "0s fb:init", "0s fb:tracking=true", "0s anuncio:liberado", "0s ump:consulta", "0s ump:formulario",
+        "0s atribuicao:fase2 att=na", "0s push:pede", "0s push:aparece", "0s anuncios:initialize",
+        "20s consent_flow not_required|na|timeout 0/1", "20s cadeia:fim", "70s push:responde=granted",
+        "70s consent_flow not_required|na|granted 0/1", "70s location:aparece", "71s location:responde=granted",
+        "71s app:localizacao=granted",
+    ],
+    "Android, 2ª abertura": [
+        "0s fb:init", "0s fb:tracking=true", "0s anuncio:liberado", "0s ump:consulta", "0s ump:formulario",
+        "0s atribuicao:fase2 att=na", "0s anuncios:initialize", "0s location:aparece",
+        "0s consent_flow not_required|na|granted 0/0", "0s cadeia:fim", "1s location:responde=granted",
+        "1s app:localizacao=granted",
+    ],
+};
+
+describe("SEMPRE ATT → notificação → formulário → localização (revisão da a9eb0bd)", () => {
+    test("Europa, ATT respondido aos 25 s (iOS 27): ATT, notificação, formulário e só então a localização, com e sem appDialogsAfterOpen", async () => {
+        state.region = "EU";
+        autoAnswer = {att: [25000, "granted"], push: [1000, "granted"], ump: [18000, "aceita"], location: [1000, "granted"]};
+        await open(ELEICAO_APP, {beforeReady: (m) => askLocation(m)});
+        await advance(50000, 1000);
+        expect(dialogs()).toEqual([
+            "0s att:aparece",
+            "25s att:responde=granted",
+            "25s push:aparece",
+            "26s push:responde=granted",
+            "26s ump:aparece",
+            "44s ump:responde=aceita",
+            "44s location:aparece",
+            "45s location:responde=granted",
+        ]);
+        expect(mostOnScreen).toBe(1);
+
+        reset();
+        state.region = "EU";
+        autoAnswer = {att: [25000, "granted"], push: [1000, "granted"], ump: [18000, "aceita"]};
+        await open(ELEICAO);
+        await advance(50000, 1000);
+        expect(shown()).toEqual(["att", "push", "ump"]);
+        expect(only("ump:aparece")).toEqual(["26s ump:aparece"]);
+    });
+
+    test("Europa, ATT respondido aos 45 s (iOS 26 e 27): o initialize, o fim do consentimento e a cadeia só depois da resposta do formulário", async () => {
+        for (const alerts of ["ios27", "ios26"] as const) {
+            reset();
+            state.alerts = alerts;
+            state.region = "EU";
+            autoAnswer = {att: [45000, "granted"], push: [1000, "granted"], ump: [5000, "aceita"]};
+            await open(ELEICAO);
+            await advance(60000, 1000);
+            expect(dialogs()).toEqual([
+                "0s att:aparece",
+                "45s att:responde=granted",
+                "45s push:aparece",
+                "46s push:responde=granted",
+                "46s ump:aparece",
+                "51s ump:responde=aceita",
+            ]);
+            expect([times("anuncios:initialize"), times("consentimento:fim"), times("cadeia:fim")]).toEqual([["51s"], ["51s"], ["51s"]]);
+            expect(only("consent_flow")).toEqual(["51s consent_flow obtained|granted|granted 1/1"]);
+            // FB e atribuição continuam logo depois do ATT (no limite da cadeia e de novo na resposta), antes do formulário.
+            expect(only("fb:", "atribuicao:")).toEqual([
+                "20s fb:init",
+                "20s fb:tracking=false",
+                "20s atribuicao:fase2 att=undetermined",
+                "45s fb:tracking=true",
+                "45s atribuicao:recoleta",
+            ]);
+        }
+    });
+
+    test("Europa, iOS 27, ATT na tela 70 s: o formulário não sai por cima dele quando a trava solta (60 s)", async () => {
+        state.region = "EU";
+        autoAnswer = {att: [70000, "granted"], push: [2000, "granted"], ump: [2000, "aceita"]};
+        await open(ELEICAO);
+        await advance(80000, 1000);
+        expect(dialogs()).toEqual([
+            "0s att:aparece",
+            "70s att:responde=granted",
+            "70s push:aparece",
+            "72s push:responde=granted",
+            "72s ump:aparece",
+            "74s ump:responde=aceita",
+        ]);
+        expect(mostOnScreen).toBe(1);
+    });
+
+    test("Europa, iOS 27, notificação na tela 70 s: o formulário e a localização só depois da resposta dela, com e sem appDialogsAfterOpen", async () => {
+        state.region = "EU";
+        autoAnswer = {att: [2000, "granted"], push: [70000, "granted"], ump: [2000, "aceita"], location: [1000, "granted"]};
+        await open(ELEICAO_APP, {beforeReady: (m) => askLocation(m)});
+        await advance(80000, 1000);
+        expect(dialogs()).toEqual([
+            "0s att:aparece",
+            "2s att:responde=granted",
+            "2s push:aparece",
+            "72s push:responde=granted",
+            "72s ump:aparece",
+            "74s ump:responde=aceita",
+            "74s location:aparece",
+            "75s location:responde=granted",
+        ]);
+        expect(mostOnScreen).toBe(1);
+
+        reset();
+        state.region = "EU";
+        autoAnswer = {att: [2000, "granted"], push: [70000, "granted"], ump: [2000, "aceita"]};
+        await open(ELEICAO);
+        await advance(80000, 1000);
+        expect(only("ump:aparece")).toEqual(["72s ump:aparece"]);
+        expect(mostOnScreen).toBe(1);
+    });
+
+    test("Europa, iOS 27, ATT na tela 70 s sem a notificação entre ele e o formulário: o formulário espera a resposta do ATT (sem notificação na abertura, com ela depois do formulário e com ela antes do ATT)", async () => {
+        const runs: Array<[any, string[]]> = [
+            [{...ELEICAO, pushDialogOnOpen: false}, ["0s att:aparece", "70s att:responde=granted", "70s ump:aparece", "72s ump:responde=aceita"]],
+            [
+                {dialogOrder: ["att", "ump", "push"]},
+                ["0s att:aparece", "70s att:responde=granted", "70s ump:aparece", "72s ump:responde=aceita", "72s push:aparece", "74s push:responde=granted"],
+            ],
+            [
+                {dialogOrder: ["push", "att", "ump"]},
+                ["0s push:aparece", "2s push:responde=granted", "2s att:aparece", "72s att:responde=granted", "72s ump:aparece", "74s ump:responde=aceita"],
+            ],
+        ];
+        for (const [options, expected] of runs) {
+            reset();
+            state.region = "EU";
+            autoAnswer = {att: [70000, "granted"], push: [2000, "granted"], ump: [2000, "aceita"]};
+            await open(options);
+            await advance(80000, 1000);
+            expect(dialogs()).toEqual(expected);
+            expect(mostOnScreen).toBe(1);
+        }
+    });
+
+    test("Europa, iOS 26, ATT na tela 5 min (o app fica inactive, o prazo não corre): ATT, notificação, formulário e localização", async () => {
+        state.alerts = "ios26";
+        state.region = "EU";
+        autoAnswer = {att: [300000, "granted"], push: [2000, "granted"], ump: [2000, "aceita"], location: [1000, "granted"]};
+        await open(ELEICAO_APP, {beforeReady: (m) => askLocation(m)});
+        await advance(310000, 1000);
+        expect(dialogs()).toEqual([
+            "0s att:aparece",
+            "300s att:responde=granted",
+            "300s push:aparece",
+            "302s push:responde=granted",
+            "302s ump:aparece",
+            "304s ump:responde=aceita",
+            "304s location:aparece",
+            "305s location:responde=granted",
+        ]);
+        expect(mostOnScreen).toBe(1);
+    });
+
+    test("Europa, ATT descartado sem nenhum 'ficou ativo': o formulário no prazo (200 s) e a localização logo depois da resposta dele, sem mais 3 min", async () => {
+        state.region = "EU";
+        state.attDiscard = 1;
+        autoAnswer = {ump: [5000, "aceita"], location: [1000, "granted"]};
+        const m = await open(ELEICAO_APP, {beforeReady: (mm) => askLocation(mm)});
+        await advance(199000, 1000);
+        expect(dialogs()).toEqual([]);
+        await advance(51000, 1000);
+        askLocation(m); // um toque depois do prazo: na hora
+        await advance(3000, 1000);
+        // O prazo conta da chegada da cadeia no passo do UMP (20 s), com o formulário já pedido pela consulta.
+        expect(dialogs()).toEqual([
+            "200s ump:aparece",
+            "205s ump:responde=aceita",
+            "205s location:aparece",
+            "206s location:responde=granted",
+            "250s location:aparece",
+            "251s location:responde=granted",
+        ]);
+        // A cadeia espera o formulário: TikTok, link-in-bio, o aviso de atualização e o consent_flow saem aos 205 s (antes, 20 s).
+        expect(only("cadeia:fim", "consent_flow")).toEqual(["205s consent_flow obtained|undetermined|timeout 1/0", "205s cadeia:fim"]);
+    });
+
+    test("Europa, ATT descartado sem 'ficou ativo' e formulário sem resposta: a cadeia segue 20 s depois de ele aparecer e a localização sai no limite da trava dele", async () => {
+        state.region = "EU";
+        state.attDiscard = 1;
+        autoAnswer = {location: [1000, "granted"]};
+        await open(ELEICAO_APP, {beforeReady: (m) => askLocation(m)});
+        await advance(400000, 1000);
+        expect(only("ump:aparece", "cadeia:fim", "location:aparece", "anuncios:initialize")).toEqual([
+            "200s ump:aparece",
+            "220s anuncios:initialize",
+            "220s cadeia:fim",
+            "380s location:aparece",
+        ]);
+    });
+
+    test("handleReady depois do aviso de 30 s (layout com defeito), ATT descartado sem 'ficou ativo': o prazo conta do fim da cadeia, não do aviso", async () => {
+        state.attDiscard = 1;
+        autoAnswer = {location: [1000, "granted"]};
+        const m = await open(ELEICAO_APP, {ready: false, beforeReady: (mm) => askLocation(mm)});
+        await advance(35000, 1000);
+        m.default.handleReady();
+        await advance(65000, 1000);
+        askLocation(m);
+        await advance(150000, 1000);
+        // A localização da Início sai no aviso (30 s); a cadeia vai de 35 s a 55 s; o toque aos 100 s, no prazo (235 s).
+        expect([times("cadeia:fim"), times("location:aparece")]).toEqual([["55s"], ["30s", "235s"]]);
+    });
+
+    test("Europa, ATT descartado e a pessoa sai e volta aos 40 s: ATT, notificação, formulário e localização", async () => {
+        state.region = "EU";
+        state.attDiscard = 1;
+        autoAnswer = {att: [1000, "granted"], push: [1000, "granted"], ump: [1000, "aceita"], location: [1000, "granted"]};
+        await open(ELEICAO_APP, {beforeReady: (m) => askLocation(m)});
+        await advance(40000, 1000);
+        expect(dialogs()).toEqual([]);
+        await setAppState("background");
+        await setAppState("active");
+        await advance(6000, 1000);
+        expect(dialogs()).toEqual([
+            "40s att:aparece",
+            "41s att:responde=granted",
+            "41s push:aparece",
+            "42s push:responde=granted",
+            "42s ump:aparece",
+            "43s ump:responde=aceita",
+            "43s location:aparece",
+            "44s location:responde=granted",
+        ]);
+        expect(mostOnScreen).toBe(1);
+    });
+
+    test("Europa, notificação respondida aos 28 s e formulário 16 s depois de aparecer: obtained (os 20 s dele contam de quando ele aparece)", async () => {
+        state.region = "EU";
+        autoAnswer = {att: [3000, "granted"], push: [25000, "granted"], ump: [16000, "aceita"]};
+        await open(ELEICAO);
+        await advance(60000, 1000);
+        expect(dialogs()).toEqual([
+            "0s att:aparece",
+            "3s att:responde=granted",
+            "3s push:aparece",
+            "28s push:responde=granted",
+            "28s ump:aparece",
+            "44s ump:responde=aceita",
+        ]);
+        expect(only("anuncios:initialize", "consent_flow", "cadeia:fim", "aviso")).toEqual([
+            "44s anuncios:initialize",
+            "44s consent_flow obtained|granted|granted 1/1",
+            "44s cadeia:fim",
+        ]);
+
+        // Aberto 25 s: o limite sai 20 s depois de ele aparecer (48 s), não 20 s depois da chegada da cadeia no passo do UMP.
+        reset();
+        state.region = "EU";
+        autoAnswer = {att: [3000, "granted"], push: [25000, "granted"], ump: [25000, "aceita"]};
+        await open(ELEICAO);
+        await advance(60000, 1000);
+        expect(only("ump:", "anuncios:initialize", "consent_flow", "cadeia:fim")).toEqual([
+            "0s ump:consulta",
+            "28s ump:formulario",
+            "28s ump:aparece",
+            "48s anuncios:initialize",
+            "48s consent_flow timeout|granted|granted 1/1",
+            "48s cadeia:fim",
+            "53s ump:responde=aceita",
+        ]);
+    });
+
+    test("Brasil, ATT em 2 s e notificação 3 s depois: o fim do consentimento na resposta do ATT no iPhone e na hora no Android, em qualquer ordem", async () => {
+        const results: string[] = [];
+        const orders: Array<[string, any]> = [
+            ["padrão", undefined],
+            ["eleição", ELEICAO],
+            ["eleição com appDialogsAfterOpen", ELEICAO_APP],
+            ["notificação, ATT, UMP", {dialogOrder: ["push", "att", "ump"]}],
+            ["notificação, UMP, ATT", {dialogOrder: ["push", "ump", "att"]}],
+        ];
+        for (const os of ["ios", "android"] as const) {
+            for (const [name, options] of orders) {
+                reset();
+                state.os = os;
+                autoAnswer = {att: [2000, "granted"], push: [3000, "granted"]};
+                await open(options);
+                await advance(8000);
+                results.push(`${os} ${name}: ${times("consentimento:fim")}`);
+            }
+        }
+        // No iPhone com a notificação antes do ATT, o ATT só sai depois dela (aos 3 s) e responde aos 5 s.
+        expect(results).toEqual([
+            "ios padrão: 2s",
+            "ios eleição: 2s",
+            "ios eleição com appDialogsAfterOpen: 2s",
+            "ios notificação, ATT, UMP: 5s",
+            "ios notificação, UMP, ATT: 5s",
+            "android padrão: 0s",
+            "android eleição: 0s",
+            "android eleição com appDialogsAfterOpen: 0s",
+            "android notificação, ATT, UMP: 0s",
+            "android notificação, UMP, ATT: 0s",
+        ]);
+    });
+
+    test("Europa, a pessoa sai e volta com a notificação na tela (antes da vez do formulário): o anúncio de abertura não carrega, no iPhone e no Android", async () => {
+        state.region = "EU";
+        autoAnswer = {att: [1000, "granted"], ump: [4000, "aceita"]};
+        let m = await open(ELEICAO);
+        let returns = watchReturns(m);
+        await advance(2000);
+        expect(onScreen).toEqual(["push"]);
+        await setAppState("background");
+        await advance(1000);
+        await setAppState("active");
+        await advance(1000);
+        await answer("push", "granted");
+        await advance(6000);
+        expect(returns).toEqual(["3s pendente"]);
+        expect(only("attPendente", "ump:aparece", "ump:responde")).toEqual([
+            "0s attPendente=true",
+            "4s ump:aparece",
+            "8s ump:responde=aceita",
+            "8s attPendente=false",
+        ]);
+
+        // Android sem o react-native-applifecycle: a volta do próprio diálogo da notificação conta como volta ao app.
+        reset();
+        state.os = "android";
+        state.region = "EU";
+        autoAnswer = {push: [2000, "granted"], ump: [4000, "aceita"]};
+        m = await open(ELEICAO);
+        returns = watchReturns(m);
+        await advance(8000);
+        expect(returns).toEqual(["2s pendente"]);
+        expect(m.isAttPending()).toBe(false);
+    });
+
+    test("o formulário pendente sai do isAttPending em todos os caminhos: resposta, erro ao carregar e limite de 3 min da trava; no Brasil e com premium, nunca entra", async () => {
+        // Erro do SDK ao carregar o formulário: sai na hora, o UMP fica como "error" e a cadeia segue.
+        state.region = "EU";
+        state.umpFormError = true;
+        autoAnswer = {att: [1000, "granted"], push: [1000, "granted"]};
+        await open(ELEICAO);
+        await advance(4000);
+        expect(only("attPendente", "ump:formulario", "consent_flow", "cadeia:fim")).toEqual([
+            "0s attPendente=true",
+            "2s ump:formulario",
+            "2s consent_flow error|granted|granted 1/1",
+            "2s cadeia:fim",
+            "2s attPendente=false",
+        ]);
+
+        // Formulário sem resposta: sai no limite da trava dele (3 min com o app ativo depois de aparecer).
+        reset();
+        state.region = "EU";
+        autoAnswer = {att: [1000, "granted"], push: [1000, "granted"]};
+        await open(ELEICAO);
+        await advance(190000, 1000);
+        expect(only("attPendente", "ump:aparece")).toEqual(["0s attPendente=true", "2s ump:aparece", "182s attPendente=false"]);
+
+        // Brasil e premium (na Europa): só o ATT.
+        for (const setup of [() => {}, () => ((state.region = "EU"), (state.premium = true))]) {
+            reset();
+            setup();
+            autoAnswer = {att: [1000, "granted"], push: [1000, "granted"]};
+            await open(ELEICAO);
+            await advance(4000);
+            expect(only("attPendente")).toEqual(["0s attPendente=true", "1s attPendente=false"]);
+        }
+    });
+
+    test("requestAttPermission do app entre a chegada da cadeia no passo do UMP e a vez do formulário: volta na resposta do ATT, sem esperar o formulário", async () => {
+        state.region = "EU";
+        autoAnswer = {att: [25000, "granted"], push: [1000, "granted"], ump: [5000, "aceita"]};
+        const m = await open(ELEICAO);
+        await advance(21000, 1000);
+        m.default.requestAttPermission().then((status: string) => log(`app:att=${status}`));
+        await advance(15000, 1000);
+        expect(only("app:att", "ump:aparece", "ump:responde")).toEqual([
+            "25s app:att=granted",
+            "26s ump:aparece",
+            "31s ump:responde=aceita",
+        ]);
+    });
+
+    test("proteções na Europa: Android com a notificação negada para sempre (formulário na hora), 2ª abertura com o consentimento já dado e ATT fora da abertura descartado", async () => {
+        // A notificação que volta perdida sem diálogo não segura o formulário; a localização vem depois dele.
+        state.os = "android";
+        state.region = "EU";
+        state.androidPushBlocked = true;
+        autoAnswer = {ump: [2000, "aceita"], location: [1000, "granted"]};
+        await open(ELEICAO_APP, {beforeReady: (m) => askLocation(m)});
+        await advance(5000);
+        expect(dialogs()).toEqual(["0s ump:aparece", "2s ump:responde=aceita", "2s location:aparece", "3s location:responde=granted"]);
+
+        // 2ª abertura (consentimento já obtido): sem formulário, nada espera nem fica pendente.
+        reset();
+        state.region = "EU";
+        state.umpStatus = "OBTAINED";
+        state.att = "granted";
+        state.push = 1;
+        autoAnswer = {location: [1000, "granted"]};
+        await open(ELEICAO_APP, {beforeReady: (m) => askLocation(m)});
+        await advance(2000);
+        expect(only("location:")).toEqual(["0s location:aparece", "1s location:responde=granted"]);
+        expect(only("attPendente", "ump:aparece")).toEqual([]);
+
+        // ATT fora da abertura (attDialogOnOpen false) pedido pelo app e descartado pelo iOS: o formulário espera só a
+        // notificação da cadeia, não esse ATT. (Com o ATT antes da notificação na ordem, a notificação espera o ATT em
+        // andamento, como sempre, e o formulário espera a notificação.)
+        reset();
+        state.region = "EU";
+        state.attDiscard = 1;
+        autoAnswer = {push: [1000, "granted"], ump: [1000, "aceita"]};
+        const m = await open(
+            {dialogOrder: ["push", "att", "ump"], attDialogOnOpen: false},
+            {beforeReady: (mm) => void mm.default.requestAttPermission()},
+        );
+        await advance(4000);
+        // O ATT do app sai depois da notificação (ordem) e é descartado; o formulário aparece aos 1 s, sem esperar a nova tentativa.
+        expect(dialogs()).toEqual(["0s push:aparece", "1s push:responde=granted", "1s ump:aparece", "2s ump:responde=aceita"]);
+        expect(only("att:descartado")).toHaveLength(1);
+        expect(m.isAttPending()).toBe(true); // o ATT do app ainda vai pedir de novo no próximo "ficou ativo"
+    });
+
+    test("Brasil na ordem nova: a mesma sequência da a9eb0bd em 24 aberturas (tirando o fim do consentimento)", async () => {
+        const differ: string[] = [];
+        for (const scenario of BRASIL) {
+            const got = await runBrasil(scenario);
+            if (JSON.stringify(got) !== JSON.stringify(BRASIL_A9EB0BD[scenario.name])) differ.push(`${scenario.name}: ${got.join(" | ")}`);
+        }
+        expect(Object.keys(BRASIL_A9EB0BD)).toEqual(BRASIL.map((scenario) => scenario.name));
+        expect(differ).toEqual([]);
+    });
 });

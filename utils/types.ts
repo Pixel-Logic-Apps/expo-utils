@@ -55,23 +55,27 @@ export type PrepareOptions = {
      * repetido é ignorado; o que faltar entra depois, na ordem padrão. Os `*DialogOnOpen: false` continuam tirando o diálogo
      * da abertura, em qualquer ordem. Com o UMP depois de outro diálogo, a consulta dele à internet (rápida, sem nada na
      * tela) continua saindo no começo e só o formulário (Europa, Reino Unido e estados regulados dos EUA) espera a vez
-     * dele; no Brasil o UMP não aparece. Sem formulário, o SDK de anúncios inicializa logo depois da consulta; com
-     * formulário, depois da resposta dele (ou no limite de 20 s dele). Na Europa o formulário passa a vir na posição
-     * dada (o Google recomenda antes do ATT). Ex.: `["att", "push", "ump"]` = ATT, depois notificação, depois o formulário.
+     * dele: a resposta de verdade do ATT e da notificação que a abertura pediu antes dele, também depois do limite de 20 s
+     * de cada um (no máximo 3 min com o app ativo); no Brasil o UMP não aparece. Sem formulário, o SDK de anúncios
+     * inicializa logo depois da consulta; com formulário, depois da resposta dele (ou 20 s depois de ele aparecer), e a
+     * cadeia (TikTok, link-in-bio, aviso de atualização, `consent_flow`) espera por ele. Na Europa o formulário passa a vir
+     * na posição dada (o Google recomenda antes do ATT). O fim do consentimento (`whenConsentFlowDone`) nunca espera a
+     * notificação. Ex.: `["att", "push", "ump"]` = ATT, depois notificação, depois o formulário.
      */
     dialogOrder?: readonly OpenDialog[];
     /**
      * Os pedidos do próprio app pela trava da lib (`withPermissionPrompt`: localização etc.) esperam os diálogos da
-     * abertura e só então entram na trava: o fim da cadeia (o último da ordem respondido, pulado ou no limite de 20 s dele)
-     * e a resposta de verdade do ATT e da notificação que ela pediu, também depois desses 20 s e também para o pedido feito
-     * depois do fim da cadeia (o ATT descartado pelo iOS volta no próximo "ficou ativo", e o pedido espera por ele). A
-     * espera começa no `prepare` e nunca prende para sempre: sem o `handleReady`, solta junto com o aviso de 30 s; com a
-     * cadeia parada (premium ou initialize sem resposta), em 3 min; o ATT e a notificação seguram no máximo 3 min com o app
-     * ativo, contados do fim da cadeia (um prazo só: o pedido feito antes espera no máximo até ele, e depois dele nada
-     * segura; a notificação cuja resposta não volta, no máximo um limite da trava depois do dela), e o pedido de notificação
-     * que volta perdido sem diálogo (Android negada para sempre) não segura nada. Não vale para os pedidos da lib
-     * (`requestAttPermission`, `requestPushPermission`, `requestUmpConsent`). Padrão `false`: quem pede primeiro vai
-     * primeiro, como sempre.
+     * abertura e só então entram na trava: o fim da cadeia (o último da ordem respondido, pulado ou no limite de 20 s dele;
+     * com o formulário do UMP depois de outro diálogo, a resposta dele, que segura a trava) e a resposta de verdade do ATT e
+     * da notificação que ela pediu, também depois desses 20 s e também para o pedido feito depois do fim da cadeia (o ATT
+     * descartado pelo iOS volta no próximo "ficou ativo", e o pedido espera por ele). A espera começa no `prepare` e nunca
+     * prende para sempre: sem o `handleReady`, solta junto com o aviso de 30 s; com a cadeia parada (premium ou initialize
+     * sem resposta), em 3 min; o ATT e a notificação seguram no máximo 3 min com o app ativo, contados de quando o
+     * formulário passa a esperar a vez dele ou, sem formulário, do fim da cadeia (um prazo só, também para o formulário: o
+     * pedido feito antes espera no máximo até ele, e depois dele nada segura; a notificação cuja resposta não volta, no
+     * máximo um limite da trava depois do dela), e o pedido de notificação que volta perdido sem diálogo (Android negada
+     * para sempre) não segura nada. Não vale para os pedidos da lib (`requestAttPermission`, `requestPushPermission`,
+     * `requestUmpConsent`). Padrão `false`: quem pede primeiro vai primeiro, como sempre.
      */
     appDialogsAfterOpen?: boolean;
 };

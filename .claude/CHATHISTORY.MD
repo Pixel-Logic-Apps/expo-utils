@@ -3180,3 +3180,41 @@ Rodada 1 de correção da revisão da c570103: avaliar com teste cada achado (1 
 
 ### Versão
 Ainda 1.5.8 no package.json; nada enviado; sem etiqueta.
+
+## 2026-11-09 — Revisão da a9eb0bd: SEMPRE ATT → notificação → formulário do UMP → localização (1.5.9 em andamento, SEM push)
+
+### Pedido
+Implementar, por cima da a9eb0bd, os 4 pontos da revisão (3 lentes + 1 rodada) da ordem nova, já decididos pelo que o Bruno pediu ("SEMPRE chamar, por ordem, o ATT, depois o Push Notification, depois o MP, aí sim depois a localização") e aprovou ("No Brasil os anúncios ficam iguais"), mais documentação, testes (reprodução e proteção), mutação e os testes dos revisores.
+
+### Ações (commit local por cima da a9eb0bd; nada enviado)
+- Vez do formulário (UMP depois de outro diálogo): só depois do fim de verdade do ATT (fim do fluxo, também o descartado pelo iOS) e da notificação (1º desfecho e, no iOS com o pedido ainda sem resposta, mais um limite da trava com o app ativo; pedido perdido sem diálogo não segura) que a cadeia pediu antes dele, com ou sem `appDialogsAfterOpen`. Antes a vez saía quando a cadeia chegava no passo do UMP, e a cadeia passa do ATT e da notificação no limite de 20 s: ATT aos 25 s → formulário 25 s → notificação 28 s; no iOS 27, ATT ou notificação mais de 60 s na tela → formulário por cima.
+- Prazo único (`openDeadline`): um limite só, de 3 min com o app ativo, para a vez do formulário e para os pedidos do app (`openRequestWaits`), contado do que vier primeiro: o formulário passa a esperar a vez (cadeia no passo do UMP e consulta com formulário) ou o fim da cadeia (também o limite da cadeia parada; o aviso de 30 s sem `handleReady` não conta). Os limites não somam: Europa com o ATT descartado sem "ficou ativo" → formulário aos 200 s e a localização logo depois da resposta dele. Brasil: conta do fim da cadeia, como antes.
+- A cadeia espera o formulário no passo do UMP (resposta, ou 20 s depois de ele aparecer); o limite de 3 min da cadeia parada sai quando o formulário passa a esperar a vez dele (senão soltaria a localização junto com o formulário no fim do prazo).
+- Limite de 20 s do UMP com a ordem nova: com formulário, conta de quando ele aparece (entra na trava); a consulta presa (sem formulário) continua contando da chegada da cadeia no passo do UMP. Ordem padrão: igual.
+- Fim do consentimento (`whenConsentFlowDone`/`waitAttFlowDone`) nunca espera a notificação: no passo do ATT (iPhone), depois do UMP (com o UMP depois de outro diálogo, o setup dele com o initialize e, na Europa, a resposta do formulário); no Android, sem ATT, só o UMP (antes do laço quando o UMP não é o 1º). `umpDialogOnOpen: false`: na resposta do ATT (Android: na hora), como na padrão.
+- `isAttPending`: o formulário conta como pendente da consulta com formulário até terminar (resposta, erro ou limite da trava); `umpFormInTurn` virou `umpFormPending`.
+- As funções do app (`requestAttPermission`/`requestPushPermission`) passam a esperar o formulário só na vez real dele (`umpTurnReached`); antes, desde a chegada da cadeia no passo do UMP. O `releaseUmpTurn` virou local da cadeia (`UmpTurn {chain, form}` no `runMobileAdsSetup`).
+- Docs: README ("Diálogos na abertura": tabela, Brasil, Europa, "Limites", "Nada fica preso", "O que ainda sobra"; "Ordem de Permissões"), `utils/types.ts` (`dialogOrder`, `appDialogsAfterOpen`) e comentários do `Utils.ts`.
+
+### Testes que mudaram de expectativa (gravavam a a9eb0bd)
+- `["att", "push", "ump"], iPhone no Brasil`: `consentimento:fim` 4 s → 2 s (na resposta do ATT).
+- `umpDialogOnOpen false`: 2 s → 1 s (e Android 0 s, novo no mesmo teste).
+- `premium e anúncio desligado na ordem nova`: 2 s → 1 s.
+- `formulário depois de outro diálogo: o anúncio de abertura fica de fora…`: `attPendente` fica true da consulta (0 s) até a resposta do formulário (antes: false entre o ATT e a vez do formulário).
+
+### Dizer ao Bruno
+- Na Europa, na 1ª abertura, a ordem agora é sempre ATT → notificação → formulário → localização, também com resposta lenta; o formulário não sai mais por cima de alerta aberto (até 3 min).
+- Na Europa, TikTok, link-in-bio, o aviso de atualização e o `consent_flow` esperam o formulário; no pior caso (ATT descartado pelo iOS sem a pessoa sair do app), uns 3 min depois. No Brasil nada muda.
+- No Brasil, o fim do consentimento (pré-carga do 1º intersticial e do app open, promo) volta a sair na resposta do ATT (iPhone) e logo no começo (Android), como na ordem padrão.
+- Fica: a consulta do UMP com rede lenta (mais de 20 s depois de a cadeia chegar no passo dele) faz o formulário sair depois da localização; e o anúncio de abertura que começar a carregar numa volta ao app antes de a consulta voltar pode cobrir o formulário.
+
+### Verificação
+- `./tests/run.sh`: TODOS OS TESTES PASSARAM (683 pass, 0 fail; eram 666); `tsc --noEmit` sem erro.
+- `tests/dialog-order.test.ts`: 17 testes novos (seção 6), entre eles o Brasil igual à a9eb0bd em 24 aberturas (gravado rodando os cenários no Utils.ts da a9eb0bd, sem as leituras e sem o fim do consentimento). Na a9eb0bd: 18 caem (os 4 de expectativa e 14 reproduções); os 17 cenários da ordem padrão, o golden do Brasil e as proteções passam lá e aqui.
+- Mutação (scratchpad `corr3-*`): 20 partes da correção desfeitas, uma por cópia; todas derrubam ao menos um teste.
+- Testes dos revisores: `rev2-integ` (36 cenários, com Utils, LoadAdsManager e appopen-ads de verdade): 19 iguais à a9eb0bd (toda a ordem padrão e o Brasil no iPhone), 17 mudaram — Europa na ordem nova (formulário depois da notificação, `obtained`, initialize e pré-cargas depois da resposta, anúncio de abertura sem sair por cima do formulário) e 2 do Brasil no Android só no `consentimento:fim` (2 s → 0 s). `rev2-espera`: saída idêntica à a9eb0bd. `rev2-tl-n1`: consentimento 2 s (iPhone) e 0 s (Android) nas três ordens. `rev2-tl-n2`: `obtained` aos 44 s com o initialize depois da resposta.
+- Exploração fora da suíte (2.304 aberturas com `appDialogsAfterOpen`, 6 perfis): 43 problemas da a9eb0bd somem (16 diálogos juntos e 27 formulários antes do ATT ou da notificação); nenhum novo. Ficam os já conhecidos, iguais nas duas, todos com o `requestPushPermission` do app chamado antes do `handleReady` (pedido junto com o da cadeia no iOS 27 e, com o ATT descartado sem "ficou ativo", sem resposta, porque ele espera o fim do ATT sem limite, também na ordem padrão).
+- Não testado em aparelho nem em simulador.
+
+### Versão
+Ainda 1.5.8 no package.json; nada enviado; sem etiqueta.
