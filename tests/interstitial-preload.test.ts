@@ -361,11 +361,20 @@ describe("espera máxima (ad_load_max_wait_seconds)", () => {
 });
 
 describe("anúncio só depois do consentimento (ads_wait_consent_enabled)", () => {
-    test("consentimento da abertura ainda não terminou: intersticial segue sem anúncio (true) e rewarded devolve false (sem recompensa), sem carregar; terminou, carregam", async () => {
+    test("consentimento da abertura sem terminar em 10 s: intersticial segue sem anúncio (true) e rewarded devolve false (sem recompensa), sem carregar; terminou, carregam", async () => {
         const manager = await load();
         ads.adsConsentReady = false;
-        expect(await manager.showInterstitial(undefined, "a")).toBe(true);
-        expect(await manager.showRewarded(undefined, "b")).toBe(false);
+        ads.adsConsent = new Promise<void>(() => {});
+        const interstitial = manager.showInterstitial(undefined, "a");
+        const rewarded = manager.showRewarded(undefined, "b");
+        await flush();
+        jest.advanceTimersByTime(9999);
+        await flush();
+        expect(FakeAd.created).toHaveLength(0);
+        jest.advanceTimersByTime(1);
+        await flush();
+        expect(await interstitial).toBe(true);
+        expect(await rewarded).toBe(false);
         expect(FakeAd.created).toHaveLength(0);
         expect(names()).toEqual([]);
 
@@ -375,6 +384,25 @@ describe("anúncio só depois do consentimento (ads_wait_consent_enabled)", () =
         expect(interstitials()).toHaveLength(1);
         await watch(interstitials()[0]);
         expect(await shown).toBe(true);
+    });
+
+    test("intersticial pedido antes do consentimento: o consentimento chega dentro dos 10 s → aparece", async () => {
+        const manager = await load();
+        ads.adsConsentReady = false;
+        let release: () => void = () => {};
+        ads.adsConsent = new Promise<void>((resolve) => (release = resolve));
+        const shown = manager.showInterstitial(undefined, "inicio");
+        await flush();
+        jest.advanceTimersByTime(4000);
+        await flush();
+        expect(interstitials()).toHaveLength(0);
+        ads.adsConsentReady = true;
+        release();
+        await flush();
+        expect(interstitials()).toHaveLength(1);
+        await watch(interstitials()[0]);
+        expect(await shown).toBe(true);
+        expect(jest.getTimerCount()).toBe(0); // o timer dos 10 s foi limpo
     });
 
     test("pré-carga ligada: o 1º espera o fluxo de consentimento E o whenAdsConsentReady (a resposta do ATT)", async () => {

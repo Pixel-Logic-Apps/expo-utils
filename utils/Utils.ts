@@ -273,9 +273,12 @@ export const whenConsentFlowDone = (): Promise<void> => attFlowDonePromise;
 // Anúncio depois do consentimento (`ads_wait_consent_enabled` no bloco `utils`, desligado por padrão). Ligado: banner,
 // intersticial, rewarded e app open só carregam depois da resposta do UMP (sem o limite de 20 s da cadeia; "não" deixa a
 // sessão sem anúncio) e, no iOS, da resposta do ATT. O whenConsentFlowDone não serve para isso: ele libera no limite de
-// 20 s da cadeia, com o ATT ainda na fila atrás de outro diálogo. Limite de segurança só do ATT: 60 s contados fora do
-// segundo plano, para um ATT que não chega não deixar a sessão inteira sem anúncio. Desligado: como antes.
+// 20 s da cadeia, com o ATT ainda na fila atrás de outro diálogo. Limites de segurança, contados fora do segundo plano:
+// 1 min para o UMP responder, 1 min depois de o alerta do ATT sair e 3 min para o ATT que nunca chega a ser pedido (app
+// que não fica ativo). Desligado: como antes.
 const ADS_CONSENT_LIMIT_MS = 60000;
+const ADS_CONSENT_UMP_LIMIT_MS = 60000;
+const ADS_CONSENT_FALLBACK_MS = 180000;
 let adsConsentDone = false;
 let settleAdsConsent: () => void = () => {};
 const adsConsentPromise = new Promise<void>((resolve) => {
@@ -310,9 +313,9 @@ export const isAdsConsentReady = (strict = false): boolean => {
     return !adsWaitConsent() || adsConsentDone;
 };
 
-// Limite de segurança da espera do ATT: corre fora do segundo plano (no iPhone o timer do JS corre pelo relógio e
+// Limite de segurança da espera dos anúncios: corre fora do segundo plano (no iPhone o timer do JS corre pelo relógio e
 // dispararia na volta, junto com a nova tentativa do ATT); para no background e recomeça inteiro na volta.
-const startAdsConsentLimit = (onLimit: () => void, ended: Promise<void>): void => {
+const startAdsConsentLimit = (onLimit: () => void, ended: Promise<void>, ms: number): void => {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const stop = () => {
         if (timer !== undefined) clearTimeout(timer);
@@ -320,7 +323,7 @@ const startAdsConsentLimit = (onLimit: () => void, ended: Promise<void>): void =
     };
     const arm = () => {
         stop();
-        timer = setTimeout(onLimit, ADS_CONSENT_LIMIT_MS);
+        timer = setTimeout(onLimit, ms);
     };
     const subscription = AppState.addEventListener("change", (next) => {
         if (next === "background") stop();
@@ -400,6 +403,9 @@ const askPushPermission = async (): Promise<string> => {
     }
 };
 
+// O alerta do ATT saiu de verdade: começa o limite de segurança da espera dos anúncios (requestTrackingWhenActive).
+let onAttRequested: () => void = () => {};
+
 // ATT: um fluxo por abertura. Pede só com o app ativo e, se o iOS descartar (volta `undetermined`), pede de novo no
 // próximo "ficou ativo", até 3 vezes. Regras e motivo em utils/permission-gate.ts.
 const attGate = createPermissionGate<string>({
@@ -407,7 +413,10 @@ const attGate = createPermissionGate<string>({
     // Leitura síncrona no nativo (ATTrackingManager.trackingAuthorizationStatus): não pendura. Já respondido, acaba sem
     // entrar na trava nem esperar o app ativo.
     read: async () => String((await getTrackingPermissionsAsync()).status),
-    request: async () => String((await requestTrackingPermissionsAsync()).status),
+    request: async () => {
+        onAttRequested();
+        return String((await requestTrackingPermissionsAsync()).status);
+    },
     canAsk: (status) => status === "undetermined",
     noAnswer: "undetermined",
     lock: permissionLock,
@@ -1300,8 +1309,17 @@ const Utils = {
                 // Timeout só do passo de consentimento: se o requestInfoUpdate travar (rede ruim),
                 // o boot segue para ATT/push em vez de ficar preso — contrato do resto do arquivo.
                 const gathered = AdsConsent.gatherConsent(consentOptions);
-                // ads_wait_consent_enabled espera a resposta de verdade (o formulário aberto passa dos 20 s); erro, como hoje.
-                umpAllowsAds = gathered.then((info: any) => info?.canRequestAds !== false, () => true);
+                // ads_wait_consent_enabled espera a resposta de verdade (o formulário aberto passa dos 20 s), com limite de
+                // 1 min fora do segundo plano para o UMP que não responde; erro, como hoje.
+                const umpAnswer = gathered.then((info: any) => info?.canRequestAds !== false, () => true);
+                umpAllowsAds = new Promise<boolean>((resolve) => {
+                    void umpAnswer.then(resolve);
+                    const answered = umpAnswer.then(() => {});
+                    startAdsConsentLimit(() => {
+                        if (adsWaitConsent()) expoUtilsWarn("ads_wait_consent_enabled: o UMP não respondeu em 1 min — anúncio liberado.");
+                        resolve(true);
+                    }, answered, ADS_CONSENT_UMP_LIMIT_MS);
+                });
                 const consentInfo = await Promise.race([
                     gathered,
                     new Promise<null>((resolve) => setTimeout(() => resolve(null), 20000)),
@@ -1442,10 +1460,20 @@ const Utils = {
         // final do portão, sem o limite da cadeia) ou o limite de segurança. UMP que nega: a sessão fica sem anúncio.
         let attAnswered: () => void = () => {};
         const attDone = Platform.OS === "ios" ? new Promise<void>((resolve) => (attAnswered = resolve)) : Promise.resolve();
-        if (Platform.OS === "ios") startAdsConsentLimit(attAnswered, attDone);
+        if (Platform.OS === "ios") {
+            // O limite de 1 min começa quando o alerta do ATT sai de verdade (na fila atrás da localização, ainda não conta);
+            // o de 3 min cobre o ATT que nunca chega a ser pedido.
+            let limitStarted = false;
+            onAttRequested = () => {
+                if (limitStarted) return;
+                limitStarted = true;
+                startAdsConsentLimit(attAnswered, attDone, ADS_CONSENT_LIMIT_MS);
+            };
+            startAdsConsentLimit(attAnswered, attDone, ADS_CONSENT_FALLBACK_MS);
+        }
         void Promise.all([umpAllowsAds, attDone]).then(([allowed]) => {
             if (allowed) settleAdsConsent();
-            else expoUtilsLog("[expo-utils] UMP negou: com ads_wait_consent_enabled, nenhum anúncio nesta sessão.");
+            else if (adsWaitConsent()) expoUtilsLog("[expo-utils] UMP negou: com ads_wait_consent_enabled, nenhum anúncio nesta sessão.");
         });
 
         let attFlow: PermissionFlow<string> | null = null;

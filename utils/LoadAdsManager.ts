@@ -40,9 +40,21 @@ const logAdEvent = (analytics: any, name: string, e: any, placementId: string) =
 
 const adsDisabled = () => global.isAdsEnabled === false || global?.remoteConfigUtils?.is_ads_enabled === false;
 
-// ads_wait_consent_enabled com o consentimento da abertura pendente: o intersticial segue sem anúncio (true, a navegação
-// não trava) e o rewarded devolve false (sem recompensa sem anúncio).
+// ads_wait_consent_enabled com o consentimento da abertura pendente: espera por ele até 10 s; passou, o intersticial segue
+// sem anúncio (true, a navegação segue) e o rewarded devolve false (sem recompensa sem anúncio).
 const CONSENT_PENDING = "consent_pending" as const;
+const CONSENT_WAIT_MS = 10000;
+const waitAdsConsent = (): Promise<boolean> =>
+    new Promise<boolean>((resolve) => {
+        const timer = setTimeout(() => resolve(false), CONSENT_WAIT_MS);
+        whenAdsConsentReady().then(
+            () => {
+                clearTimeout(timer);
+                resolve(true);
+            },
+            () => {},
+        );
+    });
 
 // Checks compartilhados dos dois formatos. Retorna a request pronta, ou null quando o fluxo
 // deve seguir SEM ad (bloqueado/premium/ads off/sem unitId) — nunca lança.
@@ -61,9 +73,9 @@ const resolveAdRequest = async (
     expoUtilsLog("isPremium", isPremium);
     if (isPremium) return null;
     if (adsDisabled()) return null;
-    // ads_wait_consent_enabled: antes do UMP e da resposta do ATT o app segue sem anúncio (sem esperar nem segurar a tela).
-    if (!isAdsConsentReady()) {
-        expoUtilsLog(`[expo-utils] ${kind}: consentimento da abertura ainda não terminou — sem anúncio.`);
+    // ads_wait_consent_enabled: antes do UMP e da resposta do ATT, espera até 10 s; passou, segue sem anúncio.
+    if (!isAdsConsentReady() && !(await waitAdsConsent())) {
+        expoUtilsLog(`[expo-utils] ${kind}: consentimento da abertura não terminou em 10 s — sem anúncio.`);
         return CONSENT_PENDING;
     }
     expoUtilsLog("isAdsEnabled", global.isAdsEnabled);
