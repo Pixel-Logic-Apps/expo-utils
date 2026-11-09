@@ -1333,6 +1333,40 @@ describe("appDialogsAfterOpen", () => {
         expect(only("location:")).toEqual(["200s location:aparece", "201s location:responde=granted"]);
     });
 
+    test("(c) sem evento de active nenhum: o prazo de 3 min é um só, contado do fim da cadeia — quem pede antes espera até ele, e depois dele nada segura", async () => {
+        // Eleições: a localização da Início e um toque aos 100 s saem no prazo (200 s), um por vez; o toque aos 250 s, na hora.
+        state.attDiscard = 1;
+        autoAnswer = {location: [1000, "granted"]};
+        const m = await open(ELEICAO_APP, {beforeReady: (mm) => askLocation(mm)});
+        await advance(100000, 1000);
+        askLocation(m);
+        await advance(150000, 1000);
+        askLocation(m);
+        await advance(5000, 1000);
+        expect(times("location:aparece")).toEqual(["200s", "201s", "250s"]);
+        expect(mostOnScreen).toBe(1);
+
+        // Diego (nada pedido na abertura): o toque aos 60 s sai no prazo (200 s), não 3 min depois dele; o toque aos 250 s, na hora.
+        reset();
+        state.attDiscard = 1;
+        autoAnswer = {location: [1000, "granted"]};
+        const d = await open(ELEICAO_APP);
+        await advance(60000, 1000);
+        askLocation(d);
+        await advance(190000, 1000);
+        askLocation(d);
+        await advance(5000, 1000);
+        expect(times("location:aparece")).toEqual(["200s", "250s"]);
+
+        // O prazo conta do fim da cadeia (20 s), não do pedido do ATT (0 s), também sem a notificação depois dele.
+        reset();
+        state.attDiscard = 1;
+        autoAnswer = {location: [1000, "granted"]};
+        await open({...ELEICAO_APP, pushDialogOnOpen: false}, {beforeReady: (mm) => askLocation(mm)});
+        await advance(205000, 1000);
+        expect([times("cadeia:fim"), times("location:aparece")]).toEqual([["20s"], ["200s"]]);
+    });
+
     test("limite de segurança só com o app ativo: iOS 26, ATT na tela 5 min (o app fica inactive) → a localização espera a resposta", async () => {
         state.alerts = "ios26";
         autoAnswer = {att: [300000, "granted"], push: [2000, "granted"], location: [1000, "granted"]};

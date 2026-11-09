@@ -482,9 +482,14 @@ const endOpenDialogs = (): void => {
 // da trava com o app ativo: a resposta que não volta (o RNFB lê o getNotificationSettings depois dela) não prende mais que
 // isso, como o ATT da cadeia com a notificação antes dele. A notificação que voltou perdida, sem diálogo na tela (Android
 // negada para sempre: "never_ask_again" na hora), não segura nada; a nova tentativa fica para o próximo "ficou ativo".
+// Prazo único: cada espera segura no máximo 3 min com o app ativo, contados do fim da cadeia (o limite recomeça a cada
+// "ficou ativo"; com o alerta tirando o app de `active`, ele não corre). No limite ela sai do conjunto e não segura mais
+// nada: o pedido feito antes do prazo espera no máximo até ele, e o ATT descartado sem nenhum "ficou ativo" não segura a
+// sessão inteira (cada pedido esperaria 3 min de novo).
 const openRequestWaits = new Set<Promise<void>>();
 const holdForOpenRequest = (wait: Promise<unknown>): void => {
-    const done = wait.then(
+    const limited = openDialogsDone.then(() => withActiveLimit(AppState, wait, ADS_CONSENT_FALLBACK_MS));
+    const done = Promise.race([wait, limited]).then(
         () => {},
         () => {},
     );
@@ -494,18 +499,19 @@ const holdForOpenRequest = (wait: Promise<unknown>): void => {
 // Pedidos de notificação do portão da abertura que o sistema ainda não respondeu.
 let pushAsking = 0;
 
-// Entra na trava depois do ATT e da notificação da abertura, por no máximo 3 min com o app ativo (o limite recomeça a cada
-// "ficou ativo"; com o alerta tirando o app de `active`, ele não corre). Sem nada pendente, entra na hora.
+// Entra na trava depois das esperas do ATT e da notificação da abertura que ainda valem (o prazo está em cada uma). Sem
+// nada pendente, entra na hora.
 const promptAfterOpenRequests = <T>(fn: () => Promise<T>): Promise<T> => {
     if (!openRequestWaits.size) return promptInLock(fn);
-    return withActiveLimit(AppState, Promise.all([...openRequestWaits]), ADS_CONSENT_FALLBACK_MS).then(() => promptInLock(fn));
+    return Promise.all([...openRequestWaits]).then(() => promptInLock(fn));
 };
 
 /**
  * Faz um pedido de permissão do app na mesma trava de ATT e notificação da lib: uma permissão de cada vez, nos dois
  * sistemas, quem pede primeiro vai primeiro. Espera a vez e o app ativo (por evento), roda `fn` e solta a trava. Com
  * `appDialogsAfterOpen` (opção do prepare), antes da trava espera os diálogos da abertura: o fim da cadeia e o fim de
- * verdade do ATT e da notificação que ela pediu (no máximo 3 min com o app ativo), também depois do fim da cadeia.
+ * verdade do ATT e da notificação que ela pediu (no máximo 3 min com o app ativo, contados do fim da cadeia: um prazo só
+ * para todos os pedidos), também depois do fim da cadeia.
  *
  * Todo pedido do app que possa sair na abertura passa por aqui. No Android, sem isso, ele pode cair na mesma janela do
  * pedido da lib: a resposta se perde, a promessa do Expo nunca resolve e todo pedido do Expo depois dele fica parado até
@@ -1762,7 +1768,7 @@ const Utils = {
      * só pede depois do fim dela. O FB e a atribuição saem logo depois do ATT, onde ele estiver; o whenConsentFlowDone (e o
      * waitAttFlowDone) depois do UMP, com o initialize do SDK (como na padrão), e do ATT; o `consent_flow` depois do último.
      * Com appDialogsAfterOpen, os pedidos do app (withPermissionPrompt) entram na trava depois do último diálogo da ordem e
-     * do fim de verdade do ATT e da notificação que a cadeia pediu (no máximo 3 min com o app ativo).
+     * do fim de verdade do ATT e da notificação que a cadeia pediu (no máximo 3 min com o app ativo depois do fim da cadeia).
      *
      * @param appConfig   app.json (para FB App ID, bundle/package, etc.)
      * @param appStrings  Strings do app (de onde sai o rckey)
@@ -1967,7 +1973,8 @@ const Utils = {
             }
         } finally {
             // appDialogsAfterOpen: o último diálogo da ordem respondido, pulado ou no limite dele — os pedidos do app passam a
-            // esperar só o fim de verdade do ATT e da notificação da abertura (openRequestWaits) e entram na trava.
+            // esperar só o fim de verdade do ATT e da notificação da abertura (openRequestWaits, com o prazo de 3 min
+            // contado daqui) e entram na trava.
             endOpenDialogs();
         }
         consent.reported = true;

@@ -3128,13 +3128,13 @@ Implementar, por cima da af6172a, as duas correções da 2ª revisão já decidi
 
 ### Ações (commit local por cima da af6172a; nada enviado)
 - Pré-carga antes do initialize na ordem nova: com o UMP depois de outro diálogo, o fim do consentimento (`whenConsentFlowDone`/`waitAttFlowDone`, que seguram a pré-carga do 1º intersticial, a do app open e o promo) espera também o fim do setup do UMP, com o `mobileAds().initialize()`, como a ordem padrão já fazia. A cadeia guarda a promessa que criou (o `resetAdsConsent` zera o `mobileAdsSetupPromise`); se o app já tinha pedido o UMP antes do `handleReady` (`requestUmpConsent`), vale o dele. A cadeia, o diálogo seguinte, a localização e o `ads_wait_consent_enabled` continuam sem esperar o initialize; com `umpDialogOnOpen: false`, nada muda.
-- "Sempre" na ordem, com `appDialogsAfterOpen`: o pedido do app (`withPermissionPrompt`) espera o fim da cadeia e também a resposta de verdade do ATT e da notificação que a cadeia pediu, inclusive depois do fim da cadeia. ATT: até o fim do fluxo (resposta ou 3 pedidos perdidos), também o ATT descartado pelo iOS, que volta no próximo "ficou ativo". Notificação: até o 1º desfecho e, se o pedido ainda estiver sem resposta no iOS, mais um limite da trava (60 s) com o app ativo. Tudo no máximo 3 min com o app ativo, contados do fim da cadeia (ou do pedido). A notificação que volta perdida sem diálogo (Android negada para sempre; iOS "não determinada" na hora) não segura nada; a promessa pendurada no Android também não (lá o diálogo tira o app de `active`, então estourar com o app ativo é promessa pendurada). Diálogo fora da abertura (`attDialogOnOpen`/`pushDialogOnOpen` false) não segura nada. Pedidos da lib não esperam isso. Padrão (`appDialogsAfterOpen` false) igual.
+- "Sempre" na ordem, com `appDialogsAfterOpen`: o pedido do app (`withPermissionPrompt`) espera o fim da cadeia e também a resposta de verdade do ATT e da notificação que a cadeia pediu, inclusive depois do fim da cadeia. ATT: até o fim do fluxo (resposta ou 3 pedidos perdidos), também o ATT descartado pelo iOS, que volta no próximo "ficou ativo". Notificação: até o 1º desfecho e, se o pedido ainda estiver sem resposta no iOS, mais um limite da trava (60 s) com o app ativo. Tudo no máximo 3 min com o app ativo, contados do fim da cadeia (ou do pedido). [Corrigido na revisão da c570103, abaixo: um prazo só, contado do fim da cadeia; o pedido não recomeça os 3 min.] A notificação que volta perdida sem diálogo (Android negada para sempre; iOS "não determinada" na hora) não segura nada; a promessa pendurada no Android também não (lá o diálogo tira o app de `active`, então estourar com o app ativo é promessa pendurada). Diálogo fora da abertura (`attDialogOnOpen`/`pushDialogOnOpen` false) não segura nada. Pedidos da lib não esperam isso. Padrão (`appDialogsAfterOpen` false) igual.
 - Docs: README ("Diálogos na abertura": linha da tabela, "Limites", "Nada fica preso" e "O que ainda sobra"; trecho da trava), `utils/types.ts` (`appDialogsAfterOpen`) e comentários do `Utils.ts`.
 - Testes em `tests/dialog-order.test.ts`: 26 novos (25 a mais; o teste antigo que gravava a localização antes da notificação virou o caso (a)); o mock ganhou premium, notificação negada para sempre e pendurada no Android, notificação perdida no iOS e o `reset` do UMP.
 
 ### Escolhas na implementação (dizer ao Bruno)
 - O ATT descartado segura a localização (até o próximo "ficou ativo" ou 3 min): é o único jeito de o caso (c) não pôr a localização antes do ATT e da notificação. A notificação perdida não segura (a armadilha do Android negada para sempre: seriam 3 min em toda abertura de quem negou).
-- Notificação cuja resposta não volta (iOS 27): a localização sai aos 122 s (pedido aos 2 s + 60 s da trava + 60 s, como o ATT da af6172a); antes saía aos 62 s. É o preço de não sair por cima da notificação deixada na tela entre 60 e 120 s, que o JS não separa da resposta presa.
+- Notificação cuja resposta não volta (iOS 27): a localização sai aos 122 s (pedido aos 2 s + 60 s da trava + 60 s, como o ATT da af6172a); antes saía aos 62 s. É o preço de não sair por cima da notificação deixada na tela entre 60 e 120 s, que o JS não separa da resposta presa. [Vale em qualquer abertura em que a resposta não voltar, também com tudo respondido (120 s); ver a revisão da c570103, abaixo.]
 
 ### Verificação
 - `./tests/run.sh`: TODOS OS TESTES PASSARAM (665 pass, 0 fail; eram 640); `tsc --noEmit` sem erro.
@@ -3146,6 +3146,37 @@ Implementar, por cima da af6172a, as duas correções da 2ª revisão já decidi
 
 ### Achado fora do pedido (já existia na af6172a; não mexido)
 - Na Europa, com o UMP depois de outro diálogo, no iOS 27: ATT ou notificação deixados mais de 60 s na tela → o formulário do UMP aparece por cima aos 60 s (ele entra na trava e a trava solta no limite). Anotado no README ("O que ainda sobra").
+
+### Versão
+Ainda 1.5.8 no package.json; nada enviado; sem etiqueta.
+
+## 2026-11-09 — Revisão da c570103: um prazo só para a espera dos pedidos do app (1.5.9 em andamento, SEM push)
+
+### Pedido
+Rodada 1 de correção da revisão da c570103: avaliar com teste cada achado (1 que bloqueia e 6 que não bloqueiam) e corrigir os reais com o menor diff; dos que não bloqueiam, só frase de documentação ou comentário errado; o resto volta como rejeitado ("decisão do Bruno" quando for escolha de comportamento).
+
+### Ações (commit local por cima da c570103; nada enviado)
+- Bloqueante, ATT descartado pelo iOS sem nenhum "ficou ativo" (`appDialogsAfterOpen`): a espera do ATT e da notificação da abertura nunca terminava, e cada pedido do app criava um limite novo de 3 min a partir dele. Medido: localização da Início aos 200 s, mas o toque seguinte aos 250 s só saía aos 430 s, e um toque aos 60 s (Diego, nada pedido na abertura), aos 240 s, sem nada na tela. Agora o prazo é um só, dividido por todos os pedidos: cada espera segura no máximo 3 min com o app ativo, contados do fim da cadeia, e no limite sai do conjunto. Resultado: 200 s e 250 s (o toque depois do prazo sai na hora); o toque aos 60 s sai aos 200 s; um toque aos 100 s, com a Início ainda esperando, sai aos 201 s, logo depois dela.
+- Docs: README (linha do `appDialogsAfterOpen` sem o "sai na hora", e no Brasil só com o UMP depois de outro diálogo a localização não espera o initialize; Europa: initialize no limite de 20 s do formulário e as exceções do anúncio de abertura; "Nada fica preso" com o prazo único e os 120 s em qualquer abertura; "O que ainda sobra" com a notificação entre 60 s e 2 min, a Europa com o ATT respondido depois de 20 s, o anúncio de abertura carregado numa volta ao app e o `requestUmpConsent` antes do `handleReady`), `utils/types.ts` e comentários do `Utils.ts`.
+- Teste novo em `tests/dialog-order.test.ts`: o prazo é um só (Início e toque aos 100 s no prazo, toque aos 250 s na hora; toque aos 60 s no prazo; prazo contado do fim da cadeia também sem a notificação na abertura).
+
+### Dizer ao Bruno
+- Um toque feito antes do prazo ainda espera até ele, sem nada na tela: no caso raro do ATT descartado pelo iOS com a pessoa sem sair do app, o toque em "Usar minha localização" (Diego) ou no cartão de notificação aos 60 s sai aos 200 s. Depois do prazo, sai na hora.
+- A notificação cuja resposta não volta (iOS 27) segura a localização até 120 s em qualquer abertura em que isso acontecer, também com tudo já respondido (no iPhone a lib pede a notificação sem ler antes), e não só na 1ª.
+- Da 2ª abertura em diante, com o UMP no fim da ordem, a localização espera a consulta do UMP à internet (em geral menos de 1 s; com a consulta presa, 20 s); sem a opção, sai na hora.
+
+### Não mexido (não bloqueiam; só a documentação foi corrigida)
+- 2ª abertura esperando a consulta do UMP: decisão do Bruno (manter, ou não segurar o pedido do app quando o status guardado do UMP for NOT_REQUIRED).
+- 120 s da notificação que não volta, em qualquer abertura: decisão do Bruno (manter, ou somar os 60 s só quando a notificação ainda não tem resposta guardada no `@expo_utils_consent`).
+- Europa com o ATT respondido depois de 20 s (já vinha da af6172a): o formulário vem antes da notificação, o limite de 20 s dele começa antes de ele aparecer, e o initialize e as pré-cargas podem sair antes da resposta dele (`ump: timeout`). Corrigir mexe na vez e no limite do formulário: decisão do Bruno.
+- Anúncio de abertura que começa a carregar numa volta ao app antes da vez do formulário (a pessoa sai e volta com a notificação na tela) aparece por cima dele; no Android sem o `react-native-applifecycle`, sozinho (os 3 apps de eleição têm). Correção possível: marcar o formulário pendente desde a consulta REQUIRED e conferir de novo no LOADED.
+- `requestUmpConsent` do app antes do `handleReady` com a ordem nova: ATT e notificação por cima do formulário. Documentado ("não chame"); nenhum dos 3 apps faz isso.
+
+### Verificação
+- `./tests/run.sh`: TODOS OS TESTES PASSARAM (666 pass, 0 fail; eram 665); `tsc --noEmit` sem erro.
+- O teste novo cai na c570103 (os toques saem aos 280 s e 430 s) e passa agora. Mutação: o prazo contado do pedido do ATT em vez do fim da cadeia derruba o teste novo; as esperas sem prazo derrubam 3 testes.
+- Exploração fora da suíte: as 1.920 aberturas dos 5 perfis da c570103 dão a mesma lista de problemas antes e depois (72, todos já conhecidos e do iOS 27 com alerta de 70 s: 56 com o `requestPushPermission` do app pedindo junto, que sai por cima do alerta depois de 60 s, como sem a trava; 16 do formulário do UMP por cima do ATT ou da notificação, em "O que ainda sobra"); perfil novo "ATT descartado sem volta", com toques aos 100 s e 250 s: na c570103, 280 s e 430 s; agora, logo depois da Início (cerca de 200 s) e 250 s. Os 36 cenários de anúncio da revisão (Utils, LoadAdsManager e appopen-ads de verdade) dão o mesmo registro antes e depois.
+- Não testado em aparelho nem em simulador.
 
 ### Versão
 Ainda 1.5.8 no package.json; nada enviado; sem etiqueta.

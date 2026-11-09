@@ -56,8 +56,8 @@ export type PrepareOptions = {
      * da abertura, em qualquer ordem. Com o UMP depois de outro diálogo, a consulta dele à internet (rápida, sem nada na
      * tela) continua saindo no começo e só o formulário (Europa, Reino Unido e estados regulados dos EUA) espera a vez
      * dele; no Brasil o UMP não aparece. Sem formulário, o SDK de anúncios inicializa logo depois da consulta; com
-     * formulário, depois da resposta dele. Na Europa o formulário passa a vir na posição dada (o Google recomenda antes do
-     * ATT). Ex.: `["att", "push", "ump"]` = ATT, depois notificação, depois o formulário.
+     * formulário, depois da resposta dele (ou no limite de 20 s dele). Na Europa o formulário passa a vir na posição
+     * dada (o Google recomenda antes do ATT). Ex.: `["att", "push", "ump"]` = ATT, depois notificação, depois o formulário.
      */
     dialogOrder?: readonly OpenDialog[];
     /**
@@ -67,7 +67,8 @@ export type PrepareOptions = {
      * depois do fim da cadeia (o ATT descartado pelo iOS volta no próximo "ficou ativo", e o pedido espera por ele). A
      * espera começa no `prepare` e nunca prende para sempre: sem o `handleReady`, solta junto com o aviso de 30 s; com a
      * cadeia parada (premium ou initialize sem resposta), em 3 min; o ATT e a notificação seguram no máximo 3 min com o app
-     * ativo (a notificação cuja resposta não volta, no máximo um limite da trava depois do dela), e o pedido de notificação
+     * ativo, contados do fim da cadeia (um prazo só: o pedido feito antes espera no máximo até ele, e depois dele nada
+     * segura; a notificação cuja resposta não volta, no máximo um limite da trava depois do dela), e o pedido de notificação
      * que volta perdido sem diálogo (Android negada para sempre) não segura nada. Não vale para os pedidos da lib
      * (`requestAttPermission`, `requestPushPermission`, `requestUmpConsent`). Padrão `false`: quem pede primeiro vai
      * primeiro, como sempre.
