@@ -19,6 +19,13 @@ type Props = {
     appStrings: AppStrings;
     children: React.ReactNode;
     onReady?: () => void | Promise<void>;
+    /** Consentimento do UMP na abertura (padrão true). Ver PrepareOptions em utils/types.ts. */
+    umpDialogOnOpen?: boolean;
+    /** Alerta do ATT na abertura (padrão true). false: o app chama Utils.requestAttPermission(). */
+    attDialogOnOpen?: boolean;
+    /** Pedido de permissão de notificação na abertura (padrão true). false: o app chama Utils.requestPushPermission(). */
+    pushDialogOnOpen?: boolean;
+    /** Nome antigo do pushDialogOnOpen (continua valendo). */
     fcmTrackingAllowed?: boolean;
 };
 
@@ -34,7 +41,7 @@ type Props = {
  * globals de ads já prontos — e ANTES do setupAppOpenListener(), então o callback ainda
  * consegue influenciar o 1º app-open ad. Erro no callback não trava o boot (warn isolado).
  */
-export function ExpoUtilsLayout({appConfig, appStrings, children, onReady, fcmTrackingAllowed = true}: Props) {
+export function ExpoUtilsLayout({appConfig, appStrings, children, onReady, umpDialogOnOpen, attDialogOnOpen, pushDialogOnOpen, fcmTrackingAllowed}: Props) {
     const [appIsReady, setAppIsReady] = useState(false);
     const [showReviewOverlay, setShowReviewOverlay] = useState(false);
     // Remote Config novo aplicado com o app fora de vista (`resume_config: "on_leave"`): as telas remontam e leem a config
@@ -53,7 +60,11 @@ export function ExpoUtilsLayout({appConfig, appStrings, children, onReady, fcmTr
                 // Espera o OTA antes da 1ª tela de propósito: se houver atualização obrigatória, o app reinicia ainda no
                 // splash e a pessoa não vê a tela abrir e piscar.
                 await initHotUpdater(appStrings?.hotUpdaterUrl, {apiKey: appStrings?.hotUpdaterApiKey});
-                await Utils.prepare(setAppIsReady, appConfig, appStrings, fcmTrackingAllowed);
+                await Utils.prepare(setAppIsReady, appConfig, appStrings, {
+                    umpDialogOnOpen,
+                    attDialogOnOpen,
+                    pushDialogOnOpen: pushDialogOnOpen ?? fcmTrackingAllowed,
+                });
                 if (!onReadyRan.current) {
                     onReadyRan.current = true;
                     try {

@@ -29,6 +29,29 @@ export interface AdUnits {
     rewarded?: string;
 }
 
+/**
+ * Quais diálogos a lib mostra na abertura, logo depois da 1ª tela (no Utils.handleReady): 4º argumento do `Utils.prepare`
+ * e props do `ExpoUtilsLayout`. Padrão: todos `true` (como sempre foi). `false`: o app mostra quando quiser (onboarding,
+ * pré-diálogo) com `Utils.requestUmpConsent()`, `Utils.requestAttPermission()` e `Utils.requestPushPermission()`, que
+ * passam pela mesma trava de permissão (um diálogo por vez). O formato antigo, um boolean no 4º argumento, continua valendo
+ * como `pushDialogOnOpen`.
+ */
+export type PrepareOptions = {
+    /**
+     * Consentimento do UMP (Europa, Reino Unido e estados regulados dos EUA; no Brasil não mostra nada). `false`: chamar o
+     * requestUmpConsent antes do ATT e dos anúncios é responsabilidade do app (com ads_wait_consent_enabled ligada, os
+     * anúncios esperam esse UMP).
+     */
+    umpDialogOnOpen?: boolean;
+    /**
+     * Alerta do ATT (iOS). `false`: o app chama o requestAttPermission; até a resposta, o FB e a atribuição seguem sem o
+     * IDFA e são atualizados quando ela chega.
+     */
+    attDialogOnOpen?: boolean;
+    /** Pedido de permissão de notificação. `false`: o app chama o requestPushPermission. É o antigo `fcmTrackingAllowed`. */
+    pushDialogOnOpen?: boolean;
+};
+
 export interface AppStrings {
     rckey?: string;
     adUnits?: AdUnits;

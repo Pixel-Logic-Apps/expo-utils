@@ -786,3 +786,97 @@ test("whenAdsConsentReady chamado antes do Remote Config: espera ele chegar e re
     delete (globalThis as any).remoteConfigUtils;
     delete (globalThis as any).__DEV__;
 });
+
+// Diálogos fora da abertura (opções umpDialogOnOpen/attDialogOnOpen/pushDialogOnOpen do prepare, que o handleReady repassa):
+// o app pede depois com requestUmpConsent / requestAttPermission / requestPushPermission.
+test("attDialogOnOpen false (iOS): a cadeia não pede o ATT; o FB sobe sem IDFA; o requestAttPermission depois pede e avisa o FB", async () => {
+    state.attAnswers = ["granted"];
+    const {default: Utils} = await load();
+    await Utils.requestTrackingWhenActive(appConfig, appStrings, true, {att: false});
+    expect(state.attRequests).toBe(0);
+    expect(state.order).toEqual(["push"]); // a notificação não espera o ATT que não saiu
+    expect(state.fbTracking).toEqual([false]);
+    expect(consentEvents()).toEqual([{ump: "not_required", att: "not_asked", push: "granted", att_attempts: 0, push_attempts: 1}]);
+    expect(await Utils.requestAttPermission()).toBe("granted");
+    await flush();
+    expect(state.attRequests).toBe(1);
+    expect(state.fbTracking).toEqual([false, true]); // resposta tardia: o FB passa a coletar o IDFA
+    expect(state.refreshed).toEqual(["appl_chave"]);
+    expect(consentEvents().at(-1)).toEqual({ump: "not_required", att: "granted", push: "granted", att_attempts: 1, push_attempts: 1});
+    // Chamar de novo não pede outra vez.
+    expect(await Utils.requestAttPermission()).toBe("granted");
+    expect(state.attRequests).toBe(1);
+});
+
+test("attDialogOnOpen false com o ATT já respondido numa abertura anterior: a cadeia usa a resposta e nada fica pendente", async () => {
+    state.att = "granted";
+    (globalThis as any).remoteConfigUtils = {ads_wait_consent_enabled: true};
+    const {default: Utils, whenAdsConsentReady} = await load();
+    const seen = watchAds(whenAdsConsentReady);
+    await Utils.requestTrackingWhenActive(appConfig, appStrings, true, {att: false});
+    await flush();
+    expect(state.attRequests).toBe(0);
+    expect(state.fbTracking).toEqual([true]);
+    expect(seen.ready).toBe(true);
+    delete (globalThis as any).remoteConfigUtils;
+});
+
+test("ads_wait_consent_enabled + attDialogOnOpen false: o anúncio espera o requestAttPermission do onboarding", async () => {
+    (globalThis as any).remoteConfigUtils = {ads_wait_consent_enabled: true};
+    state.attAnswers = ["denied"];
+    const {default: Utils, whenAdsConsentReady} = await load();
+    const seen = watchAds(whenAdsConsentReady);
+    await Utils.requestTrackingWhenActive(appConfig, appStrings, true, {att: false});
+    await advance(200000); // nem o limite de 3 min libera: o ATT ainda não foi pedido (é do app)
+    expect(seen.ready).toBe(false);
+    expect(await Utils.requestAttPermission()).toBe("denied");
+    await flush();
+    expect(seen.ready).toBe(true);
+    delete (globalThis as any).remoteConfigUtils;
+});
+
+test("pushDialogOnOpen false: a cadeia não pede a notificação; o requestPushPermission depois pede e entra no consent_flow", async () => {
+    state.os = "android";
+    state.androidAnswers = ["granted"];
+    const {default: Utils} = await load();
+    await Utils.requestTrackingWhenActive(appConfig, appStrings, false);
+    expect(state.androidRequests).toBe(0);
+    expect(consentEvents()).toEqual([{ump: "not_required", att: "na", push: "skipped", att_attempts: 0, push_attempts: 0}]);
+    expect(await Utils.requestPushPermission()).toBe("granted");
+    await flush();
+    expect(state.androidRequests).toBe(1);
+    expect(consentEvents().at(-1)).toEqual({ump: "not_required", att: "na", push: "granted", att_attempts: 0, push_attempts: 1});
+});
+
+test("umpDialogOnOpen false: a cadeia não chama o UMP (o ATT sai mesmo assim: a ordem é do app); o requestUmpConsent depois chama", async () => {
+    let umpCalls = 0;
+    state.att = "denied";
+    // O mock do gatherConsent lê state.ump uma vez por chamada: o getter conta as chamadas.
+    Object.defineProperty(state, "ump", {
+        configurable: true,
+        get: () => (umpCalls++, Promise.resolve({canRequestAds: true, status: "OBTAINED"})),
+    });
+    (globalThis as any).remoteConfigUtils = {ads_wait_consent_enabled: true};
+    const {default: Utils, whenAdsConsentReady} = await load();
+    const seen = watchAds(whenAdsConsentReady);
+    await Utils.requestTrackingWhenActive(appConfig, appStrings, true, {ump: false});
+    await advance(200000);
+    expect(umpCalls).toBe(0);
+    expect(seen.ready).toBe(false); // com a chave ligada, os anúncios esperam o UMP que o app ainda não pediu
+    expect(consentEvents()[0].ump).toBe("skipped");
+    expect(await Utils.requestUmpConsent()).toBe("obtained");
+    await flush();
+    expect(umpCalls).toBe(1);
+    expect(seen.ready).toBe(true);
+    expect(consentEvents().at(-1).ump).toBe("obtained");
+    delete (globalThis as any).remoteConfigUtils;
+    delete (state as any).ump;
+    state.ump = null;
+});
+
+test("requestAttPermission no Android: 'na', sem pedir nada", async () => {
+    state.os = "android";
+    const {default: Utils} = await load();
+    expect(await Utils.requestAttPermission()).toBe("na");
+    expect(state.attRequests).toBe(0);
+});

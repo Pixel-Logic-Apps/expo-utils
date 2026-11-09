@@ -80,7 +80,9 @@ export default function RootLayout() {
     );
 }
 
-Prop opcional do <ExpoUtilsLayout>: fcmTrackingAllowed (default true) — passe
-false p/ pular a permissão de push (notificações).
+Props opcionais do <ExpoUtilsLayout>: umpDialogOnOpen, attDialogOnOpen e
+pushDialogOnOpen (default true) — passe false p/ o diálogo não sair na abertura
+e peça no onboarding com Utils.requestUmpConsent(), Utils.requestAttPermission()
+e Utils.requestPushPermission(). fcmTrackingAllowed é o nome antigo do push.
 ───────────────────────────────────────────────────────────────────────────
 */

@@ -51,6 +51,32 @@ Corrigido o erro `No APNS token specified before fetching FCM Token`. O expo-uti
 
 O prompt de **App Tracking Transparency** é exibido **só após o primeiro frame**, **só com o app ativo** e, se o iOS descartar o pedido em silêncio, é **pedido de novo no próximo "ficou ativo"** (até 3 vezes por abertura) — sem espera fixa (ver [Ordem de Permissões](#ordem-de-permissões)). Nenhum dado de tracking é coletado antes do consentimento.
 
+### 🗂️ Diálogos na abertura: UMP, ATT e notificação
+
+Por padrão a lib mostra, logo depois da 1ª tela, o consentimento do UMP (só na Europa, no Reino Unido e em estados regulados dos EUA), o alerta do ATT (iOS) e o pedido de permissão de notificação, nessa ordem e um por vez. Cada um pode sair da abertura para o app mostrar quando quiser (onboarding, pré-diálogo):
+
+| Opção | Diálogo | Para pedir depois |
+|-------|---------|-------------------|
+| `umpDialogOnOpen` | consentimento do UMP | `Utils.requestUmpConsent()` |
+| `attDialogOnOpen` | alerta do ATT | `Utils.requestAttPermission()` |
+| `pushDialogOnOpen` | permissão de notificação | `Utils.requestPushPermission()` |
+
+Padrão `true` (como sempre foi). As funções passam pela mesma trava de permissão (um diálogo por vez), contam no `consent_flow` e podem ser chamadas mais de uma vez (o ATT não é pedido de novo na mesma abertura). Com `umpDialogOnOpen: false`, chamar o `requestUmpConsent` antes do ATT e dos anúncios é responsabilidade do app. Com `attDialogOnOpen: false`, o FB e a atribuição sobem sem o IDFA e são atualizados quando a pessoa responde. O formato antigo (`Utils.prepare(..., false)` e a prop `fcmTrackingAllowed`) continua valendo como `pushDialogOnOpen: false`.
+
+```tsx
+// Com o ExpoUtilsLayout:
+<ExpoUtilsLayout appConfig={appConfig} appStrings={appStrings} attDialogOnOpen={false} pushDialogOnOpen={false}>
+    <Stack />
+</ExpoUtilsLayout>
+
+// Com _layout próprio:
+await Utils.prepare(setAppIsReady, appConfig, appStrings, {attDialogOnOpen: false, pushDialogOnOpen: false});
+
+// No onboarding:
+await Utils.requestPushPermission();
+await Utils.requestAttPermission();
+```
+
 ### 🧩 `_layout` mais enxuto (opcional)
 
 Novo `<ExpoUtilsLayout>` encapsula todo o boot (prepare → ATT → overlays) e expõe um callback `onReady` pro seu código pós-boot. O template explícito continua sendo o default, pra quem quer controle total.
