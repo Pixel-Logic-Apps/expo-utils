@@ -432,6 +432,17 @@ const umpDialogEnded = new Promise<void>((resolve) => (markUmpDialogEnded = reso
 // (resposta, erro ou o limite de segurança da trava), também enquanto espera a vez dele. O anúncio de abertura não sai nessa
 // volta ao app (isAttPending): carregado antes da vez do formulário, apareceria por cima dele.
 let umpFormPending = false;
+// Com o UMP depois de outro diálogo: a consulta disse que há formulário (fica assim até o fim da sessão).
+let umpFormAfterOthers = false;
+
+/**
+ * Com o UMP depois de outro diálogo na ordem da abertura (dialogOrder): a consulta disse que há formulário nesta sessão, e a
+ * vez dele pode passar de 2 min (ATT descartado, resposta da notificação que não volta, notificação muito tempo na tela).
+ * Aí a pré-carga do 1º app open (utils/appopen-ads.tsx) espera o fim do consentimento (whenConsentFlowDone: a resposta ou o
+ * fim do formulário e o initialize do SDK), sem o teto de 2 min, como a do 1º intersticial. false: o teto vale como antes,
+ * também enquanto a consulta não respondeu.
+ */
+export const hasFormAfterOthers = (): boolean => umpFormAfterOthers;
 
 // Quanto a cadeia espera o ATT e a notificação. É limite, não espera: o pedido sai assim que chega a vez dele com o app
 // ativo (utils/permission-gate.ts) e o limite só vale quando a resposta não vem — pedido na fila atrás de um diálogo,
@@ -1063,8 +1074,10 @@ const runMobileAdsSetup = (appConfig?: any, turn?: UmpTurn): Promise<void> => {
                 // Formulário na vez dele: um diálogo por vez, com o app ativo. Ele é tela do app (não tira o app de `active`)
                 // e espera a pessoa, então segura a trava até a resposta, com o limite de segurança de 3 min (só com o app
                 // ativo) no lugar do limite dos alertas do sistema. A resposta é a dele. Pendente para o anúncio de abertura
-                // desde já, também enquanto espera a vez (isAttPending).
+                // desde já, também enquanto espera a vez (isAttPending), e a pré-carga do 1º app open espera o fim do
+                // consentimento sem o teto de 2 min (hasFormAfterOthers).
                 umpFormPending = true;
+                umpFormAfterOthers = true;
                 markNeedsForm();
                 try {
                     await turn.form();

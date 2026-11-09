@@ -1,6 +1,6 @@
 import {AppOpenAd, AdEventType} from "react-native-google-mobile-ads";
 import {generatePlacementId, isAdTypeBlocked, isPlacementBlocked} from "./AdPlacementTracker";
-import {expoUtilsLog, expoUtilsWarn, isAdsConsentReady, isAttPending, waitAttFlowDone, whenAdsConsentReady} from "./Utils";
+import {expoUtilsLog, expoUtilsWarn, hasFormAfterOthers, isAdsConsentReady, isAttPending, waitAttFlowDone, whenAdsConsentReady, whenConsentFlowDone} from "./Utils";
 import {PremiumUtils} from "./PremiumUtils";
 import {logAdRevenue} from "./ad-revenue";
 import {addAppLifecycleListener} from "./app-lifecycle";
@@ -134,7 +134,12 @@ export const setupAppOpenListener = (adUnitId?: string) => {
     });
     expoUtilsLog(`[expo-utils] AppOpen trigger: ${source}`);
     // Pré-carga ligada: o 1º app open carrega quando o fluxo de UMP/ATT da lib termina, para o pedido não sair antes
-    // do consentimento. O teto padrão de 15 s (o do promo) passaria com o formulário do UMP ainda aberto; 2 min só
-    // existe para layout sem handleReady, onde o fluxo nunca termina.
-    if (readAdPreloadSettings("appopen").enabled) void waitAttFlowDone(2 * 60_000).then(() => whenAdsConsentReady()).then(() => preloadAppOpen(adUnitId));
+    // do consentimento. O teto padrão de 15 s (o do promo) passaria com o formulário do UMP ainda aberto; o de 2 min vale
+    // quando o fluxo demora mais que isso (layout sem handleReady, initialize preso). Com o formulário do UMP depois de
+    // outro diálogo (dialogOrder), a vez dele pode passar de 2 min: aí o 1º espera o fim do consentimento (a resposta dele e
+    // o initialize), sem teto, como o 1º intersticial.
+    if (readAdPreloadSettings("appopen").enabled)
+        void waitAttFlowDone(2 * 60_000)
+            .then(() => (hasFormAfterOthers() ? whenConsentFlowDone().then(() => whenAdsConsentReady()) : whenAdsConsentReady()))
+            .then(() => preloadAppOpen(adUnitId));
 };

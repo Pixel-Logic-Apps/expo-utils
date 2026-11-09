@@ -32,6 +32,8 @@ const state = {
     premium: false,
     premiumHang: false, // a leitura de premium nunca responde (a cadeia para no UMP)
     initMs: 0, // o initialize do SDK de anúncios responde depois disso (adapters de mediação)
+    initHang: false, // o initialize nunca responde
+    logInitDone: false, // o fim do initialize entra no trace (seção 7; as seções de antes gravaram o trace inteiro sem ele)
     att: "undetermined",
     attDiscard: 0, // pedidos de ATT que o iOS descarta (voltam undetermined sem mostrar nada)
     push: -1, // AuthorizationStatus do RNFB no iOS: -1 não perguntado, 0 negado, 1 autorizado
@@ -117,6 +119,7 @@ const advance = async (ms: number, step = 500) => {
 
 mock.module("react-native", () => ({
     Alert: {alert: () => log("alerta")},
+    StatusBar: {setHidden: stub()},
     AppState: {
         get currentState() {
             return state.appState;
@@ -200,12 +203,35 @@ mock.module("@react-native-firebase/messaging", () => ({
     onNotificationOpenedApp: stub(),
     getInitialNotification: resolved(null),
 }));
+// Anúncio de tela cheia (app open e intersticial, seção 7): o trace ganha a criação e a carga de cada um.
+class FakeAd {
+    loaded = false;
+    constructor(public kind: string) {
+        log(`${kind}:cria`);
+    }
+    addAdEventListener() {
+        return () => {};
+    }
+    removeAllListeners() {}
+    load() {
+        log(`${this.kind}:carrega`);
+    }
+    show() {
+        log(`${this.kind}:mostra`);
+        return Promise.resolve();
+    }
+}
 mock.module("react-native-google-mobile-ads", () => ({
     default: () => ({
         initialize: () => {
             log("anuncios:initialize");
-            if (state.initMs) return new Promise((resolve) => setTimeout(() => resolve([]), state.initMs));
-            return Promise.resolve([]);
+            const done = () => {
+                if (state.logInitDone) log("anuncios:pronto");
+                return [];
+            };
+            if (state.initHang) return never();
+            if (state.initMs) return new Promise((resolve) => setTimeout(() => resolve(done()), state.initMs));
+            return Promise.resolve(done());
         },
     }),
     AdsConsent: {
@@ -233,6 +259,11 @@ mock.module("react-native-google-mobile-ads", () => ({
         reset: () => log("ump:reset"),
     },
     AdsConsentDebugGeography: {},
+    AdEventType: {LOADED: "loaded", ERROR: "error", OPENED: "opened", PAID: "paid", CLICKED: "clicked", CLOSED: "closed"},
+    RewardedAdEventType: {LOADED: "rewarded_loaded", EARNED_REWARD: "rewarded_earned_reward"},
+    AppOpenAd: {createForAdRequest: () => new FakeAd("appopen")},
+    InterstitialAd: {createForAdRequest: () => new FakeAd("intersticial")},
+    RewardedAd: {createForAdRequest: () => new FakeAd("rewarded")},
 }));
 mock.module("react-native-fbsdk-next", () => ({
     Settings: {
@@ -316,9 +347,29 @@ mock.module("expo-tiktok-ads-events", () => ({default: {}, TikTokStandardEvents:
 mock.module("../utils/i18n", () => ({getLocalizedMessages: () => ({})}));
 mock.module("../utils/hot-updater", () => ({initHotUpdater: resolved()}));
 mock.module("../utils/config-integrity", () => ({reportConfigIntegrity: resolved()}));
-mock.module("../utils/AdPlacementTracker", () => ({setBlocklist: stub()}));
+mock.module("../utils/AdPlacementTracker", () => ({
+    setBlocklist: stub(),
+    generatePlacementId: (type: string) => `home_${type}`,
+    isAdTypeBlocked: () => false,
+    isPlacementBlocked: () => false,
+}));
 mock.module("../utils/link-in-bio", () => ({trackLinkInBioInstall: resolved()}));
-mock.module("../utils/ad-revenue", () => ({initAdRevenue: stub()}));
+mock.module("../utils/ad-revenue", () => ({initAdRevenue: stub(), logAdRevenue: stub()}));
+mock.module("@react-native-firebase/analytics", () => ({getAnalytics: () => null, logEvent: resolved()}));
+// appopen-ads e LoadAdsManager (seção 7) importam "./Utils": aqui, a instância da abertura em teste (o load() importa uma nova
+// a cada abertura, com o caminho diferente, e essa não passa por este mock).
+mock.module("../utils/Utils", () => ({
+    expoUtilsLog: (...args: any[]) => current.expoUtilsLog(...args),
+    expoUtilsWarn: (...args: any[]) => current.expoUtilsWarn(...args),
+    hasFormAfterOthers: () => current.hasFormAfterOthers(),
+    isAttPending: () => current.isAttPending(),
+    isAdsConsentReady: (strict?: boolean) => current.isAdsConsentReady(strict),
+    isAdsConsentDenied: () => current.isAdsConsentDenied(),
+    waitAttFlowDone: (timeoutMs?: number) => current.waitAttFlowDone(timeoutMs),
+    whenAdsConsentReady: () => current.whenAdsConsentReady(),
+    whenAdsConsentDenied: () => current.whenAdsConsentDenied(),
+    whenConsentFlowDone: () => current.whenConsentFlowDone(),
+}));
 mock.module("../utils/push-analytics", () => ({logPushOpened: stub(), logPushReceived: stub()}));
 mock.module("../utils/rc-status", () => ({getRevenueCatStatus: stub(), syncRcStatus: resolved()}));
 mock.module("../utils/retention-events", () => ({showRetentionPreview: stub()}));
@@ -414,6 +465,8 @@ const reset = () => {
         premium: false,
         premiumHang: false,
         initMs: 0,
+        initHang: false,
+        logInitDone: false,
         att: "undetermined",
         attDiscard: 0,
         push: -1,
@@ -2513,5 +2566,337 @@ describe("SEMPRE ATT → notificação → formulário → localização (revis�
         }
         expect(Object.keys(BRASIL_A9EB0BD)).toEqual(BRASIL.map((scenario) => scenario.name));
         expect(differ).toEqual([]);
+    });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// 7. Pré-carga do 1º app open com o formulário do UMP depois de outro diálogo (revisão da faaf571)
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// Com appopen_preload_enabled, o 1º app open pré-carrega no fim do fluxo de consentimento da abertura, com teto de 2 min
+// (desde a d551d68). Na Europa, com o formulário depois de outro diálogo, a vez dele pode passar disso (ATT descartado,
+// resposta da notificação que não volta, notificação muito tempo na tela): aí o 1º app open espera a resposta do formulário
+// e o fim do initialize, sem teto, como o 1º intersticial. Nos outros casos, o mesmo da faaf571. Utils, appopen-ads e
+// LoadAdsManager de verdade, uma instância nova de cada por abertura (os dois últimos importam "./Utils", que aqui aponta
+// para a da abertura). As reproduções caem na faaf571; as proteções passam nas duas.
+const appStringsAds = {rckey: "appl_chave", adUnits: {appOpen: "ca-app-open", interstitial: "ca-intersticial"}} as any;
+
+// Abre como o ExpoUtilsLayout (prepare, setupAppOpenListener e o handleReady do 1º frame), com as duas pré-cargas ligadas.
+const openWithAds = async (options?: any, {ready = true}: {ready?: boolean} = {}) => {
+    state.rcUtils = {appopen_preload_enabled: true, interstitial_preload_enabled: true, ...state.rcUtils};
+    state.logInitDone = true;
+    const m = await load();
+    const {setupAppOpenListener} = await import(`../utils/appopen-ads.tsx?ordem=${serial}`);
+    await import(`../utils/LoadAdsManager.ts?ordem=${serial}`); // a pré-carga do 1º intersticial
+    const Utils = m.default;
+    const chain = Utils.requestTrackingWhenActive;
+    Utils.requestTrackingWhenActive = (...args: any[]) =>
+        chain(...args).then((granted: boolean) => {
+            log("cadeia:fim");
+            return granted;
+        });
+    await Utils.prepare(() => {}, appConfig, appStringsAds, options);
+    m.whenConsentFlowDone().then(() => log("consentimento:fim"));
+    setupAppOpenListener();
+    if (ready) Utils.handleReady();
+    await flush();
+    return m;
+};
+const firstIndex = (part: string) => trace.findIndex((line) => line.includes(part));
+// Na Europa com o formulário depois de outro diálogo: quando o formulário responde, o initialize termina e cada anúncio
+// pré-carrega, e se o app open só carrega depois dos dois.
+const preloadAfterForm = () => {
+    const appopen = firstIndex("appopen:carrega");
+    return {
+        formulario: times("ump:responde"),
+        initialize: times("anuncios:pronto"),
+        appopen: times("appopen:carrega"),
+        intersticial: times("intersticial:carrega"),
+        depoisDoFormularioEDoInitialize: appopen > firstIndex("ump:responde") && appopen > firstIndex("anuncios:pronto"),
+    };
+};
+const adsTrace = () => only(":aparece", ":responde", "anuncios:", "appopen:", "intersticial:", "consentimento:fim", "cadeia:fim");
+
+// Proteções: sem o formulário depois de outro diálogo (ordem padrão, Brasil na ordem nova, layout sem handleReady), com o
+// formulário respondido antes dos 2 min e com a consulta que só diz que há formulário depois de a cadeia seguir.
+type AdScenario = {name: string; setup?: () => void; options?: any; ready?: boolean; ms: number};
+const PRELOAD_SCENARIOS: AdScenario[] = [
+    {name: "iPhone, Brasil, ordem nova: ATT 2 s e notificação 2 s", options: ELEICAO_APP, ms: 10000,
+        setup: () => (autoAnswer = {att: [2000, "granted"], push: [2000, "granted"]})},
+    {name: "iPhone, Brasil, ordem nova sem appDialogsAfterOpen", options: ELEICAO, ms: 10000,
+        setup: () => (autoAnswer = {att: [2000, "granted"], push: [2000, "granted"]})},
+    {name: "iPhone, Brasil, ordem nova: initialize de 6 s", options: ELEICAO_APP, ms: 10000,
+        setup: () => ((state.initMs = 6000), (autoAnswer = {att: [1000, "granted"], push: [1000, "granted"]}))},
+    {name: "iPhone, Brasil, ordem nova: ATT descartado sem nenhum 'ficou ativo'", options: ELEICAO_APP, ms: 240000,
+        setup: () => (state.attDiscard = 1)},
+    {name: "iPhone, Brasil, ordem nova: resposta da notificação que não volta (iOS 27)", options: ELEICAO_APP, ms: 160000,
+        setup: () => ((state.pushHang = true), (autoAnswer = {att: [2000, "granted"], push: [2000, "granted"]}))},
+    {name: "iPhone, Brasil, ordem nova: ATT 150 s na tela (iOS 27)", options: ELEICAO_APP, ms: 200000,
+        setup: () => (autoAnswer = {att: [150000, "granted"], push: [2000, "granted"]})},
+    {name: "iPhone, Brasil, ordem nova: initialize preso", options: ELEICAO_APP, ms: 200000,
+        setup: () => ((state.initHang = true), (autoAnswer = {att: [2000, "granted"], push: [2000, "granted"]}))},
+    {name: "iPhone, Brasil, ordem nova: consulta do UMP presa", options: ELEICAO_APP, ms: 80000,
+        setup: () => ((state.infoHang = true), (autoAnswer = {att: [2000, "granted"], push: [2000, "granted"]}))},
+    {name: "iPhone, Brasil, ordem nova: ads_wait_consent_enabled", options: ELEICAO_APP, ms: 10000,
+        setup: () => ((state.rcUtils = {ads_wait_consent_enabled: true}), (autoAnswer = {att: [3000, "granted"], push: [2000, "granted"]}))},
+    {name: "iPhone, Brasil, ordem nova: premium", options: ELEICAO_APP, ms: 10000,
+        setup: () => ((state.premium = true), (autoAnswer = {att: [1000, "granted"], push: [1000, "granted"]}))},
+    {name: "Android, Brasil, ordem nova: notificação 125 s na tela", options: ELEICAO_APP, ms: 180000,
+        setup: () => ((state.os = "android"), (autoAnswer = {push: [125000, "granted"]}))},
+    {name: "Android, Brasil, ordem nova: initialize preso", options: ELEICAO_APP, ms: 200000,
+        setup: () => ((state.os = "android"), (state.initHang = true), (autoAnswer = {push: [2000, "granted"]}))},
+    {name: "iPhone, Europa, ordem nova: ATT, notificação e formulário em 2 s cada", options: ELEICAO_APP, ms: 10000,
+        setup: () => ((state.region = "EU"), (autoAnswer = {att: [2000, "granted"], push: [2000, "granted"], ump: [2000, "aceita"]}))},
+    {name: "iPhone, Europa, ordem nova: ATT respondido aos 45 s e formulário 5 s", options: ELEICAO_APP, ms: 60000,
+        setup: () => ((state.region = "EU"), (autoAnswer = {att: [45000, "granted"], push: [1000, "granted"], ump: [5000, "aceita"]}))},
+    {name: "Android, Europa, ordem nova: notificação 2 s e formulário 3 s", options: ELEICAO_APP, ms: 10000,
+        setup: () => ((state.os = "android"), (state.region = "EU"), (autoAnswer = {push: [2000, "granted"], ump: [3000, "aceita"]}))},
+    {name: "iPhone, Europa, ordem nova: consulta de 30 s (o formulário fica conhecido depois de a cadeia seguir)", options: ELEICAO_APP, ms: 60000,
+        setup: () => ((state.region = "EU"), (state.infoMs = 30000), (autoAnswer = {att: [2000, "granted"], push: [2000, "granted"], ump: [5000, "aceita"]}))},
+    {name: "iPhone, Europa, ordem nova: consulta de 130 s e initialize de 150 s (formulário conhecido depois dos 2 min)", options: ELEICAO_APP, ms: 200000,
+        setup: () => ((state.region = "EU"), (state.infoMs = 130000), (state.initMs = 150000), (autoAnswer = {att: [2000, "granted"], push: [2000, "granted"], ump: [5000, "aceita"]}))},
+    {name: "iPhone, Europa, ordem nova: ads_wait_consent_enabled, resposta da notificação que não volta e formulário recusado", options: ELEICAO_APP, ms: 200000,
+        setup: () => ((state.region = "EU"), (state.pushHang = true), (state.rcUtils = {ads_wait_consent_enabled: true}), (autoAnswer = {att: [2000, "granted"], push: [2000, "granted"], ump: [5000, "recusa"]}))},
+    {name: "iPhone, Brasil, ordem padrão: ATT 2 s e notificação 2 s", ms: 10000,
+        setup: () => (autoAnswer = {att: [2000, "granted"], push: [2000, "granted"]})},
+    {name: "iPhone, Europa, ordem padrão: formulário 4 s", ms: 15000,
+        setup: () => ((state.region = "EU"), (autoAnswer = {ump: [4000, "aceita"], att: [2000, "granted"], push: [2000, "granted"]}))},
+    {name: "iPhone, Brasil, ordem padrão: ATT 150 s na tela (iOS 27)", ms: 200000,
+        setup: () => (autoAnswer = {att: [150000, "granted"], push: [2000, "granted"]})},
+    {name: "iPhone, Europa, ordem padrão: formulário 3 s e ATT 150 s na tela (iOS 27)", ms: 200000,
+        setup: () => ((state.region = "EU"), (autoAnswer = {ump: [3000, "aceita"], att: [150000, "granted"], push: [2000, "granted"]}))},
+    {name: "iPhone, Brasil, ordem padrão: initialize preso", ms: 200000,
+        setup: () => ((state.initHang = true), (autoAnswer = {att: [2000, "granted"], push: [2000, "granted"]}))},
+    {name: "iPhone, Europa, ordem padrão: formulário 3 s e initialize preso", ms: 200000,
+        setup: () => ((state.region = "EU"), (state.initHang = true), (autoAnswer = {ump: [3000, "aceita"], att: [2000, "granted"], push: [2000, "granted"]}))},
+    {name: "Android, Europa, ordem padrão: formulário 3 s e notificação 125 s na tela", ms: 180000,
+        setup: () => ((state.os = "android"), (state.region = "EU"), (autoAnswer = {ump: [3000, "aceita"], push: [125000, "granted"]}))},
+    {name: "Android, Brasil, ordem padrão: initialize preso", ms: 200000,
+        setup: () => ((state.os = "android"), (state.initHang = true), (autoAnswer = {push: [2000, "granted"]}))},
+    {name: "layout sem handleReady", ready: false, ms: 200000},
+];
+const runPreloadScenario = async (scenario: AdScenario) => {
+    reset();
+    scenario.setup?.();
+    await openWithAds(scenario.options, {ready: scenario.ready ?? true});
+    await advance(scenario.ms, 1000);
+    return adsTrace();
+};
+
+// Gravado rodando os cenários acima na faaf571 (Utils.ts, appopen-ads.tsx e LoadAdsManager.ts dela).
+const PRELOAD_FAAF571: Record<string, string[]> = {
+    "iPhone, Brasil, ordem nova: ATT 2 s e notificação 2 s": [
+        "0s att:aparece", "0s anuncios:initialize", "0s anuncios:pronto", "2s att:responde=granted", "2s consentimento:fim",
+        "2s push:aparece", "2s intersticial:cria", "2s intersticial:carrega", "2s appopen:cria", "2s appopen:carrega",
+        "4s push:responde=granted", "4s cadeia:fim",
+    ],
+    "iPhone, Brasil, ordem nova sem appDialogsAfterOpen": [
+        "0s att:aparece", "0s anuncios:initialize", "0s anuncios:pronto", "2s att:responde=granted", "2s consentimento:fim",
+        "2s push:aparece", "2s intersticial:cria", "2s intersticial:carrega", "2s appopen:cria", "2s appopen:carrega",
+        "4s push:responde=granted", "4s cadeia:fim",
+    ],
+    "iPhone, Brasil, ordem nova: initialize de 6 s": [
+        "0s att:aparece", "0s anuncios:initialize", "1s att:responde=granted", "1s push:aparece",
+        "2s push:responde=granted", "2s cadeia:fim", "6s anuncios:pronto", "6s consentimento:fim", "6s intersticial:cria",
+        "6s intersticial:carrega", "6s appopen:cria", "6s appopen:carrega",
+    ],
+    "iPhone, Brasil, ordem nova: ATT descartado sem nenhum 'ficou ativo'": [
+        "0s anuncios:initialize", "0s anuncios:pronto", "20s consentimento:fim", "20s cadeia:fim", "20s intersticial:cria",
+        "20s intersticial:carrega", "20s appopen:cria", "20s appopen:carrega",
+    ],
+    "iPhone, Brasil, ordem nova: resposta da notificação que não volta (iOS 27)": [
+        "0s att:aparece", "0s anuncios:initialize", "0s anuncios:pronto", "2s att:responde=granted", "2s consentimento:fim",
+        "2s push:aparece", "2s intersticial:cria", "2s intersticial:carrega", "2s appopen:cria", "2s appopen:carrega",
+        "4s push:responde=granted", "22s cadeia:fim",
+    ],
+    "iPhone, Brasil, ordem nova: ATT 150 s na tela (iOS 27)": [
+        "0s att:aparece", "0s anuncios:initialize", "0s anuncios:pronto", "20s consentimento:fim", "20s cadeia:fim",
+        "20s intersticial:cria", "20s intersticial:carrega", "20s appopen:cria", "20s appopen:carrega",
+        "150s att:responde=granted", "150s push:aparece", "152s push:responde=granted",
+    ],
+    "iPhone, Brasil, ordem nova: initialize preso": [
+        "0s att:aparece", "0s anuncios:initialize", "2s att:responde=granted", "2s push:aparece",
+        "4s push:responde=granted", "4s cadeia:fim", "120s appopen:cria", "120s appopen:carrega",
+    ],
+    "iPhone, Brasil, ordem nova: consulta do UMP presa": [
+        "0s att:aparece", "2s att:responde=granted", "2s push:aparece", "4s push:responde=granted",
+        "24s anuncios:initialize", "24s anuncios:pronto", "24s consentimento:fim", "24s cadeia:fim",
+        "24s intersticial:cria", "24s intersticial:carrega", "24s appopen:cria", "24s appopen:carrega",
+    ],
+    "iPhone, Brasil, ordem nova: ads_wait_consent_enabled": [
+        "0s att:aparece", "0s anuncios:initialize", "0s anuncios:pronto", "3s att:responde=granted", "3s consentimento:fim",
+        "3s push:aparece", "3s intersticial:cria", "3s intersticial:carrega", "3s appopen:cria", "3s appopen:carrega",
+        "5s push:responde=granted", "5s cadeia:fim",
+    ],
+    "iPhone, Brasil, ordem nova: premium": [
+        "0s att:aparece", "1s att:responde=granted", "1s consentimento:fim", "1s push:aparece", "2s push:responde=granted",
+        "2s cadeia:fim",
+    ],
+    "Android, Brasil, ordem nova: notificação 125 s na tela": [
+        "0s push:aparece", "0s anuncios:initialize", "0s anuncios:pronto", "0s consentimento:fim", "0s intersticial:cria",
+        "0s intersticial:carrega", "0s appopen:cria", "0s appopen:carrega", "20s cadeia:fim", "125s push:responde=granted",
+        "125s appopen:cria", "125s appopen:carrega",
+    ],
+    "Android, Brasil, ordem nova: initialize preso": [
+        "0s push:aparece", "0s anuncios:initialize", "2s push:responde=granted", "2s appopen:cria", "2s appopen:carrega",
+        "2s cadeia:fim", "120s appopen:cria", "120s appopen:carrega",
+    ],
+    "iPhone, Europa, ordem nova: ATT, notificação e formulário em 2 s cada": [
+        "0s att:aparece", "2s att:responde=granted", "2s push:aparece", "4s push:responde=granted", "4s ump:aparece",
+        "6s ump:responde=aceita", "6s anuncios:initialize", "6s anuncios:pronto", "6s consentimento:fim", "6s cadeia:fim",
+        "6s intersticial:cria", "6s intersticial:carrega", "6s appopen:cria", "6s appopen:carrega",
+    ],
+    "iPhone, Europa, ordem nova: ATT respondido aos 45 s e formulário 5 s": [
+        "0s att:aparece", "45s att:responde=granted", "45s push:aparece", "46s push:responde=granted", "46s ump:aparece",
+        "51s ump:responde=aceita", "51s anuncios:initialize", "51s anuncios:pronto", "51s consentimento:fim",
+        "51s cadeia:fim", "51s intersticial:cria", "51s intersticial:carrega", "51s appopen:cria", "51s appopen:carrega",
+    ],
+    "Android, Europa, ordem nova: notificação 2 s e formulário 3 s": [
+        "0s push:aparece", "2s push:responde=granted", "2s ump:aparece", "5s ump:responde=aceita", "5s anuncios:initialize",
+        "5s anuncios:pronto", "5s consentimento:fim", "5s cadeia:fim", "5s intersticial:cria", "5s intersticial:carrega",
+        "5s appopen:cria", "5s appopen:carrega",
+    ],
+    "iPhone, Europa, ordem nova: consulta de 30 s (o formulário fica conhecido depois de a cadeia seguir)": [
+        "0s att:aparece", "2s att:responde=granted", "2s push:aparece", "4s push:responde=granted",
+        "24s anuncios:initialize", "24s anuncios:pronto", "24s consentimento:fim", "24s cadeia:fim",
+        "24s intersticial:cria", "24s intersticial:carrega", "24s appopen:cria", "24s appopen:carrega", "30s ump:aparece",
+        "35s ump:responde=aceita",
+    ],
+    "iPhone, Europa, ordem nova: consulta de 130 s e initialize de 150 s (formulário conhecido depois dos 2 min)": [
+        "0s att:aparece", "2s att:responde=granted", "2s push:aparece", "4s push:responde=granted",
+        "24s anuncios:initialize", "24s cadeia:fim", "120s appopen:cria", "120s appopen:carrega", "130s ump:aparece",
+        "135s ump:responde=aceita", "174s anuncios:pronto", "174s consentimento:fim", "174s intersticial:cria",
+        "174s intersticial:carrega",
+    ],
+    "iPhone, Europa, ordem nova: ads_wait_consent_enabled, resposta da notificação que não volta e formulário recusado": [
+        "0s att:aparece", "2s att:responde=granted", "2s push:aparece", "4s push:responde=granted", "122s ump:aparece",
+        "127s ump:responde=recusa", "127s consentimento:fim", "127s cadeia:fim",
+    ],
+    "iPhone, Brasil, ordem padrão: ATT 2 s e notificação 2 s": [
+        "0s anuncios:initialize", "0s anuncios:pronto", "0s att:aparece", "2s att:responde=granted", "2s consentimento:fim",
+        "2s push:aparece", "2s intersticial:cria", "2s intersticial:carrega", "2s appopen:cria", "2s appopen:carrega",
+        "4s push:responde=granted", "4s cadeia:fim",
+    ],
+    "iPhone, Europa, ordem padrão: formulário 4 s": [
+        "0s ump:aparece", "4s ump:responde=aceita", "4s anuncios:initialize", "4s anuncios:pronto", "4s att:aparece",
+        "6s att:responde=granted", "6s consentimento:fim", "6s push:aparece", "6s intersticial:cria",
+        "6s intersticial:carrega", "6s appopen:cria", "6s appopen:carrega", "8s push:responde=granted", "8s cadeia:fim",
+    ],
+    "iPhone, Brasil, ordem padrão: ATT 150 s na tela (iOS 27)": [
+        "0s anuncios:initialize", "0s anuncios:pronto", "0s att:aparece", "20s consentimento:fim", "20s cadeia:fim",
+        "20s intersticial:cria", "20s intersticial:carrega", "20s appopen:cria", "20s appopen:carrega",
+        "150s att:responde=granted", "150s push:aparece", "152s push:responde=granted",
+    ],
+    "iPhone, Europa, ordem padrão: formulário 3 s e ATT 150 s na tela (iOS 27)": [
+        "0s ump:aparece", "3s ump:responde=aceita", "3s anuncios:initialize", "3s anuncios:pronto", "3s att:aparece",
+        "23s consentimento:fim", "23s cadeia:fim", "23s intersticial:cria", "23s intersticial:carrega", "23s appopen:cria",
+        "23s appopen:carrega", "153s att:responde=granted", "153s push:aparece", "155s push:responde=granted",
+    ],
+    "iPhone, Brasil, ordem padrão: initialize preso": [
+        "0s anuncios:initialize", "120s appopen:cria", "120s appopen:carrega",
+    ],
+    "iPhone, Europa, ordem padrão: formulário 3 s e initialize preso": [
+        "0s ump:aparece", "3s ump:responde=aceita", "3s anuncios:initialize", "120s appopen:cria", "120s appopen:carrega",
+    ],
+    "Android, Europa, ordem padrão: formulário 3 s e notificação 125 s na tela": [
+        "0s ump:aparece", "3s ump:responde=aceita", "3s anuncios:initialize", "3s anuncios:pronto", "3s consentimento:fim",
+        "3s intersticial:cria", "3s intersticial:carrega", "3s appopen:cria", "3s appopen:carrega", "3s push:aparece",
+        "23s cadeia:fim", "128s push:responde=granted", "128s appopen:cria", "128s appopen:carrega",
+    ],
+    "Android, Brasil, ordem padrão: initialize preso": [
+        "0s anuncios:initialize", "120s appopen:cria", "120s appopen:carrega",
+    ],
+    "layout sem handleReady": [
+        "120s appopen:cria", "120s appopen:carrega",
+    ],
+};
+
+describe("pré-carga do 1º app open com o formulário depois de outro diálogo (revisão da faaf571)", () => {
+    test("Europa, ATT descartado sem nenhum 'ficou ativo': o 1º app open carrega depois da resposta do formulário e do initialize (205 s; antes, aos 120 s, antes do formulário dos 200 s), com e sem appDialogsAfterOpen", async () => {
+        for (const options of [ELEICAO_APP, ELEICAO]) {
+            reset();
+            state.region = "EU";
+            state.attDiscard = 1;
+            autoAnswer = {ump: [5000, "aceita"]};
+            await openWithAds(options);
+            await advance(240000, 1000);
+            expect(only("ump:aparece")).toEqual(["200s ump:aparece"]);
+            expect(preloadAfterForm()).toEqual({
+                formulario: ["205s"],
+                initialize: ["205s"],
+                appopen: ["205s"],
+                intersticial: ["205s"],
+                depoisDoFormularioEDoInitialize: true,
+            });
+        }
+    });
+
+    test("Europa, formulário que espera a vez dele mais de 2 min: o 1º app open sai com o 1º intersticial, depois da resposta dele", async () => {
+        const runs: Array<[string, () => void, string, string]> = [
+            ["iOS 27, resposta da notificação que não volta", () => ((state.pushHang = true), (autoAnswer = {att: [2000, "granted"], push: [2000, "granted"], ump: [5000, "aceita"]})), "122s", "127s"],
+            ["Android, notificação 125 s na tela", () => ((state.os = "android"), (autoAnswer = {push: [125000, "granted"], ump: [10000, "aceita"]})), "125s", "135s"],
+            ["iOS 27, ATT 110 s e notificação 15 s na tela", () => (autoAnswer = {att: [110000, "granted"], push: [15000, "granted"], ump: [10000, "aceita"]}), "125s", "135s"],
+            ["iOS 26, ATT 70 s e notificação 60 s na tela", () => ((state.alerts = "ios26"), (autoAnswer = {att: [70000, "granted"], push: [60000, "granted"], ump: [10000, "aceita"]})), "130s", "140s"],
+        ];
+        for (const [name, setup, formAt, answerAt] of runs) {
+            reset();
+            state.region = "EU";
+            setup();
+            await openWithAds(ELEICAO_APP);
+            await advance(180000, 1000);
+            expect({name, aparece: times("ump:aparece"), ...preloadAfterForm()}).toEqual({
+                name,
+                aparece: [formAt],
+                formulario: [answerAt],
+                initialize: [answerAt],
+                appopen: [answerAt],
+                intersticial: [answerAt],
+                depoisDoFormularioEDoInitialize: true,
+            });
+        }
+    });
+
+    test("Europa, initialize lento ou preso depois da resposta do formulário: o 1º app open espera o initialize e, preso, não pré-carrega na sessão, como o 1º intersticial", async () => {
+        // Formulário respondido aos 9 s e initialize de 150 s: os dois anúncios aos 159 s (antes, o app open aos 120 s).
+        state.region = "EU";
+        state.initMs = 150000;
+        autoAnswer = {att: [2000, "granted"], push: [2000, "granted"], ump: [5000, "aceita"]};
+        await openWithAds(ELEICAO_APP);
+        await advance(200000, 1000);
+        expect(preloadAfterForm()).toEqual({
+            formulario: ["9s"],
+            initialize: ["159s"],
+            appopen: ["159s"],
+            intersticial: ["159s"],
+            depoisDoFormularioEDoInitialize: true,
+        });
+
+        // Initialize que nunca responde: nenhum dos dois pré-carrega (antes, o app open aos 120 s).
+        reset();
+        state.region = "EU";
+        state.initHang = true;
+        autoAnswer = {att: [2000, "granted"], push: [2000, "granted"], ump: [5000, "aceita"]};
+        await openWithAds(ELEICAO_APP);
+        await advance(400000, 1000);
+        expect(only("ump:responde", "anuncios:", "appopen:", "intersticial:")).toEqual(["9s ump:responde=aceita", "9s anuncios:initialize"]);
+    });
+
+    test("proteções: ordem padrão, Brasil na ordem nova, layout sem handleReady, formulário respondido antes dos 2 min e consulta lenta dão a mesma sequência da faaf571 (o teto de 2 min continua onde estava)", async () => {
+        const differ: string[] = [];
+        for (const scenario of PRELOAD_SCENARIOS) {
+            const got = await runPreloadScenario(scenario);
+            if (JSON.stringify(got) !== JSON.stringify(PRELOAD_FAAF571[scenario.name])) differ.push(`${scenario.name}: ${got.join(" | ")}`);
+        }
+        expect(Object.keys(PRELOAD_FAAF571)).toEqual(PRELOAD_SCENARIOS.map((scenario) => scenario.name));
+        expect(differ).toEqual([]);
+        // O teto de 2 min: ordem padrão e Brasil na ordem nova com o initialize preso, e layout sem handleReady.
+        const at120 = (name: string) => PRELOAD_FAAF571[name].filter((line) => line.startsWith("120s appopen:carrega"));
+        expect(
+            [
+                "iPhone, Brasil, ordem padrão: initialize preso",
+                "iPhone, Europa, ordem padrão: formulário 3 s e initialize preso",
+                "iPhone, Brasil, ordem nova: initialize preso",
+                "layout sem handleReady",
+            ].map((name) => at120(name).length),
+        ).toEqual([1, 1, 1, 1]);
     });
 });

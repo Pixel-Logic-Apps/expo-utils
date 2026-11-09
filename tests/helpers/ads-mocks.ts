@@ -74,6 +74,7 @@ export const ads = {
     lifecycleModule: true, // NativeModules.ReactNativeAppLifecycle presente (app instalou o react-native-applifecycle)
     premium: false,
     attGate: Promise.resolve() as Promise<void>, // waitAttFlowDone()
+    formAfterOthers: false, // hasFormAfterOthers(): formulário do UMP depois de outro diálogo, com a consulta dizendo que há formulário
     consentFlow: new Promise<void>(() => {}) as Promise<void>, // whenConsentFlowDone(): sem o boot, nunca termina
     attPending: false, // isAttPending(): o ATT ainda vai pedir nesta abertura
     adsConsent: Promise.resolve() as Promise<void>, // whenAdsConsentReady(): com ads_wait_consent_enabled desligada, na hora
@@ -96,6 +97,7 @@ export function resetAds() {
     ads.lifecycleModule = true;
     ads.premium = false;
     ads.attGate = Promise.resolve();
+    ads.formAfterOthers = false;
     ads.consentFlow = new Promise<void>(() => {});
     ads.attPending = false;
     ads.adsConsent = Promise.resolve();
@@ -176,6 +178,7 @@ export function installAdsMocks() {
             return ads.attGate;
         },
         whenConsentFlowDone: () => ads.consentFlow,
+        hasFormAfterOthers: () => ads.formAfterOthers,
         whenAdsConsentReady: () => ads.adsConsent,
         isAdsConsentReady: () => ads.adsConsentReady,
         isAdsConsentDenied: () => ads.adsConsentDenied,

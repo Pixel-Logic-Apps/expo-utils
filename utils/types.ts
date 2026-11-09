@@ -322,8 +322,9 @@ export interface RemoteConfigUtilsType {
      */
     taichi_events?: string[];
     /**
-     * Guarda um app open pronto (o 1º quando o UMP/ATT termina, os outros a cada fechamento) e mostra na volta ao app
-     * sem esperar a carga. Desligado: carrega na hora da volta.
+     * Guarda um app open pronto e mostra na volta ao app sem esperar a carga: o 1º quando o UMP/ATT termina, com teto de
+     * 2 min (na Europa, com o formulário do UMP depois de outro diálogo, depois da resposta dele e do initialize, sem
+     * teto), os outros a cada fechamento. Desligado: carrega na hora da volta.
      * @section Anúncios
      * @label Pré-carga do app open
      * @default desligado

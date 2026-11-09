@@ -3218,3 +3218,35 @@ Implementar, por cima da a9eb0bd, os 4 pontos da revisão (3 lentes + 1 rodada) 
 
 ### Versão
 Ainda 1.5.8 no package.json; nada enviado; sem etiqueta.
+
+## 2026-11-09 — Revisão da faaf571: o 1º app open da pré-carga espera o formulário do UMP na Europa (1.5.9 em andamento, SEM push)
+
+### Pedido
+Ajuste pequeno por cima da faaf571 (num clone, sem push): (1) com o formulário do UMP depois de outro diálogo e a consulta dizendo que há formulário, o 1º app open da pré-carga (`appopen_preload_enabled`) só carrega depois do fim do consentimento (resposta do formulário e initialize), sem o teto de 2 min; em todos os outros casos, igual à faaf571; (2) opcional: não armar o prazo único na ordem padrão sem as opções, só se nada mudar em nenhuma configuração; (3) README só com o que é verdade; (4) testes, mutação e tsc; (5) commit no clone. Não mexer: FB e atribuição logo depois do ATT, anúncio liberado na resposta do ATT com a chave, regra da rajada (496e191/a5dd560) e o intersticial antes do formulário na Europa (decisão do Bruno, em aberto: só documentar).
+
+### Ações (commit local por cima da faaf571; nada enviado)
+- `utils/Utils.ts`: `umpFormAfterOthers` liga quando a consulta diz que há formulário com o UMP depois de outro diálogo (no mesmo ponto do `umpFormPending`) e fica até o fim da sessão; `hasFormAfterOthers()` exportado devolve isso.
+- `utils/appopen-ads.tsx`: depois do `waitAttFlowDone(2 min)`, com `hasFormAfterOthers()` espera o `whenConsentFlowDone()` e depois o `whenAdsConsentReady()`; sem, chama o `whenAdsConsentReady()` direto, como na faaf571 (a 1ª versão com um `.then` a mais trocava, na ordem padrão no Android, a ordem de duas linhas do mesmo instante: app open e pedido da notificação; esta não).
+- Antes → depois na Europa com a ordem nova (Utils, LoadAdsManager e appopen-ads de verdade): ATT descartado sem "ficou ativo" 120 s → 205 s (formulário aos 200 s); iOS 27 com a resposta da notificação que não volta 120 s → 127 s (formulário aos 122 s); Android com a notificação 125 s na tela 120 s → 135 s; iOS 27 com ATT 110 s e notificação 15 s 120 s → 135 s; iOS 26 com ATT 70 s e notificação 60 s 120 s → 140 s; a pessoa sai do app 3 min com o ATT na tela 120 s → 194 s; initialize de 150 s depois da resposta 120 s → 159 s; initialize preso 120 s → não pré-carrega (como o 1º intersticial). Em todos, o app open sai junto com o 1º intersticial, depois de "ump responde" e de "anúncios prontos".
+- Consulta lenta (o formulário só fica conhecido depois de a cadeia seguir sem ele): como antes, o 1º app open carrega no fim do consentimento (`ump: timeout`) ou aos 2 min, antes do formulário, e não aparece numa volta com o formulário pendente (`isAttPending`).
+- Item 2 não feito: uma 2ª cadeia chamada pelo app (`requestTrackingWhenActive` direto) com o UMP depois de outro diálogo, depois de uma 1ª sem `appDialogsAfterOpen` e sem formulário depois de outro diálogo (ex.: os três `*DialogOnOpen` false), muda: na faaf571 o prazo contado do fim da 1ª já venceu e sai ATT → formulário → notificação; com a mudança, ATT → notificação → formulário. Com uma cadeia só (todo app com o `handleReady`) não muda nada; nas 77 aberturas da ordem padrão o rastro sai igual e só some o ouvinte do AppState e o timer de 180 s (internos iguais à a5dd560).
+- README: "Diálogos na abertura" (Europa: a pré-carga do 1º app open espera o formulário; "Limites": o atraso da cadeia na Europa no lugar do "uns 3 min", com 306 s, 125 s e 203 s medidos; "Nada fica preso": a exceção dos ~360 s; "O que ainda sobra": intersticial antes do formulário e o formulário por cima dele, e com a chave cada `showInterstitial` espera 10 s e segue sem anúncio) e "App open: volta ao app e pré-carga" (o teto, a exceção, o initialize preso, a consulta lenta e a frase velha do intersticial, que pré-carrega o 1º no fim do fluxo desde a 1134fc2). `utils/types.ts`: `appopen_preload_enabled`.
+- Testes: `tests/dialog-order.test.ts` seção 7 (Utils, appopen-ads e LoadAdsManager de verdade por abertura; mocks novos só somam: `FakeAd`, `initHang`, `logInitDone`, `StatusBar`, analytics e o `./Utils` deles apontando para a abertura em teste): 3 reproduções e 1 proteção com 27 aberturas gravadas na faaf571 (ordem padrão, Brasil na ordem nova, sem `handleReady`, formulário respondido antes dos 2 min, consulta lenta e a chave com recusa). `tests/appopen-ads.test.ts`: 1 teste. `tests/helpers/ads-mocks.ts`: `hasFormAfterOthers`.
+
+### Dizer ao Bruno
+- Na Europa, o anúncio de abertura guardado de antemão não carrega mais antes do formulário de privacidade; carrega junto com o 1º intersticial, depois da resposta.
+- Com a pré-carga do app open desligada (o padrão), nada muda. No Brasil e na ordem padrão, nada muda.
+- Continua como estava (decisão sua): na Europa, enquanto o formulário espera a vez dele, a pessoa pode ver intersticial antes dele, e o formulário pode abrir por cima de um.
+
+### Achados
+- A ordem padrão com o ATT mais de 2 min na tela pré-carrega aos 20 s (limite do ATT na cadeia), não aos 120 s; os 120 s da ordem padrão são o initialize ou o premium presos e o layout sem `handleReady`. Os dois casos estão nas proteções.
+- Os ~360 s só acontecem com premium sem resposta e o ATT antes do UMP; com o initialize preso, não (a ordem padrão para antes do ATT; a ordem nova não espera o initialize).
+
+### Verificação
+- `./tests/run.sh`: TODOS OS TESTES PASSARAM (688 pass, 0 fail; eram 683). `tsc --noEmit` sem erro, também no modo estrito (`expo/tsconfig.base` + `strict`, como os apps compilam a lib).
+- Na faaf571, as 3 reproduções caem e a proteção passa. Mutação: 11 desvios (flag nunca liga, getter sempre false, getter removido, flag que zera no fim do formulário, flag no Brasil, flag na ordem padrão, encadeamento da faaf571, sempre esperar o consentimento, ramo do formulário sem a chave, decidir na montagem, sem o teto para todos); todos derrubam ao menos um teste.
+- Testes dos revisores: `rev3-compat` (77 aberturas da ordem padrão, rastro a cada 50 ms) idêntico à faaf571 e à a5dd560; `rev3-integ` da sonda (55 cenários) idêntico; `rev3-integ` dos anúncios (37 + 7 sondas): 32 iguais e 12 mudaram, todos na Europa com a ordem nova (os acima); `rev3-ordem-nova` (7 testes, grade de 848 aberturas) e `rev3-padrao`: passam e saem iguais.
+- Não testado em aparelho nem em simulador.
+
+### Versão
+Ainda 1.5.8 no package.json; nada enviado; sem etiqueta.

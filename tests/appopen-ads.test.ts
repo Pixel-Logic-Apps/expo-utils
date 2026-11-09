@@ -205,6 +205,22 @@ describe("pré-carga ligada (appopen_preload_enabled)", () => {
         expect(appOpens()[1].shows).toBe(0);
     });
 
+    test("formulário do UMP depois de outro diálogo (hasFormAfterOthers): o 1º espera o fim do consentimento, também depois do teto de 2 min", async () => {
+        (globalThis as any).remoteConfigUtils = {appopen_preload_enabled: true};
+        ads.formAfterOthers = true; // a consulta disse que há formulário, e ele ainda espera a vez dele
+        let endConsent!: () => void;
+        ads.consentFlow = new Promise<void>((resolve) => (endConsent = resolve));
+        const {setupAppOpenListener} = await load();
+        setupAppOpenListener();
+        await flush();
+        expect(ads.attTimeouts).toEqual([120_000]);
+        expect(appOpens()).toHaveLength(0); // o waitAttFlowDone já soltou (o teto), o consentimento não
+        endConsent();
+        await flush();
+        expect(appOpens()).toHaveLength(1);
+        expect(appOpens()[0].loads).toBe(1);
+    });
+
     test("pronto com 240 min (o padrão) é descartado e a volta carrega na hora", async () => {
         (globalThis as any).remoteConfigUtils = {appopen_preload_enabled: true};
         const {setupAppOpenListener} = await load();
