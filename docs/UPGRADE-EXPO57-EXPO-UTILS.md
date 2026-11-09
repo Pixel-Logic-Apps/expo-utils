@@ -642,7 +642,7 @@ export default function RootLayout() {
 - Atribuição do RevenueCat em duas fases + geo por IP + telemetria (v1.4.0 — seção 4.2.1)
 - `Alert.alert` desenhado pelo Expo UI: SwiftUI no iOS, Material 3 no Android (seção 4.2.2)
 
-Props opcionais: `umpDialogOnOpen`, `attDialogOnOpen` e `pushDialogOnOpen` (padrão `true`; `false` = o app pede no onboarding com `Utils.requestUmpConsent()`, `Utils.requestAttPermission()` e `Utils.requestPushPermission()`; `fcmTrackingAllowed={false}` é o nome antigo do push); `onReady` callback.
+Props opcionais: `umpDialogOnOpen`, `attDialogOnOpen` e `pushDialogOnOpen` (padrão `true`; `false` = o app pede no onboarding com `Utils.requestUmpConsent()`, `Utils.requestAttPermission()` e `Utils.requestPushPermission()`; `fcmTrackingAllowed={false}` é o nome antigo do push); `dialogOrder` (padrão `["ump", "att", "push"]`; a ordem desses diálogos) e `appDialogsAfterOpen` (padrão `false`; os pedidos do app pela trava, como a localização, esperam os diálogos da abertura) — as mesmas opções do 4º argumento do `Utils.prepare` (README, "Diálogos na abertura"); `onReady` callback.
 
 ### 4.2.1 Contrato de boot da v1.4.0 (atribuição, push aberta, analytics)
 

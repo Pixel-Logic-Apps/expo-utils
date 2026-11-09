@@ -185,9 +185,9 @@ export type PermissionGateOptions<S> = {
     /**
      * Ordem entre portões: cada pedido só sai depois que esta promessa termina (ex.: o fim do fluxo do ATT, para a
      * notificação não sair junto nem antes dele). Sem limite, porque é ordem e não espera de tempo; é aguardada antes de
-     * entrar na fila da trava, e o AppState é conferido de novo na vez do pedido.
+     * entrar na fila da trava, e o AppState é conferido de novo na vez do pedido. `undefined`: nada a esperar desta vez.
      */
-    after?: () => Promise<unknown>;
+    after?: () => Promise<unknown> | undefined;
 };
 
 export type PermissionGate<S> = {
@@ -220,7 +220,8 @@ export const createPermissionGate = <S>(options: PermissionGateOptions<S>): Perm
                     const current = await read();
                     if (!canAsk(current) || attempts >= maxAttempts) return {status: current, attempts};
                 }
-                if (after) await after().then(noop, noop);
+                const before = after?.();
+                if (before) await before.then(noop, noop);
                 const asked: {watch?: ReturnType<typeof watchAppState>; pending?: Promise<S>} = {};
                 try {
                     // A trava só roda o pedido com o app ativo, logo depois do evento: entre os dois não há ida ao nativo.

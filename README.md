@@ -77,6 +77,32 @@ await Utils.requestPushPermission();
 await Utils.requestAttPermission();
 ```
 
+**Ordem dos diálogos e pedidos do app depois deles.** Mais duas opções, no mesmo 4º argumento do `Utils.prepare` e nas props do `ExpoUtilsLayout`:
+
+| Opção | O que faz | Padrão |
+|-------|-----------|--------|
+| `dialogOrder` | Ordem dos diálogos da lib, um por vez: cada um espera os que vêm antes dele. Valor inválido ou repetido é ignorado; o que faltar entra depois, na ordem padrão. Os `*DialogOnOpen: false` continuam tirando o diálogo da abertura, em qualquer ordem. | `["ump", "att", "push"]` (a de sempre) |
+| `appDialogsAfterOpen` | Os pedidos do próprio app pela trava da lib (`Utils.withPermissionPrompt`: localização etc.) esperam os diálogos da abertura terminarem (o último da ordem respondido, pulado ou no limite de tempo dele) e só então entram na trava; pedido depois disso sai na hora. Não vale para `requestUmpConsent`, `requestAttPermission` e `requestPushPermission`. | `false` (quem pede primeiro vai primeiro) |
+
+```tsx
+// Apps de eleição: ATT, notificação, UMP e só então a localização da Início.
+<ExpoUtilsLayout appConfig={appConfig} appStrings={appStrings} dialogOrder={["att", "push", "ump"]} appDialogsAfterOpen>
+    <Stack />
+</ExpoUtilsLayout>
+
+// Com _layout próprio:
+await Utils.prepare(setAppIsReady, appConfig, appStrings, {dialogOrder: ["att", "push", "ump"], appDialogsAfterOpen: true});
+
+// Na tela, o pedido continua pela trava da lib, que segura até o fim dos diálogos da abertura:
+const {status} = await Utils.withPermissionPrompt(() => Location.requestForegroundPermissionsAsync());
+```
+
+- **No Brasil o UMP não aparece.** A consulta dele à internet (rápida, sem nada na tela; diz se há formulário) sai no começo da abertura em qualquer ordem e, sem formulário, o SDK de anúncios inicializa logo depois dela, como sempre. Com `["att", "push", "ump"]` a pessoa vê no iPhone ATT → notificação → localização e no Android notificação → localização.
+- **Na Europa, no Reino Unido e nos estados regulados dos EUA, o formulário do UMP vem na posição dada**, pela mesma trava dos outros diálogos, e o SDK de anúncios inicializa depois da resposta dele. O Google recomenda o formulário antes do ATT: com o UMP depois, essa escolha é do app.
+- Com o UMP em 1º (o padrão) nada muda: consulta, formulário e initialize vêm antes do próximo diálogo. `requestAttPermission` e `requestPushPermission` continuam esperando o que estiver na tela antes deles; o formulário só conta a partir da vez dele.
+- Limites: cada diálogo segura a cadeia no máximo 20 s, e o que passa disso conta como fim para o `appDialogsAfterOpen` (quem fica mais de 20 s no ATT pode ver a localização antes da notificação, sempre um diálogo por vez). Sem o `handleReady`, os pedidos do app saem junto com o aviso de 30 s; com a cadeia parada (premium ou initialize sem resposta), em 3 min.
+- Com `ads_wait_consent_enabled`, o anúncio continua esperando a resposta do UMP e, no iPhone, a do ATT: no Brasil sai logo depois da resposta do ATT; na Europa, depois do formulário.
+
 ### 🧩 `_layout` mais enxuto (opcional)
 
 Novo `<ExpoUtilsLayout>` encapsula todo o boot (prepare → ATT → overlays) e expõe um callback `onReady` pro seu código pós-boot. O template explícito continua sendo o default, pra quem quer controle total.
@@ -1907,7 +1933,8 @@ listener e a resposta do 1º se perde. Se o 1º era do Expo (ex.: `expo-location
 do Expo depois dela fica parado até a próxima abertura; uma tela que espera essa promessa fica sem responder ao toque.
 
 **Regra do expo-utils (uma só, para ATT e notificação, iOS e Android — `utils/permission-gate.ts`):**
-- Ordem: UMP → ATT → notificação, depois do 1º frame (`Utils.handleReady`).
+- Ordem: UMP → ATT → notificação, depois do 1º frame (`Utils.handleReady`). É a padrão; o app pode mudar com `dialogOrder`
+  (seção "Diálogos na abertura").
 - Pede com o app ativo (`AppState === 'active'`). Se não estiver (alerta de outro pedido na frente, diálogo do app,
   tela dividida no iPad), espera o evento de "ficou ativo" do AppState — nunca um temporizador.
 - Lê o status antes (ATT e notificação no Android, leituras que não penduram) e nunca pede o que já foi respondido. A
@@ -1935,7 +1962,9 @@ const {status} = await Utils.withPermissionPrompt(() => Location.requestForegrou
 ```
 
 - Uma permissão de cada vez, nos dois sistemas. Quem pede primeiro vai primeiro: sem ordem fixa e sem reserva de lugar.
-  Com a home pedindo localização ao montar, a ordem fica localização → ATT → notificação.
+  Com a home pedindo localização ao montar, a ordem fica localização → ATT → notificação. Com `appDialogsAfterOpen: true`
+  (opção do prepare), o pedido espera os diálogos da abertura: com `dialogOrder: ["att", "push", "ump"]`, ATT →
+  notificação → localização.
 - Espera a vez e o app ativo (por evento, sem temporizador), roda `fn` e solta a trava. `Utils.requestPushPermission()`
   já passa por ela.
 - Em `fn` vai só o pedido, sem rede nem outra permissão dentro.

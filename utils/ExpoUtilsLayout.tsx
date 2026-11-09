@@ -7,7 +7,7 @@ import {setupAppOpenListener} from "./appopen-ads";
 import AskForReviewOverlay, {AskForReviewEvents} from "./ask-for-review";
 import PromotionalContent, {usePromotional} from "./modal-promotional-content";
 import {RetentionModalSlot} from "./retention-modal";
-import type {AppStrings} from "./types";
+import type {AppStrings, OpenDialog} from "./types";
 import {useConfigVersion} from "./use-config-version";
 
 // Mantém o splash visível até o app estar pronto (roda no import, antes do mount).
@@ -27,6 +27,10 @@ type Props = {
     pushDialogOnOpen?: boolean;
     /** Nome antigo do pushDialogOnOpen (continua valendo). */
     fcmTrackingAllowed?: boolean;
+    /** Ordem dos diálogos da abertura (padrão ["ump", "att", "push"]). Ver PrepareOptions em utils/types.ts. */
+    dialogOrder?: readonly OpenDialog[];
+    /** Os pedidos do app pela trava (Utils.withPermissionPrompt) esperam os diálogos da abertura (padrão false). */
+    appDialogsAfterOpen?: boolean;
 };
 
 /**
@@ -41,7 +45,18 @@ type Props = {
  * globals de ads já prontos — e ANTES do setupAppOpenListener(), então o callback ainda
  * consegue influenciar o 1º app-open ad. Erro no callback não trava o boot (warn isolado).
  */
-export function ExpoUtilsLayout({appConfig, appStrings, children, onReady, umpDialogOnOpen, attDialogOnOpen, pushDialogOnOpen, fcmTrackingAllowed}: Props) {
+export function ExpoUtilsLayout({
+    appConfig,
+    appStrings,
+    children,
+    onReady,
+    umpDialogOnOpen,
+    attDialogOnOpen,
+    pushDialogOnOpen,
+    fcmTrackingAllowed,
+    dialogOrder,
+    appDialogsAfterOpen,
+}: Props) {
     const [appIsReady, setAppIsReady] = useState(false);
     const [showReviewOverlay, setShowReviewOverlay] = useState(false);
     // Remote Config novo aplicado com o app fora de vista (`resume_config: "on_leave"`): as telas remontam e leem a config
@@ -64,6 +79,8 @@ export function ExpoUtilsLayout({appConfig, appStrings, children, onReady, umpDi
                     umpDialogOnOpen,
                     attDialogOnOpen,
                     pushDialogOnOpen: pushDialogOnOpen ?? fcmTrackingAllowed,
+                    dialogOrder,
+                    appDialogsAfterOpen,
                 });
                 if (!onReadyRan.current) {
                     onReadyRan.current = true;

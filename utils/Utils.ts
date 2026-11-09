@@ -36,7 +36,7 @@ export function expoUtilsLog(...args: any[]) {
     }
 }
 
-import {AppConfig, AppStrings, PrepareOptions, RemoteConfigUtilsType} from "./types";
+import {AppConfig, AppStrings, OpenDialog, PrepareOptions, RemoteConfigUtilsType} from "./types";
 import {getLocalizedMessages} from "./i18n";
 import {getLocales} from "expo-localization";
 const safeGetLocales = (): Array<{languageCode?: string | null; regionCode?: string | null}> => {
@@ -192,11 +192,33 @@ let bootFcmTrackingAllowed = true;
 let bootUmpOnOpen = true;
 let bootAttOnOpen = true;
 
+// Ordem dos diálogos da abertura (dialogOrder). O que não for "ump", "att" ou "push", ou vier repetido, é ignorado; o que
+// faltar entra depois, na ordem padrão.
+const DEFAULT_DIALOG_ORDER: readonly OpenDialog[] = ["ump", "att", "push"];
+const readDialogOrder = (order?: unknown): OpenDialog[] => {
+    const valid: OpenDialog[] = [];
+    if (Array.isArray(order)) {
+        for (const step of order) if (DEFAULT_DIALOG_ORDER.includes(step) && !valid.includes(step)) valid.push(step);
+    }
+    return [...valid, ...DEFAULT_DIALOG_ORDER.filter((step) => !valid.includes(step))];
+};
+// A ordem desta abertura: a do prepare (o handleReady repassa) e, depois, a da cadeia que rodou. Os portões do ATT e da
+// notificação leem dela quem vem antes.
+let dialogOrder: OpenDialog[] = readDialogOrder();
+
 // 4º argumento do prepare: o objeto de opções ou, no formato antigo, o boolean da notificação (fcmTrackingAllowed).
-const readPrepareOptions = (options?: boolean | PrepareOptions): {ump: boolean; att: boolean; push: boolean} =>
+const readPrepareOptions = (
+    options?: boolean | PrepareOptions,
+): {ump: boolean; att: boolean; push: boolean; order: OpenDialog[]; appAfterOpen: boolean} =>
     typeof options === "boolean"
-        ? {ump: true, att: true, push: options}
-        : {ump: options?.umpDialogOnOpen !== false, att: options?.attDialogOnOpen !== false, push: options?.pushDialogOnOpen !== false};
+        ? {ump: true, att: true, push: options, order: readDialogOrder(), appAfterOpen: false}
+        : {
+              ump: options?.umpDialogOnOpen !== false,
+              att: options?.attDialogOnOpen !== false,
+              push: options?.pushDialogOnOpen !== false,
+              order: readDialogOrder(options?.dialogOrder),
+              appAfterOpen: options?.appDialogsAfterOpen === true,
+          };
 let bootDone = false;
 // Prazo pro layout chamar o handleReady depois do prepare() (o normal é no 1º frame).
 const HANDLE_READY_WATCHDOG_MS = 30000;
@@ -388,9 +410,23 @@ export const isAdsConsentDenied = (): boolean => adsWaitConsent() && adsConsentD
 /** Resolve quando o UMP nega nesta sessão (ver isAdsConsentDenied). */
 export const whenAdsConsentDenied = (): Promise<void> => adsConsentDeniedPromise;
 
-// Formulário do UMP desta sessão: resolve quando ele fecha (resposta ou erro). null: o UMP não começou. As funções do app
-// (requestAttPermission, requestPushPermission) esperam por ele, para não mostrar o diálogo por cima do formulário.
-let umpFormSettled: Promise<void> | null = null;
+// Resposta do UMP desta sessão (consulta e formulário): resolve quando o formulário fecha (resposta ou erro). null: o UMP
+// não começou.
+let umpAnswered: Promise<void> | null = null;
+// Vez do formulário do UMP na ordem da abertura (dialogOrder). Com o UMP em 1º (o padrão) e no requestUmpConsent, é já. Com
+// o UMP depois de outro diálogo, a cadeia segura o formulário até chegar a posição dele (a consulta sai no começo mesmo
+// assim) e solta com releaseUmpTurn.
+let umpTurnReached = true;
+let releaseUmpTurn: () => void = () => {};
+// O formulário do UMP na tela, ou na vez dele: as funções do app (requestAttPermission, requestPushPermission) esperam por
+// ele, para não mostrar o diálogo por cima. Antes da vez dele, nada espera por ele (com o formulário depois do ATT e da
+// notificação, esperar seria trava circular). null: nada a esperar.
+const umpFormSettled = (): Promise<void> | null => (umpTurnReached ? umpAnswered : null);
+// Fim do UMP da abertura como diálogo: resposta (do formulário ou, sem formulário, da consulta), limite de 20 s da cadeia ou
+// sessão sem UMP (premium, anúncio desligado, erro). Não espera o initialize do SDK. Com o UMP depois de outro diálogo, é o
+// que a cadeia espera na posição dele.
+let markUmpDialogEnded: () => void = () => {};
+const umpDialogEnded = new Promise<void>((resolve) => (markUmpDialogEnded = resolve));
 
 // Quanto a cadeia espera o ATT e a notificação. É limite, não espera: o pedido sai assim que chega a vez dele com o app
 // ativo (utils/permission-gate.ts) e o limite só vale quando a resposta não vem — pedido na fila atrás de um diálogo,
@@ -407,9 +443,36 @@ const PERMISSION_LIMIT_MS = 20000;
 const PERMISSION_LOCK_LIMIT_MS = Platform.OS === "ios" ? 60000 : PERMISSION_LIMIT_MS;
 const permissionLock = createPermissionLock(AppState, PERMISSION_LOCK_LIMIT_MS);
 
+// O pedido na trava (regras no withPermissionPrompt), sem a espera do appDialogsAfterOpen: é o que os pedidos da própria lib
+// usam (requestPushPermission), para não esperarem a cadeia que espera por eles.
+const promptInLock = async <T>(fn: () => Promise<T>): Promise<T> => {
+    const asked: {pending?: Promise<T>} = {};
+    const result = await permissionLock(() => (asked.pending = fn()));
+    if (result !== TIMED_OUT) return result;
+    if (Platform.OS === "ios" && asked.pending) {
+        const late = await withActiveLimit(AppState, asked.pending, PERMISSION_LOCK_LIMIT_MS);
+        if (late !== TIMED_OUT) return late;
+    }
+    throw new Error("withPermissionPrompt: pedido de permissão sem resposta no limite");
+};
+
+// appDialogsAfterOpen (opção do prepare): os pedidos do app pela trava esperam o fim dos diálogos da abertura (o último passo
+// da ordem respondido, pulado ou no limite dele) e só então entram nela. Começa no prepare; solta no fim da cadeia, no aviso
+// de 30 s sem o handleReady e, por segurança, se a cadeia parar (premium ou initialize sem resposta), em 3 min fora do
+// segundo plano. Pedido depois disso sai na hora.
+let appDialogsWait = false;
+let openDialogsEnded = false;
+let resolveOpenDialogs: () => void = () => {};
+const openDialogsDone = new Promise<void>((resolve) => (resolveOpenDialogs = resolve));
+const endOpenDialogs = (): void => {
+    openDialogsEnded = true;
+    resolveOpenDialogs();
+};
+
 /**
  * Faz um pedido de permissão do app na mesma trava de ATT e notificação da lib: uma permissão de cada vez, nos dois
- * sistemas, quem pede primeiro vai primeiro. Espera a vez e o app ativo (por evento), roda `fn` e solta a trava.
+ * sistemas, quem pede primeiro vai primeiro. Espera a vez e o app ativo (por evento), roda `fn` e solta a trava. Com
+ * `appDialogsAfterOpen` (opção do prepare), antes da trava espera os diálogos da abertura terminarem.
  *
  * Todo pedido do app que possa sair na abertura passa por aqui. No Android, sem isso, ele pode cair na mesma janela do
  * pedido da lib: a resposta se perde, a promessa do Expo nunca resolve e todo pedido do Expo depois dele fica parado até
@@ -423,16 +486,8 @@ const permissionLock = createPermissionLock(AppState, PERMISSION_LOCK_LIMIT_MS);
  *
  * @example const {status} = await Utils.withPermissionPrompt(() => Location.requestForegroundPermissionsAsync());
  */
-export const withPermissionPrompt = async <T>(fn: () => Promise<T>): Promise<T> => {
-    const asked: {pending?: Promise<T>} = {};
-    const result = await permissionLock(() => (asked.pending = fn()));
-    if (result !== TIMED_OUT) return result;
-    if (Platform.OS === "ios" && asked.pending) {
-        const late = await withActiveLimit(AppState, asked.pending, PERMISSION_LOCK_LIMIT_MS);
-        if (late !== TIMED_OUT) return late;
-    }
-    throw new Error("withPermissionPrompt: pedido de permissão sem resposta no limite");
-};
+export const withPermissionPrompt = <T>(fn: () => Promise<T>): Promise<T> =>
+    appDialogsWait && !openDialogsEnded ? openDialogsDone.then(() => promptInLock(fn)) : promptInLock(fn);
 
 // AuthorizationStatus do RNFB: -1 não determinado, 0 negado, 1 autorizado, 2 provisório, 3 efêmero
 const pushStatusLabel = (status: number): string =>
@@ -473,10 +528,28 @@ const attGate = createPermissionGate<string>({
     canAsk: (status) => status === "undetermined",
     noAnswer: "undetermined",
     lock: permissionLock,
+    // Com a notificação antes do ATT na ordem da abertura (dialogOrder), o ATT só pede depois do fim dela.
+    after: () => flowsBefore("att"),
 });
 
 // Fim do fluxo do ATT nesta abertura (resposta ou 3 pedidos perdidos; nunca rejeita). Android/web: já resolvido.
 let attFlowEnded: Promise<unknown> = Promise.resolve();
+// Fluxo da notificação da cadeia da abertura (null: ainda não pediu).
+let pushFlowShared: PermissionFlow<string> | null = null;
+
+// Ordem entre os portões do ATT e da notificação: cada um só pede depois do fim do fluxo do outro, se o outro vem antes na
+// ordem da abertura (sem limite: é ordem, não espera de tempo). Na ordem padrão, a notificação espera o ATT e o ATT não
+// espera nada (o UMP vem antes pela cadeia). undefined: nada a esperar. O formulário do UMP não entra aqui: ele segue a
+// vez dele na cadeia e a trava.
+const flowsBefore = (step: "att" | "push"): Promise<unknown> | undefined => {
+    const other = step === "att" ? "push" : "att";
+    if (dialogOrder.indexOf(other) > dialogOrder.indexOf(step)) return undefined;
+    if (step === "push") return attFlowEnded;
+    return pushFlowShared?.final.then(
+        () => {},
+        () => {},
+    );
+};
 
 // Fluxo do ATT da abertura: começa pela cadeia (attDialogOnOpen) ou pelo requestAttPermission do app, um só por abertura.
 let attFlowShared: PermissionFlow<string> | null = null;
@@ -499,9 +572,10 @@ const startAttFlow = (): PermissionFlow<string> => {
 // Notificação (Android 13+: POST_NOTIFICATIONS; iOS: Firebase messaging) pela mesma regra. No Android a resposta não
 // separa "negado" de "o sistema cancelou", então o pedido conta como perdido quando volta negado SEM o app sair de
 // `active`: o diálogo nem apareceu (o sistema cancela o pedido concorrente). Antes do Android 13 não há diálogo (o RN
-// resolve na hora): um pedido só, como antes. O pedido só sai depois do fim do ATT (`after`, sem limite): ATT antes da
-// notificação e um pedido por vez, também quando o ATT passou do limite da cadeia — alerta ainda na tela (no iOS 27 ele
-// não deixa o app `inactive`) ou app fora de `active` com os dois portões esperando o mesmo "ficou ativo".
+// resolve na hora): um pedido só, como antes. Na ordem padrão, o pedido só sai depois do fim do ATT (`after`, sem limite):
+// ATT antes da notificação e um pedido por vez, também quando o ATT passou do limite da cadeia — alerta ainda na tela (no
+// iOS 27 ele não deixa o app `inactive`) ou app fora de `active` com os dois portões esperando o mesmo "ficou ativo". Com a
+// notificação antes do ATT (dialogOrder), é o ATT que espera por ela (flowsBefore).
 const pushGate = createPermissionGate<string>({
     appState: AppState,
     read: Platform.OS === "android" ? readAndroidPushPermission : undefined,
@@ -513,18 +587,19 @@ const pushGate = createPermissionGate<string>({
             ? Number(Platform.Version) >= 33 && !leftActive && (status === "denied" || status === "never_ask_again")
             : status === "undetermined",
     lock: permissionLock,
-    after: () => attFlowEnded,
+    after: () => flowsBefore("push"),
 });
 
-// iOS: a cadeia começou, o ATT está sem resposta e o portão ainda não rodou porque o UMP vem antes (até 20 s). Para o
-// anúncio de abertura, isso já é ATT pendente.
-let attWaitingUmp = false;
+// iOS: a cadeia começou, o ATT está sem resposta e o portão ainda não rodou porque outro diálogo vem antes dele na ordem
+// (na padrão, o UMP; até 20 s cada). Para o anúncio de abertura, isso já é ATT pendente.
+let attWaitingTurn = false;
 
 /**
- * O ATT ainda vai pedir (ou está pedindo) nesta abertura, inclusive enquanto o UMP roda antes dele: o anúncio de
- * abertura não aparece nessa volta ao app, para os dois não saírem juntos (utils/appopen-ads.tsx).
+ * O ATT ainda vai pedir (ou está pedindo) nesta abertura, inclusive enquanto os diálogos antes dele na ordem rodam (na
+ * padrão, o UMP): o anúncio de abertura não aparece nessa volta ao app, para os dois não saírem juntos
+ * (utils/appopen-ads.tsx).
  */
-export const isAttPending = (): boolean => attWaitingUmp || attGate.isPending();
+export const isAttPending = (): boolean => attWaitingTurn || attGate.isPending();
 
 // `consent_flow`: resultado do UMP, do ATT e do push num evento só — 1x por instalação e de
 // novo apenas quando algum dos três muda (taxa de opt-in por país/versão mexe direto no eCPM).
@@ -851,6 +926,109 @@ const runPrepare = async (appConfig?: any, appStrings?: AppStrings): Promise<voi
     } catch (e) {
         expoUtilsWarn("Error in prepare:", e);
     }
+};
+
+/**
+ * Corpo do Utils.setupMobileAds (UMP + initialize, uma vez por sessão; regras lá). `formTurn`: só a cadeia da abertura, com o
+ * UMP depois de outro diálogo na ordem (dialogOrder). A consulta à internet sai já; o formulário (status REQUIRED: Europa,
+ * Reino Unido e estados regulados dos EUA) espera a vez dele e entra na trava de permissão, como os outros diálogos. Sem
+ * formulário, a resposta sai logo depois da consulta (o loadAndShowConsentFormIfRequired volta sem mostrar nada) e o
+ * initialize também, como sempre. Sem `formTurn`, o formulário sai logo depois da consulta, como sempre.
+ */
+const runMobileAdsSetup = (appConfig?: any, formTurn?: Promise<void>): Promise<void> => {
+    if (mobileAdsSetupPromise) return mobileAdsSetupPromise;
+
+    mobileAdsSetupPromise = (async () => {
+        let umpGatherStarted = false;
+        try {
+            if ((global as any).isAdsEnabled === false || (global as any).remoteConfigUtils?.is_ads_enabled === false) {
+                resolveUmpAllowsAds(true);
+                return;
+            }
+            if (await PremiumUtils.getIsPremiumStatus()) {
+                resolveUmpAllowsAds(true);
+                return;
+            }
+
+            const debugGeography = getExpoUtilsOption(appConfig, "umpDebugGeography");
+            const testDeviceIdentifiers = getExpoUtilsOption(appConfig, "umpTestDeviceIds");
+            const consentOptions: any = {};
+            if (typeof debugGeography === "string" && debugGeography in AdsConsentDebugGeography) {
+                consentOptions.debugGeography = (AdsConsentDebugGeography as any)[debugGeography];
+            }
+            if (Array.isArray(testDeviceIdentifiers)) consentOptions.testDeviceIdentifiers = testDeviceIdentifiers;
+
+            // Timeout só do passo de consentimento: se o requestInfoUpdate travar (rede ruim),
+            // o boot segue para ATT/push em vez de ficar preso — contrato do resto do arquivo.
+            // O gatherConsent em dois passos (é o que ele faz por dentro): o pedido de rede (requestInfoUpdate), que pode
+            // travar, e o formulário (só na Europa), que espera a pessoa. ads_wait_consent_enabled espera a resposta de
+            // verdade, com limite de 1 min fora do segundo plano só para o pedido de rede; erro, como hoje.
+            umpGatherStarted = true;
+            let infoAnswered: () => void = () => {};
+            const infoStep = new Promise<void>((resolve) => (infoAnswered = resolve));
+            const gathered = (async () => {
+                let info: any;
+                try {
+                    info = await AdsConsent.requestInfoUpdate(consentOptions);
+                } finally {
+                    infoAnswered();
+                }
+                if (!formTurn || info?.status !== "REQUIRED") return AdsConsent.loadAndShowConsentFormIfRequired();
+                // Formulário na vez dele: um diálogo por vez, com o app ativo. A resposta é a dele: o limite da trava só a
+                // solta para o próximo pedido (o formulário espera a pessoa).
+                await formTurn;
+                const asked: {pending?: Promise<any>} = {};
+                const shown = await permissionLock(() => (asked.pending = AdsConsent.loadAndShowConsentFormIfRequired()));
+                return shown === TIMED_OUT ? asked.pending : shown;
+            })();
+            const umpAnswer = gathered.then((info: any) => info?.canRequestAds !== false, () => true);
+            void umpAnswer.then(resolveUmpAllowsAds);
+            umpAnswered = umpAnswer.then(() => {});
+            startAdsConsentLimit(
+                () => {
+                    if (adsWaitConsent()) expoUtilsWarn("ads_wait_consent_enabled: o UMP não respondeu em 1 min — anúncio liberado.");
+                    resolveUmpAllowsAds(true);
+                },
+                Promise.race([infoStep, umpAllowsAds.then(() => {})]),
+                ADS_CONSENT_UMP_LIMIT_MS,
+            );
+            // Com o formulário na vez dele, o limite de 20 s da cadeia conta a partir da vez (antes dela, só a resposta sem
+            // formulário segue).
+            if (formTurn) await Promise.race([formTurn, gathered.then(() => {}, () => {})]);
+            const consentInfo = await Promise.race([
+                gathered,
+                new Promise<null>((resolve) => setTimeout(() => resolve(null), 20000)),
+            ]);
+            if (!consentInfo) expoUtilsWarn("setupMobileAds: gatherConsent não respondeu em 20s — seguindo.");
+            // Para o `consent_flow`: timeout | denied | not_required | obtained | required | unknown.
+            umpOutcome = !consentInfo ? "timeout" : consentInfo.canRequestAds === false ? "denied" : String(consentInfo.status ?? "unknown").toLowerCase();
+            markUmpDialogEnded();
+            if (consentInfo && consentInfo.canRequestAds === false) {
+                expoUtilsLog("[expo-utils] UMP: consentimento nega ads nesta sessão (canRequestAds=false).");
+                return;
+            }
+
+            const statuses = await mobileAds().initialize();
+            mobileAdsReady = true;
+            expoUtilsLog(
+                "[expo-utils] mobileAds().initialize():",
+                (statuses || [])
+                    .map((s: any) => `${s.name}=${s.state === 1 ? "ready" : "NOT_READY"}${s.description ? ` (${s.description})` : ""}`)
+                    .join(" | ") || "sem adapters",
+            );
+        } catch (e) {
+            // Só quando o erro veio ANTES do veredito do UMP (não apaga um "obtained").
+            if (umpOutcome === "skipped") umpOutcome = "error";
+            // Erro antes de o UMP sair: segue como hoje (ads_wait_consent_enabled não prende o anúncio).
+            if (!umpGatherStarted) resolveUmpAllowsAds(true);
+            expoUtilsWarn("setupMobileAds:", e);
+        } finally {
+            // Sem UMP nesta sessão (premium, anúncio desligado) ou com erro: o diálogo também acabou.
+            markUmpDialogEnded();
+        }
+    })();
+
+    return mobileAdsSetupPromise;
 };
 
 const Utils = {
@@ -1285,10 +1463,10 @@ const Utils = {
      */
     requestPushPermission: (): Promise<string> =>
         // Com o formulário do UMP aberto, espera ele fechar (o diálogo não sai por cima dele); com o ATT em andamento, espera
-        // o fim dele (ATT antes da notificação, como na cadeia).
-        Promise.resolve(umpFormSettled)
+        // o fim dele (ATT antes da notificação, como na cadeia). Pedido da lib: não espera o appDialogsAfterOpen.
+        Promise.resolve(umpFormSettled())
             .then(() => (attGate.isPending() ? attFlowEnded : undefined))
-            .then(() => withPermissionPrompt(askPushPermission))
+            .then(() => promptInLock(askPushPermission))
             .then(
                 (status) => {
                     // Pedida fora da cadeia (pushDialogOnOpen false, onboarding, cartão do app): entra no consent_flow.
@@ -1324,8 +1502,9 @@ const Utils = {
     requestAttPermission: async (): Promise<string> => {
         if (Platform.OS !== "ios") return "na";
         try {
-            // Com o formulário do UMP aberto, espera ele fechar (o alerta não sai por cima dele).
-            await umpFormSettled;
+            // Com o formulário do UMP aberto, espera ele fechar (o alerta não sai por cima dele). Com a notificação da cadeia
+            // antes do ATT na ordem, o portão espera o fim dela (flowsBefore).
+            await umpFormSettled();
             const flow = startAttFlow();
             const first = await flow.first;
             if (first.status !== "undetermined") return first.status;
@@ -1357,6 +1536,9 @@ const Utils = {
         bootFcmTrackingAllowed = dialogs.push;
         bootUmpOnOpen = dialogs.ump;
         bootAttOnOpen = dialogs.att;
+        dialogOrder = dialogs.order;
+        // appDialogsAfterOpen: a espera dos pedidos do app começa aqui (o pedido pode chegar antes do handleReady).
+        appDialogsWait = dialogs.appAfterOpen;
         // Boot 1x por sessão (StrictMode/remount chamam prepare de novo): a 2ª chamada apenas
         // espera o MESMO boot terminar antes de liberar a UI — sem configurar RevenueCat nem
         // registrar o customerInfoUpdateListener em dobro. runPrepare nunca rejeita.
@@ -1373,6 +1555,8 @@ const Utils = {
                     expoUtilsWarn("handleReady nunca foi chamado: ATT, push, FB, TikTok e atribuição não rodam. Use o ExpoUtilsLayout ou <View onLayout={Utils.handleReady} />.");
                     // Sem o handleReady não há UMP nem ATT para esperar: o anúncio não fica preso (ads_wait_consent_enabled).
                     settleAdsConsent();
+                    // Nem diálogo da abertura: os pedidos do app não ficam esperando (appDialogsAfterOpen).
+                    endOpenDialogs();
                 }, HANDLE_READY_WATCHDOG_MS);
             });
         }
@@ -1385,7 +1569,8 @@ const Utils = {
 
     /**
      * Chamado via <View onLayout={Utils.handleReady} /> no layout, logo após o primeiro frame.
-     * Esconde o splash e dispara a cadeia de consentimento (UMP → ATT → push → …) na hora, sem espera fixa.
+     * Esconde o splash e dispara a cadeia de consentimento (na ordem do dialogOrder; padrão UMP → ATT → push → …) na hora,
+     * sem espera fixa.
      *
      * Até a 1.5.6 havia 3s aqui antes do hideAsync, mais 2s até a cadeia, e o ATT ainda esperava 1s e
      * "até 4s pelo active, depois pede mesmo assim". O motivo dos 3s era o ATT (dito pelo dono em
@@ -1403,9 +1588,11 @@ const Utils = {
         if (bootDone) return;
         bootDone = true;
         SplashScreen.hideAsync().catch((e) => expoUtilsWarn("SplashScreen.hideAsync:", e));
-        Utils.requestTrackingWhenActive(bootAppConfig, bootAppStrings, bootFcmTrackingAllowed, {ump: bootUmpOnOpen, att: bootAttOnOpen}).catch((e) =>
-            expoUtilsWarn("requestTrackingWhenActive:", e),
-        );
+        Utils.requestTrackingWhenActive(bootAppConfig, bootAppStrings, bootFcmTrackingAllowed, {
+            ump: bootUmpOnOpen,
+            att: bootAttOnOpen,
+            order: dialogOrder,
+        }).catch((e) => expoUtilsWarn("requestTrackingWhenActive:", e));
     },
 
     /**
@@ -1420,89 +1607,12 @@ const Utils = {
      * Sem ads (premium / is_ads_enabled=false) não roda: não há consentimento a coletar.
      * Nunca lança e nunca pendura (timeout no passo de consentimento).
      *
+     * Na abertura, com o UMP depois de outro diálogo (dialogOrder), a cadeia usa o mesmo setup com o formulário na vez
+     * dele (runMobileAdsSetup); chamado aqui, o formulário sai logo depois da consulta, como sempre.
+     *
      * QA fora da Europa: `["expo-utils", {"umpDebugGeography": "EEA", "umpTestDeviceIds": ["..."]}]`.
      */
-    setupMobileAds: async (appConfig?: any): Promise<void> => {
-        if (mobileAdsSetupPromise) return mobileAdsSetupPromise;
-
-        mobileAdsSetupPromise = (async () => {
-            let umpGatherStarted = false;
-            try {
-                if ((global as any).isAdsEnabled === false || (global as any).remoteConfigUtils?.is_ads_enabled === false) {
-                    resolveUmpAllowsAds(true);
-                    return;
-                }
-                if (await PremiumUtils.getIsPremiumStatus()) {
-                    resolveUmpAllowsAds(true);
-                    return;
-                }
-
-                const debugGeography = getExpoUtilsOption(appConfig, "umpDebugGeography");
-                const testDeviceIdentifiers = getExpoUtilsOption(appConfig, "umpTestDeviceIds");
-                const consentOptions: any = {};
-                if (typeof debugGeography === "string" && debugGeography in AdsConsentDebugGeography) {
-                    consentOptions.debugGeography = (AdsConsentDebugGeography as any)[debugGeography];
-                }
-                if (Array.isArray(testDeviceIdentifiers)) consentOptions.testDeviceIdentifiers = testDeviceIdentifiers;
-
-                // Timeout só do passo de consentimento: se o requestInfoUpdate travar (rede ruim),
-                // o boot segue para ATT/push em vez de ficar preso — contrato do resto do arquivo.
-                // O gatherConsent em dois passos (é o que ele faz por dentro): o pedido de rede (requestInfoUpdate), que pode
-                // travar, e o formulário (só na Europa), que espera a pessoa. ads_wait_consent_enabled espera a resposta de
-                // verdade, com limite de 1 min fora do segundo plano só para o pedido de rede; erro, como hoje.
-                umpGatherStarted = true;
-                let infoAnswered: () => void = () => {};
-                const infoStep = new Promise<void>((resolve) => (infoAnswered = resolve));
-                const gathered = (async () => {
-                    try {
-                        await AdsConsent.requestInfoUpdate(consentOptions);
-                    } finally {
-                        infoAnswered();
-                    }
-                    return AdsConsent.loadAndShowConsentFormIfRequired();
-                })();
-                const umpAnswer = gathered.then((info: any) => info?.canRequestAds !== false, () => true);
-                void umpAnswer.then(resolveUmpAllowsAds);
-                umpFormSettled = umpAnswer.then(() => {});
-                startAdsConsentLimit(
-                    () => {
-                        if (adsWaitConsent()) expoUtilsWarn("ads_wait_consent_enabled: o UMP não respondeu em 1 min — anúncio liberado.");
-                        resolveUmpAllowsAds(true);
-                    },
-                    Promise.race([infoStep, umpAllowsAds.then(() => {})]),
-                    ADS_CONSENT_UMP_LIMIT_MS,
-                );
-                const consentInfo = await Promise.race([
-                    gathered,
-                    new Promise<null>((resolve) => setTimeout(() => resolve(null), 20000)),
-                ]);
-                if (!consentInfo) expoUtilsWarn("setupMobileAds: gatherConsent não respondeu em 20s — seguindo.");
-                // Para o `consent_flow`: timeout | denied | not_required | obtained | required | unknown.
-                umpOutcome = !consentInfo ? "timeout" : consentInfo.canRequestAds === false ? "denied" : String(consentInfo.status ?? "unknown").toLowerCase();
-                if (consentInfo && consentInfo.canRequestAds === false) {
-                    expoUtilsLog("[expo-utils] UMP: consentimento nega ads nesta sessão (canRequestAds=false).");
-                    return;
-                }
-
-                const statuses = await mobileAds().initialize();
-                mobileAdsReady = true;
-                expoUtilsLog(
-                    "[expo-utils] mobileAds().initialize():",
-                    (statuses || [])
-                        .map((s: any) => `${s.name}=${s.state === 1 ? "ready" : "NOT_READY"}${s.description ? ` (${s.description})` : ""}`)
-                        .join(" | ") || "sem adapters",
-                );
-            } catch (e) {
-                // Só quando o erro veio ANTES do veredito do UMP (não apaga um "obtained").
-                if (umpOutcome === "skipped") umpOutcome = "error";
-                // Erro antes de o UMP sair: segue como hoje (ads_wait_consent_enabled não prende o anúncio).
-                if (!umpGatherStarted) resolveUmpAllowsAds(true);
-                expoUtilsWarn("setupMobileAds:", e);
-            }
-        })();
-
-        return mobileAdsSetupPromise;
-    },
+    setupMobileAds: async (appConfig?: any): Promise<void> => runMobileAdsSetup(appConfig),
 
     /**
      * O botão "Privacidade dos anúncios" deve existir na tela de ajustes? Só quando o UMP diz
@@ -1563,7 +1673,7 @@ const Utils = {
      * Orquestra, DEPOIS do primeiro frame, toda a etapa que depende de consentimento. Deve ser
      * chamada uma única vez pelo RootLayout (no effect de appIsReady), nunca durante o boot.
      *
-     * Ordem de execução:
+     * Ordem de execução (a padrão; os diálogos 1, 2 e 4 seguem o `dialogs.order`, abaixo). Um diálogo por vez:
      *   1. UMP + init do Google Mobile Ads (setupMobileAds): consentimento de ads vem ANTES do
      *      ATT — ordem recomendada pelo Google e o iOS só exibe um modal de sistema por vez.
      *      Fora de EEA/UK/US regulado não mostra nada e sai rápido.
@@ -1586,134 +1696,191 @@ const Utils = {
      *      instalação e quando algum muda.
      *   5. TikTok, link-in-bio e o diálogo de update obrigatório.
      *
+     * Outra ordem (`dialogs.order`, a opção dialogOrder do prepare): cada diálogo espera os que vêm antes dele. Com o UMP
+     * depois de outro diálogo, a consulta dele à internet sai no começo e o formulário na vez dele (runMobileAdsSetup); na
+     * posição dele a cadeia espera a resposta (ou o limite de 20 s), sem o initialize. Com a notificação antes do ATT, o ATT
+     * só pede depois do fim dela. O FB e a atribuição saem logo depois do ATT, onde ele estiver; o whenConsentFlowDone (e o
+     * waitAttFlowDone) depois do UMP e do ATT; o `consent_flow` depois do último. Com appDialogsAfterOpen, os pedidos do app
+     * (withPermissionPrompt) entram na trava depois do último diálogo da ordem.
+     *
      * @param appConfig   app.json (para FB App ID, bundle/package, etc.)
      * @param appStrings  Strings do app (de onde sai o rckey)
      * @param fcmTrackingAllowed  se false, pula a permissão de push (default true)
      * @param dialogs  `ump`/`att` false: a cadeia não mostra esse diálogo (opções umpDialogOnOpen/attDialogOnOpen do prepare,
-     *   que o handleReady repassa); o app pede depois com requestUmpConsent/requestAttPermission. Chamada direta pelo app usa
-     *   só os próprios parâmetros, não as opções do prepare; para pedir um diálogo só, use as funções request*.
+     *   que o handleReady repassa); o app pede depois com requestUmpConsent/requestAttPermission. `order`: a ordem dos
+     *   diálogos (opção dialogOrder; padrão ["ump", "att", "push"]). Chamada direta pelo app usa só os próprios parâmetros,
+     *   não as opções do prepare; para pedir um diálogo só, use as funções request*.
      * @returns true se o tracking (ATT) foi concedido. No Android/web retorna true.
      */
     requestTrackingWhenActive: async (
         appConfig?: any,
         appStrings?: AppStrings,
         fcmTrackingAllowed: boolean = true,
-        dialogs: {ump?: boolean; att?: boolean} = {},
+        dialogs: {ump?: boolean; att?: boolean; order?: readonly OpenDialog[]} = {},
     ): Promise<boolean> => {
         let granted = true;
         consent.att = "na"; // Android/web: não existe ATT
         const askUmp = dialogs.ump !== false;
         const askAtt = Platform.OS === "ios" && dialogs.att !== false;
+        const order = readDialogOrder(dialogs.order);
+        dialogOrder = order;
+        const onOpen: Record<OpenDialog, boolean> = {ump: askUmp, att: askAtt, push: fcmTrackingAllowed};
+        const comesBefore = (first: OpenDialog, second: OpenDialog): boolean => order.indexOf(first) < order.indexOf(second);
+        // appDialogsAfterOpen: se a cadeia parar no meio (premium ou initialize sem resposta), os pedidos do app não ficam
+        // presos — saem em 3 min fora do segundo plano.
+        if (appDialogsWait && !openDialogsEnded) startAdsConsentLimit(endOpenDialogs, openDialogsDone, ADS_CONSENT_FALLBACK_MS);
 
-        // ATT sem resposta: o anúncio de abertura já fica de fora enquanto o UMP roda (isAttPending).
-        if (askAtt && askUmp) {
-            attWaitingUmp = true;
+        // ATT sem resposta: o anúncio de abertura já fica de fora enquanto os diálogos antes dele rodam (isAttPending).
+        if (askAtt && order.some((step) => step !== "att" && onOpen[step] && comesBefore(step, "att"))) {
+            attWaitingTurn = true;
             getTrackingPermissionsAsync().then(
                 ({status}) => {
-                    if (status !== "undetermined") attWaitingUmp = false;
+                    if (status !== "undetermined") attWaitingTurn = false;
                 },
                 () => {},
             );
         }
 
-        // UMP antes do ATT (ver ordem no comentário acima). Memoizado e com timeout próprio. umpDialogOnOpen false: o app
-        // pede com o requestUmpConsent, e lidar com a ordem (UMP antes do ATT e dos anúncios) fica com ele.
-        if (askUmp) await Utils.setupMobileAds(appConfig ?? bootAppConfig);
-        attWaitingUmp = false; // daqui em diante quem diz é o portão (attGate.run logo abaixo, sem await no meio)
-
-        if (askAtt) {
-            try {
-                const attFlow = startAttFlow();
-                const outcome = await withTimeout(attFlow.final, PERMISSION_LIMIT_MS);
-                // No limite a cadeia segue com o status de agora; o portão continua e a resposta tardia é tratada abaixo.
-                consent.att = outcome === TIMED_OUT ? String((await getTrackingPermissionsAsync()).status) : outcome.status;
-                consent.attAttempts = attGate.attempts();
-                granted = consent.att === "granted";
-            } catch (e) {
-                expoUtilsWarn("requestTrackingWhenActive:", e);
-                granted = false;
-                consent.att = "error";
-                resolveAttDone();
-            }
-        } else if (Platform.OS === "ios") {
-            // attDialogOnOpen false: segue com o status de agora (respondido numa abertura anterior, ou "not_asked"); quando o
-            // app pedir (requestAttPermission), a resposta atualiza o FB, a atribuição e o consent_flow (abaixo).
-            try {
-                const status = String((await getTrackingPermissionsAsync()).status);
-                consent.att = status === "undetermined" ? "not_asked" : status;
-                granted = status === "granted";
-                // Já respondido: nada a esperar. Sem resposta: os anúncios (ads_wait_consent_enabled) esperam o
-                // requestAttPermission do app, com o mesmo limite de 3 min do ATT que não chega a sair.
-                if (status !== "undetermined") resolveAttDone();
-                else if (!attFlowShared) armAttFallback();
-            } catch (e) {
-                expoUtilsWarn("requestTrackingWhenActive:", e);
-                granted = false;
-                consent.att = "error";
-            }
+        // UMP depois de outro diálogo: a consulta à internet sai já (rápida, sem nada na tela); o formulário espera a vez dele.
+        if (askUmp && order[0] !== "ump" && !mobileAdsSetupPromise) {
+            umpTurnReached = false;
+            void runMobileAdsSetup(appConfig ?? bootAppConfig, new Promise<void>((resolve) => (releaseUmpTurn = resolve)));
         }
 
-        // ATT resolvido, no limite ou plataforma sem ATT: libera o gate do promo (waitAttFlowDone).
-        settleAttFlow();
-        setUtilsUserProperty("att_status", consent.att);
+        let umpPassed = false;
+        let attPassed = false;
+        let rckey: string | undefined;
+        let remoteConfigs!: RemoteConfigUtilsType;
+        try {
+            for (const step of order) {
+                if (step === "ump") {
+                    // UMP em 1º (o padrão), antes do ATT (ver ordem no comentário acima): consulta, formulário e initialize.
+                    // Memoizado e com timeout próprio. umpDialogOnOpen false: o app pede com o requestUmpConsent, e lidar com a
+                    // ordem (UMP antes do ATT e dos anúncios) fica com ele.
+                    if (askUmp && order[0] === "ump") await Utils.setupMobileAds(appConfig ?? bootAppConfig);
+                    else if (askUmp) {
+                        // Vez do formulário: as funções do app passam a esperar por ele, e a cadeia espera a resposta (ou o
+                        // limite de 20 s), sem o initialize.
+                        umpTurnReached = true;
+                        releaseUmpTurn();
+                        await umpDialogEnded;
+                    }
+                    umpPassed = true;
+                    if (attPassed) settleAttFlow();
+                } else if (step === "att") {
+                    attWaitingTurn = false; // daqui em diante quem diz é o portão (attGate.run logo abaixo, sem await no meio)
 
-        const rckey = usableRcKey(appStrings?.rckey);
-        const remoteConfigs = (global as any).remoteConfigUtils as RemoteConfigUtilsType;
+                    if (askAtt) {
+                        try {
+                            const attFlow = startAttFlow();
+                            // Notificação antes do ATT e ainda pendente: o ATT só pede depois do fim dela, então a cadeia não
+                            // espera mais 20 s por ele (como a notificação com o ATT pendente, abaixo).
+                            const outcome =
+                                comesBefore("push", "att") && pushGate.isPending()
+                                    ? TIMED_OUT
+                                    : await withTimeout(attFlow.final, PERMISSION_LIMIT_MS);
+                            // No limite a cadeia segue com o status de agora; o portão continua e a resposta tardia é tratada abaixo.
+                            consent.att = outcome === TIMED_OUT ? String((await getTrackingPermissionsAsync()).status) : outcome.status;
+                            consent.attAttempts = attGate.attempts();
+                            granted = consent.att === "granted";
+                        } catch (e) {
+                            expoUtilsWarn("requestTrackingWhenActive:", e);
+                            granted = false;
+                            consent.att = "error";
+                            resolveAttDone();
+                        }
+                    } else if (Platform.OS === "ios") {
+                        // attDialogOnOpen false: segue com o status de agora (respondido numa abertura anterior, ou "not_asked");
+                        // quando o app pedir (requestAttPermission), a resposta atualiza o FB, a atribuição e o consent_flow
+                        // (abaixo).
+                        try {
+                            const status = String((await getTrackingPermissionsAsync()).status);
+                            consent.att = status === "undetermined" ? "not_asked" : status;
+                            granted = status === "granted";
+                            // Já respondido: nada a esperar. Sem resposta: os anúncios (ads_wait_consent_enabled) esperam o
+                            // requestAttPermission do app, com o mesmo limite de 3 min do ATT que não chega a sair.
+                            if (status !== "undetermined") resolveAttDone();
+                            else if (!attFlowShared) armAttFallback();
+                        } catch (e) {
+                            expoUtilsWarn("requestTrackingWhenActive:", e);
+                            granted = false;
+                            consent.att = "error";
+                        }
+                    }
+                    attPassed = true;
 
-        // Cadeia DESTACADA, disparada assim que o ATT resolve: FB (advertiser/IDFA seguem o
-        // resultado REAL do ATT; a fase 2 lê o anonymous id dele) → fase 2 da atribuição.
-        // Não é aguardada: o prompt de push e o resto da fila não ficam atrás dela, nem ela
-        // atrás deles. Antes a atribuição era o ÚLTIMO passo (depois de push, TikTok com até
-        // 10s, link-in-bio e update dialog) — quem comprava no 1º minuto saía sem atributo.
-        const attStatus = consent.att;
-        const fbAndAttribution = (async () => {
-            try { await Utils.initFBSDK(appConfig, granted); } catch (e) { expoUtilsWarn("initFBSDK:", e); }
-            await Utils.setupAttribution(rckey, granted, attStatus);
-        })().catch((e) => expoUtilsWarn("setupAttribution:", e));
+                    // ATT resolvido, no limite ou plataforma sem ATT (e o UMP já passou): libera o gate do promo
+                    // (waitAttFlowDone).
+                    if (umpPassed) settleAttFlow();
+                    setUtilsUserProperty("att_status", consent.att);
 
-        // Resposta do ATT depois do limite (nova tentativa no próximo active) ou pedida depois pelo app (requestAttPermission,
-        // com attDialogOnOpen false): atualiza a telemetria e, se concedido, avisa o FB e recoleta os identificadores da
-        // atribuição — depois de eles terem subido com granted=false.
-        void attFlowStarted.then((attFlow) =>
-            attFlow.final.then(
-                (late) => {
-                    consent.attAttempts = late.attempts;
-                    if (late.status === consent.att) return;
-                    consent.att = late.status;
-                    setUtilsUserProperty("att_status", late.status);
-                    if (late.status === "granted" && !granted) fbAndAttribution.then(() => applyLateAttGrant(rckey)).catch((e) => expoUtilsWarn("applyLateAttGrant:", e));
-                    if (consent.reported) reportConsentFlow();
-                },
-                () => {},
-            ),
-        );
+                    rckey = usableRcKey(appStrings?.rckey);
+                    remoteConfigs = (global as any).remoteConfigUtils as RemoteConfigUtilsType;
 
-        // Push (iOS e Android) — não é tracking de IDFA. O portão só PEDE depois do fim do ATT (`after`, sem limite).
-        // A cadeia espera só o 1º desfecho, por no máximo PERMISSION_LIMIT_MS: pedido perdido, pendurado ou ainda na vez
-        // do ATT não segura TikTok, link-in-bio e o diálogo de update.
-        // Sem o pedido aqui (pushDialogOnOpen false) fica o que o app já pediu nesta abertura, ou o "skipped" inicial.
-        if (fcmTrackingAllowed) {
-            try {
-                const pushFlow = pushGate.run();
-                // ATT ainda pendente (a cadeia passou do limite dele): o push só pede depois do fim do ATT, então a cadeia não
-                // espera mais 20 s por ele; a resposta que vier depois atualiza o consent_flow.
-                const outcome = attGate.isPending() ? TIMED_OUT : await withTimeout(pushFlow.first, PERMISSION_LIMIT_MS);
-                // timeout: sem 1º desfecho no limite (pedido pendurado, app fora de `active`, ainda na vez do ATT ou na fila da trava).
-                consent.push = outcome === TIMED_OUT ? "timeout" : outcome.status;
-                consent.pushAttempts = pushGate.attempts();
-                pushFlow.final.then(
-                    (late) => {
-                        if (late.status === consent.push && late.attempts === consent.pushAttempts) return;
-                        consent.push = late.status;
-                        consent.pushAttempts = late.attempts;
-                        if (consent.reported) reportConsentFlow();
-                    },
-                    () => {},
-                );
-            } catch (e) {
-                expoUtilsWarn("requestPushPermission:", e);
-                consent.push = "error";
+                    // Cadeia DESTACADA, disparada assim que o ATT resolve: FB (advertiser/IDFA seguem o
+                    // resultado REAL do ATT; a fase 2 lê o anonymous id dele) → fase 2 da atribuição.
+                    // Não é aguardada: o prompt de push e o resto da fila não ficam atrás dela, nem ela
+                    // atrás deles. Antes a atribuição era o ÚLTIMO passo (depois de push, TikTok com até
+                    // 10s, link-in-bio e update dialog) — quem comprava no 1º minuto saía sem atributo.
+                    const attStatus = consent.att;
+                    const fbAndAttribution = (async () => {
+                        try { await Utils.initFBSDK(appConfig, granted); } catch (e) { expoUtilsWarn("initFBSDK:", e); }
+                        await Utils.setupAttribution(rckey, granted, attStatus);
+                    })().catch((e) => expoUtilsWarn("setupAttribution:", e));
+
+                    // Resposta do ATT depois do limite (nova tentativa no próximo active) ou pedida depois pelo app
+                    // (requestAttPermission, com attDialogOnOpen false): atualiza a telemetria e, se concedido, avisa o FB e
+                    // recoleta os identificadores da atribuição — depois de eles terem subido com granted=false.
+                    void attFlowStarted.then((attFlow) =>
+                        attFlow.final.then(
+                            (late) => {
+                                consent.attAttempts = late.attempts;
+                                if (late.status === consent.att) return;
+                                consent.att = late.status;
+                                setUtilsUserProperty("att_status", late.status);
+                                if (late.status === "granted" && !granted) fbAndAttribution.then(() => applyLateAttGrant(rckey)).catch((e) => expoUtilsWarn("applyLateAttGrant:", e));
+                                if (consent.reported) reportConsentFlow();
+                            },
+                            () => {},
+                        ),
+                    );
+                } else if (fcmTrackingAllowed) {
+                    // Push (iOS e Android) — não é tracking de IDFA. Na ordem padrão o portão só PEDE depois do fim do ATT
+                    // (`after`, sem limite). A cadeia espera só o 1º desfecho, por no máximo PERMISSION_LIMIT_MS: pedido
+                    // perdido, pendurado ou ainda na vez do ATT não segura TikTok, link-in-bio e o diálogo de update.
+                    // Sem o pedido aqui (pushDialogOnOpen false) fica o que o app já pediu nesta abertura, ou o "skipped" inicial.
+                    try {
+                        const pushFlow = pushGate.run();
+                        pushFlowShared = pushFlow;
+                        // ATT antes da notificação e ainda pendente (a cadeia passou do limite dele): o push só pede depois do
+                        // fim do ATT, então a cadeia não espera mais 20 s por ele; a resposta que vier depois atualiza o
+                        // consent_flow.
+                        const outcome =
+                            comesBefore("att", "push") && attGate.isPending()
+                                ? TIMED_OUT
+                                : await withTimeout(pushFlow.first, PERMISSION_LIMIT_MS);
+                        // timeout: sem 1º desfecho no limite (pedido pendurado, app fora de `active`, ainda na vez do ATT ou na fila da trava).
+                        consent.push = outcome === TIMED_OUT ? "timeout" : outcome.status;
+                        consent.pushAttempts = pushGate.attempts();
+                        pushFlow.final.then(
+                            (late) => {
+                                if (late.status === consent.push && late.attempts === consent.pushAttempts) return;
+                                consent.push = late.status;
+                                consent.pushAttempts = late.attempts;
+                                if (consent.reported) reportConsentFlow();
+                            },
+                            () => {},
+                        );
+                    } catch (e) {
+                        expoUtilsWarn("requestPushPermission:", e);
+                        consent.push = "error";
+                    }
+                }
             }
+        } finally {
+            // appDialogsAfterOpen: o último diálogo da ordem respondido, pulado ou no limite dele — os pedidos do app entram
+            // na trava.
+            endOpenDialogs();
         }
         consent.reported = true;
         reportConsentFlow();

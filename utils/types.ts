@@ -30,9 +30,9 @@ export interface AdUnits {
 }
 
 /**
- * Quais diálogos a lib mostra na abertura, logo depois da 1ª tela (no Utils.handleReady): 4º argumento do `Utils.prepare`
- * e props do `ExpoUtilsLayout`. Padrão: todos `true` (como sempre foi). `false`: o app mostra quando quiser (onboarding,
- * pré-diálogo) com `Utils.requestUmpConsent()`, `Utils.requestAttPermission()` e `Utils.requestPushPermission()`, que
+ * Quais diálogos a lib mostra na abertura, logo depois da 1ª tela (no Utils.handleReady), e em que ordem: 4º argumento do
+ * `Utils.prepare` e props do `ExpoUtilsLayout`. Padrão: todos `true` (como sempre foi). `false`: o app mostra quando quiser
+ * (onboarding, pré-diálogo) com `Utils.requestUmpConsent()`, `Utils.requestAttPermission()` e `Utils.requestPushPermission()`, que
  * passam pela mesma trava de permissão (um diálogo por vez). O formato antigo, um boolean no 4º argumento, continua valendo
  * como `pushDialogOnOpen`.
  */
@@ -50,7 +50,29 @@ export type PrepareOptions = {
     attDialogOnOpen?: boolean;
     /** Pedido de permissão de notificação. `false`: o app chama o requestPushPermission. É o antigo `fcmTrackingAllowed`. */
     pushDialogOnOpen?: boolean;
+    /**
+     * Ordem dos diálogos da lib na abertura, um por vez. Padrão `["ump", "att", "push"]` (a de sempre). Valor inválido ou
+     * repetido é ignorado; o que faltar entra depois, na ordem padrão. Os `*DialogOnOpen: false` continuam tirando o diálogo
+     * da abertura, em qualquer ordem. Com o UMP depois de outro diálogo, a consulta dele à internet (rápida, sem nada na
+     * tela) continua saindo no começo e só o formulário (Europa, Reino Unido e estados regulados dos EUA) espera a vez
+     * dele; no Brasil o UMP não aparece. Sem formulário, o SDK de anúncios inicializa logo depois da consulta; com
+     * formulário, depois da resposta dele. Na Europa o formulário passa a vir na posição dada (o Google recomenda antes do
+     * ATT). Ex.: `["att", "push", "ump"]` = ATT, depois notificação, depois o formulário.
+     */
+    dialogOrder?: readonly OpenDialog[];
+    /**
+     * Os pedidos do próprio app pela trava da lib (`withPermissionPrompt`: localização etc.) esperam os diálogos da
+     * abertura terminarem (o último da ordem respondido, pulado ou no limite de tempo dele) e só então entram na trava;
+     * pedido depois disso sai na hora. A espera começa no `prepare` e nunca prende para sempre: sem o `handleReady`, solta
+     * junto com o aviso de 30 s; com a cadeia parada (premium ou initialize sem resposta), em 3 min. Não vale para os
+     * pedidos da lib (`requestAttPermission`, `requestPushPermission`, `requestUmpConsent`). Padrão `false`: quem pede
+     * primeiro vai primeiro, como sempre.
+     */
+    appDialogsAfterOpen?: boolean;
 };
+
+/** Um diálogo da lib na abertura: consentimento do UMP, alerta do ATT (iOS) ou permissão de notificação. */
+export type OpenDialog = "ump" | "att" | "push";
 
 export interface AppStrings {
     rckey?: string;

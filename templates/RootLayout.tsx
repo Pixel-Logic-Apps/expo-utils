@@ -84,5 +84,8 @@ Props opcionais do <ExpoUtilsLayout>: umpDialogOnOpen, attDialogOnOpen e
 pushDialogOnOpen (default true) — passe false p/ o diálogo não sair na abertura
 e peça no onboarding com Utils.requestUmpConsent(), Utils.requestAttPermission()
 e Utils.requestPushPermission(). fcmTrackingAllowed é o nome antigo do push.
+dialogOrder (default ["ump", "att", "push"]) muda a ordem desses diálogos, e
+appDialogsAfterOpen (default false) faz os pedidos do app pela trava
+(Utils.withPermissionPrompt, ex.: localização) esperarem os diálogos da abertura.
 ───────────────────────────────────────────────────────────────────────────
 */

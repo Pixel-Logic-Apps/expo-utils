@@ -113,8 +113,8 @@ test("esconde o splash e dispara a cadeia na hora, sem timer; hideAsync rejeitad
     Utils.handleReady();
     expect(calls).toEqual(["hideAsync", "requestTrackingWhenActive"]);
     expect(jest.getTimerCount()).toBe(0);
-    // Sem prepare(): appConfig/appStrings do boot vazios e os três diálogos na abertura (o padrão).
-    expect(consentArgs).toEqual([[undefined, undefined, true, {ump: true, att: true}]]);
+    // Sem prepare(): appConfig/appStrings do boot vazios e os três diálogos na abertura, na ordem padrão.
+    expect(consentArgs).toEqual([[undefined, undefined, true, {ump: true, att: true, order: ["ump", "att", "push"]}]]);
     await flush();
     // O hideAsync rejeitado virou warn (com catch): não é unhandled rejection.
     expect(warns.some(([message]) => String(message).includes("hideAsync"))).toBe(true);
