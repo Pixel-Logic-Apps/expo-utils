@@ -56,6 +56,20 @@ const waitAdsConsent = (): Promise<boolean> =>
         whenAdsConsentDenied().then(() => finish(false), () => {});
     });
 
+// Só um pedido de cada formato espera o consentimento; quem chega enquanto ele espera segue na hora sem anúncio, como
+// depois dos 10 s. Sem isso, as trocas de tela durante a espera viram vários pedidos que saem juntos quando o
+// consentimento chega (vários intersticiais seguidos). A marca sai em todos os caminhos: consentimento, 10 s, UMP negou
+// ou erro.
+const waitingConsent = {interstitial: false, rewarded: false};
+const waitAdsConsentFor = async (kind: "interstitial" | "rewarded"): Promise<boolean> => {
+    waitingConsent[kind] = true;
+    try {
+        return await waitAdsConsent();
+    } finally {
+        waitingConsent[kind] = false;
+    }
+};
+
 // Checks compartilhados dos dois formatos. Retorna a request pronta, ou null quando o fluxo
 // deve seguir SEM ad (bloqueado/premium/ads off/sem unitId) — nunca lança.
 const resolveAdRequest = async (
@@ -74,7 +88,13 @@ const resolveAdRequest = async (
     if (isPremium) return null;
     if (adsDisabled()) return null;
     // ads_wait_consent_enabled: antes do UMP e da resposta do ATT, espera até 10 s; passou (ou o UMP negou), segue sem anúncio.
-    if (isAdsConsentDenied() || (!isAdsConsentReady() && !(await waitAdsConsent()))) {
+    const denied = isAdsConsentDenied();
+    const pending = !denied && !isAdsConsentReady();
+    if (pending && waitingConsent[kind]) {
+        expoUtilsLog(`[expo-utils] ${kind}: outro pedido já espera o consentimento da abertura — sem anúncio.`);
+        return CONSENT_PENDING;
+    }
+    if (denied || (pending && !(await waitAdsConsentFor(kind)))) {
         expoUtilsLog(`[expo-utils] ${kind}: consentimento da abertura não terminou em 10 s — sem anúncio.`);
         return CONSENT_PENDING;
     }

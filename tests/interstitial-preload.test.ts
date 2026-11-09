@@ -12,6 +12,7 @@ const names = () => ads.events.map((event) => event.name);
 const placements = () => [...new Set(ads.events.map((event) => event.params.placementId))];
 const MIN = 60_000;
 const UNIT = "ca-app-pub-1/interstitial";
+const REWARDED = "ca-app-pub-1/rewarded";
 
 // Mostra até o fim: carrega (se for o caso), abre, paga e fecha.
 const watch = async (ad: FakeAd, {load = true} = {}) => {
@@ -86,6 +87,23 @@ describe("tudo desligado = comportamento de antes", () => {
         (globalThis as any).adUnits = {};
         expect(await manager.showInterstitial()).toBe(true);
         expect(interstitials()).toHaveLength(0);
+    });
+
+    test("2 chamadas seguidas = 2 cargas e 2 exibições, sem timer, como na 1.5.8 (um pedido por formato só com ads_wait_consent_enabled)", async () => {
+        const manager = await load();
+        const first = manager.showInterstitial(undefined, "a");
+        const second = manager.showInterstitial(undefined, "b");
+        manager.showRewarded(REWARDED, "c");
+        manager.showRewarded(REWARDED, "d");
+        await flush();
+        expect(jest.getTimerCount()).toBe(0);
+        expect(FakeAd.created.filter((ad) => ad.format === "rewarded").map((ad) => ad.loads)).toEqual([1, 1]);
+        for (const ad of interstitials()) await watch(ad);
+        expect(interstitials().map((ad) => [ad.loads, ad.shows])).toEqual([
+            [1, 1],
+            [1, 1],
+        ]);
+        expect([await first, await second]).toEqual([true, true]);
     });
 });
 
@@ -444,5 +462,142 @@ describe("anúncio só depois do consentimento (ads_wait_consent_enabled)", () =
         adsConsentDone();
         await flush();
         expect(interstitials()).toHaveLength(1);
+    });
+
+    // Rajada de trocas de tela antes do consentimento: só um pedido de cada formato espera; os outros seguem na hora.
+    const pendingConsent = () => {
+        let release: () => void = () => {};
+        let deny: () => void = () => {};
+        ads.adsConsentReady = false;
+        ads.adsConsent = new Promise<void>((resolve) => (release = resolve));
+        ads.adsDenied = new Promise<void>((resolve) => (deny = resolve));
+        return {
+            release: () => {
+                ads.adsConsentReady = true;
+                release();
+            },
+            deny,
+        };
+    };
+    const consentLogs = () =>
+        ads.logs.map(([message]) => message).filter((message) => String(message).includes("consentimento"));
+    const busy = (kind: string) =>
+        `[expo-utils] ${kind}: outro pedido já espera o consentimento da abertura — sem anúncio.`;
+    const rewardeds = () => FakeAd.created.filter((ad) => ad.format === "rewarded");
+
+    test("rajada de 3 intersticiais com o consentimento pendente: só o 1º espera, os outros 2 seguem na hora (true, log próprio); o consentimento chega → 1 carga e 1 exibição, a do 1º", async () => {
+        const manager = await load();
+        const consent = pendingConsent();
+        const results: Array<boolean | undefined> = [undefined, undefined, undefined];
+        const calls = ["/a", "/b", "/c"].map((route, i) => {
+            setCurrentRoute(route);
+            return manager.showInterstitial().then((value) => (results[i] = value));
+        });
+        await flush();
+        expect(results).toEqual([undefined, true, true]); // sem esperar os 10 s
+        expect(jest.getTimerCount()).toBe(1); // um timer de 10 s só
+        expect(consentLogs()).toEqual([busy("interstitial"), busy("interstitial")]);
+        jest.advanceTimersByTime(4000);
+        consent.release();
+        await flush();
+        expect(interstitials()).toHaveLength(1);
+        const [ad] = interstitials();
+        await watch(ad);
+        expect([ad.loads, ad.shows]).toEqual([1, 1]);
+        await Promise.all(calls);
+        expect(results).toEqual([true, true, true]);
+        expect(placements()).toEqual([expect.stringMatching(/^a_interstitial_\d+$/)]);
+        expect(jest.getTimerCount()).toBe(0);
+    });
+
+    test("a marca sai em todos os finais da espera (consentimento, 10 s, UMP negou, erro): o pedido seguinte espera de novo", async () => {
+        for (const ending of ["consentimento", "10 s", "UMP negou", "erro"] as const) {
+            resetAds();
+            jest.clearAllTimers();
+            const manager = await load();
+            let consent = pendingConsent();
+            if (ending === "erro") ads.adsConsent = undefined as any; // whenAdsConsentReady() quebra dentro da espera
+            const first = manager.showInterstitial();
+            await flush();
+            if (ending === "consentimento") {
+                consent.release();
+                await flush();
+                await watch(interstitials()[0]);
+                expect(await first).toBe(true);
+            } else if (ending === "10 s") {
+                jest.advanceTimersByTime(10_000);
+                expect(await first).toBe(true);
+            } else if (ending === "UMP negou") {
+                consent.deny();
+                expect(await first).toBe(true);
+            } else {
+                expect(await first).toBe(false); // erro: o contrato de sempre (false, sem pendurar)
+                expect(ads.warns[0][0]).toBe("showInterstitial:");
+            }
+            // No app o consentimento não volta a ficar pendente (nem o "não" do UMP se desfaz); aqui volta, só para
+            // provar que a marca saiu.
+            FakeAd.created.length = 0;
+            ads.logs.length = 0;
+            jest.clearAllTimers();
+            consent = pendingConsent();
+            let secondDone = false;
+            const second = manager.showInterstitial().then((value) => ((secondDone = true), value));
+            const third = manager.showInterstitial();
+            await flush();
+            const state = {ending, secondDone, timers: jest.getTimerCount(), third: await third, logs: consentLogs()};
+            expect(state).toEqual({ending, secondDone: false, timers: 1, third: true, logs: [busy("interstitial")]});
+            consent.release();
+            await flush();
+            expect({ending, created: interstitials().length}).toEqual({ending, created: 1});
+            await watch(interstitials()[0]);
+            expect(await second).toBe(true);
+        }
+    });
+
+    test("rewarded igual: só o 1º espera e os outros devolvem false na hora; passados os 10 s, o seguinte espera de novo; o consentimento chega → 1 carga e 1 exibição", async () => {
+        const manager = await load();
+        const consent = pendingConsent();
+        const first = manager.showRewarded(REWARDED, "a");
+        const second = manager.showRewarded(REWARDED, "b");
+        await flush();
+        expect(await second).toBe(false); // sem esperar os 10 s
+        expect(consentLogs()).toEqual([busy("rewarded")]);
+        jest.advanceTimersByTime(10_000);
+        expect(await first).toBe(false);
+
+        ads.logs.length = 0;
+        const results: Array<boolean | undefined> = [undefined, undefined, undefined];
+        const calls = [0, 1, 2].map((i) =>
+            manager.showRewarded(REWARDED, `r${i}`).then((value) => (results[i] = value)),
+        );
+        await flush();
+        expect(results).toEqual([undefined, false, false]);
+        expect(jest.getTimerCount()).toBe(1);
+        expect(consentLogs()).toEqual([busy("rewarded"), busy("rewarded")]);
+        consent.release();
+        await flush();
+        expect(rewardeds()).toHaveLength(1);
+        const [ad] = rewardeds();
+        ad.loaded = true; // o FakeAd só marca o loaded no LOADED do intersticial
+        ad.emit("rewarded_loaded");
+        await flush();
+        expect([ad.loads, ad.shows]).toEqual([1, 1]);
+        ad.emit("rewarded_earned_reward");
+        ad.emit("closed");
+        await Promise.all(calls);
+        expect(results).toEqual([true, false, false]);
+    });
+
+    test("formatos separados: o intersticial esperando não segura o rewarded", async () => {
+        const manager = await load();
+        const consent = pendingConsent();
+        manager.showInterstitial();
+        manager.showRewarded(REWARDED);
+        await flush();
+        expect(jest.getTimerCount()).toBe(2); // os dois esperam
+        expect(consentLogs()).toEqual([]);
+        consent.release();
+        await flush();
+        expect(FakeAd.created.map((ad) => ad.format).sort()).toEqual(["interstitial", "rewarded"]);
     });
 });

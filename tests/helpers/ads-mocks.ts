@@ -88,6 +88,7 @@ export const ads = {
     events: [] as Array<{name: string; params: any}>,
     statusBar: [] as boolean[],
     warns: [] as any[][],
+    logs: [] as any[][],
 };
 
 export function resetAds() {
@@ -109,6 +110,7 @@ export function resetAds() {
     ads.events.length = 0;
     ads.statusBar.length = 0;
     ads.warns.length = 0;
+    ads.logs.length = 0;
     FakeAd.created.length = 0;
 }
 
@@ -162,7 +164,9 @@ export function installAdsMocks() {
         },
     }));
     mock.module("../../utils/Utils", () => ({
-        expoUtilsLog: () => {},
+        expoUtilsLog: (...args: any[]) => {
+            ads.logs.push(args);
+        },
         expoUtilsWarn: (...args: any[]) => {
             ads.warns.push(args);
         },
