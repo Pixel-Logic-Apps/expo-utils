@@ -3250,3 +3250,30 @@ Ajuste pequeno por cima da faaf571 (num clone, sem push): (1) com o formulário 
 
 ### Versão
 Ainda 1.5.8 no package.json; nada enviado; sem etiqueta.
+
+## 2026-11-09 — Textos da c7bacc0 conferidos por 2 revisões (1.5.9 em andamento, SEM push)
+
+### Pedido
+Duas revisões independentes da c7bacc0 (lentes "nada muda fora do caso-alvo" e "a correção funciona e não prende nada"): no código, nenhuma diferença fora do caso-alvo, nenhuma trava nova e nada vazando; os textos novos prometiam mais do que o código faz. Corrigir só os textos.
+
+### Ações (commit local por cima da c7bacc0; nada enviado; só texto e comentários)
+- O 1º app open da pré-carga na Europa com o formulário depois de outro diálogo espera o fim do consentimento, como o 1º intersticial: a resposta do formulário, **ou 20 s depois de ele aparecer**, e o initialize (README "Diálogos na abertura" e "App open: volta ao app e pré-carga", `utils/types.ts`, comentário do `appopen-ads.tsx` e JSDoc do `hasFormAfterOthers`). Antes dizia "depois da resposta", o que só vale com o formulário respondido em até 20 s (ou com `ads_wait_consent_enabled` ligada).
+- "Limites": TikTok, link-in-bio, aviso de atualização e `consent_flow` saem depois do formulário (a resposta ou os 20 s dele), e o formulário conta até 20 s no atraso.
+- "O que ainda sobra": com a chave, um `showInterstitial` por vez espera até 10 s; os que chegam no meio seguem na hora, sem anúncio (regra da rajada, `waitingConsent`).
+- "Diálogos na abertura" (Brasil): "em qualquer ordem" passa a dizer "com o UMP na abertura"; com `umpDialogOnOpen: false` o initialize só sai no `requestUmpConsent` do app, e com a chave os anúncios liberados saem junto com o initialize, sem esperar ele voltar (visto na conferência do Android, A6).
+- "App open: volta ao app e pré-carga": o teto de 2 min também vale com initialize lento e leitura de premium lenta; formulário com erro (ou fechado sem escolha) não inicializa o SDK e o 1º carrega mesmo assim, como antes; a consulta lenta fica como antes quando o fluxo já terminou aos 2 min (com o initialize ainda rodando, o 1º espera o initialize); premium que passa de 2 min na 1ª abertura decide sem saber do formulário e o 1º pode carregar junto com ele.
+
+### Dizer ao Bruno
+- Na Europa, com a ordem nova, o anúncio de abertura guardado de antemão não carrega mais antes do formulário de privacidade: carrega junto com o 1º intersticial, depois da resposta ou 20 s depois de o formulário aparecer (a regra dos 20 s já valia para o intersticial).
+- Com a pré-carga do app open desligada (o padrão), no Brasil e na ordem padrão, nada muda.
+
+### Achados das revisões que ficam como estão (já existiam na faaf571 ou antes; documentados ou para dizer em 1 linha)
+- Volta ao app: a checagem de diálogo pendente é feita uma vez só (antes de esperar o premium e a carga); em janelas raras o app open aparece por cima do formulário (Android sem `react-native-applifecycle` com premium lento) ou antes do fim de um initialize lento.
+- Ordem padrão com o formulário mais de 20 s na tela e o ATT já respondido: uma volta ao app mostra o app open por cima do formulário (desde a a5dd560, pelo menos).
+- A marca `hasFormAfterOthers` liga pela ordem configurada, também quando nenhum diálogo antes do UMP está ligado nesta plataforma (ex.: Android com "att" antes de "ump" e sem notificação antes): com o initialize preso, o 1º app open não pré-carrega, como o 1º intersticial.
+
+### Verificação
+- Só texto e comentários. `./tests/run.sh`: TODOS OS TESTES PASSARAM (688 pass, 0 fail). `tsc --noEmit`: 0 erros.
+
+### Versão
+Ainda 1.5.8 no package.json; nada enviado; sem etiqueta.

@@ -438,8 +438,8 @@ let umpFormAfterOthers = false;
 /**
  * Com o UMP depois de outro diálogo na ordem da abertura (dialogOrder): a consulta disse que há formulário nesta sessão, e a
  * vez dele pode passar de 2 min (ATT descartado, resposta da notificação que não volta, notificação muito tempo na tela).
- * Aí a pré-carga do 1º app open (utils/appopen-ads.tsx) espera o fim do consentimento (whenConsentFlowDone: a resposta ou o
- * fim do formulário e o initialize do SDK), sem o teto de 2 min, como a do 1º intersticial. false: o teto vale como antes,
+ * Aí a pré-carga do 1º app open (utils/appopen-ads.tsx) espera o fim do consentimento (whenConsentFlowDone: a resposta do
+ * formulário, ou 20 s depois de ele aparecer, e o initialize do SDK), sem o teto de 2 min, como a do 1º intersticial. false: o teto vale como antes,
  * também enquanto a consulta não respondeu.
  */
 export const hasFormAfterOthers = (): boolean => umpFormAfterOthers;

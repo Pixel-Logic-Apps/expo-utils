@@ -136,8 +136,8 @@ export const setupAppOpenListener = (adUnitId?: string) => {
     // Pré-carga ligada: o 1º app open carrega quando o fluxo de UMP/ATT da lib termina, para o pedido não sair antes
     // do consentimento. O teto padrão de 15 s (o do promo) passaria com o formulário do UMP ainda aberto; o de 2 min vale
     // quando o fluxo demora mais que isso (layout sem handleReady, initialize preso). Com o formulário do UMP depois de
-    // outro diálogo (dialogOrder), a vez dele pode passar de 2 min: aí o 1º espera o fim do consentimento (a resposta dele e
-    // o initialize), sem teto, como o 1º intersticial.
+    // outro diálogo (dialogOrder), a vez dele pode passar de 2 min: aí o 1º espera o fim do consentimento (a resposta dele,
+    // ou 20 s depois de ele aparecer, e o initialize), sem teto, como o 1º intersticial.
     if (readAdPreloadSettings("appopen").enabled)
         void waitAttFlowDone(2 * 60_000)
             .then(() => (hasFormAfterOthers() ? whenConsentFlowDone().then(() => whenAdsConsentReady()) : whenAdsConsentReady()))
