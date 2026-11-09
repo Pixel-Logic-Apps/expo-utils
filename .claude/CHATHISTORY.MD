@@ -3068,3 +3068,31 @@ Continua 1.5.8; a etiqueta `v1.5.8` fica no bb3e49e (o comentário entra na pró
 
 ### Versão
 Ainda 1.5.8 no package.json; nada enviado.
+
+## 2026-11-09 — dialogOrder e appDialogsAfterOpen (1.5.9 em andamento, SEM push)
+
+### Pedido
+"Qual que é a condição necessária para sempre chamar, por ordem, o ATT, depois o Push Notification, depois o MP, aí sim depois a localização." Depois: "eu acho que isso aí é uma coisa que tinha que ser do Expo Utils e do ExpoUtilsLayout. Como é que ficaria?" Com a proposta na tela: "Show, pode colocar desse jeito e atualizar nos aplicativos da eleição todos. Aí você coloca já na 1.5.9." Esta etapa: só a lib; os apps ficam para outra fase.
+
+### Ações (commit local fa9cc74 na main, por cima de a5dd560; nada enviado)
+- `dialogOrder` (padrão `["ump", "att", "push"]`) e `appDialogsAfterOpen` (padrão `false`) no 4º argumento do `Utils.prepare` e nas props do `ExpoUtilsLayout`. Inválido ou repetido é ignorado; o que falta entra depois, na ordem padrão; `*DialogOnOpen: false` e o boolean antigo continuam valendo.
+- Cadeia (`requestTrackingWhenActive`) em laço pela ordem. Com o UMP em 1º, o caminho de antes, sem mudança. Com o UMP depois de outro diálogo: a consulta (`requestInfoUpdate`) sai no começo; sem formulário, o `loadAndShowConsentFormIfRequired` volta sem mostrar nada e o initialize sai logo depois da consulta; com formulário (status REQUIRED), ele espera a vez dele, entra na trava de permissão e o initialize sai depois da resposta. O limite de 20 s conta da vez do formulário; o próximo diálogo não espera o initialize. `umpFormSettled` virou função: só vale a partir da vez do formulário.
+- Portões: `after` do ATT e da notificação pela ordem (`flowsBefore`); na padrão, a notificação espera o ATT e o ATT não espera nada, como antes. `after` do portão pode devolver `undefined` (nada a esperar). A cadeia não espera mais 20 s pelo diálogo que está atrás de outro pendente (o mesmo atalho que a notificação já tinha, agora também para o ATT).
+- `appDialogsAfterOpen`: o `withPermissionPrompt` exportado espera o fim da cadeia (último passo respondido, pulado ou no limite) e só então entra na trava; começa no prepare; solta no aviso de 30 s sem handleReady e em 3 min com a cadeia parada (premium ou initialize sem resposta). O `requestPushPermission` da lib usa a trava sem essa espera.
+- FB e atribuição logo depois do ATT, onde ele estiver; `whenConsentFlowDone`/`waitAttFlowDone` depois do UMP e do ATT; `consent_flow` depois do último diálogo; `isAttPending` cobre os diálogos antes do ATT na ordem.
+- Docs: `utils/types.ts`, README ("Diálogos na abertura", "Ordem de Permissões"), `templates/RootLayout.tsx`, `docs/UPGRADE-EXPO57-EXPO-UTILS.md`.
+
+### Verificação
+- `./tests/run.sh`: 634 pass, 0 fail (582 antes); `tsc --noEmit` 0 erros.
+- Ordem padrão = a5dd560: 17 cenários (Brasil e Europa, iOS 26/27, Android, ATT descartado, formulário e ATT além do limite, initialize lento, consulta travada, ads_wait_consent_enabled, localização pela trava, request* do app, formato antigo, sem handleReady) gravados rodando o Utils.ts da a5dd560 numa cópia; o mesmo arquivo passa nela e no código novo.
+- Ordem nova, ordens inválidas, `*DialogOnOpen`, `appDialogsAfterOpen`, `ads_wait_consent_enabled` e 768 combinações (ordem × `*DialogOnOpen` × `appDialogsAfterOpen` × request* do app, iOS e Android, Brasil e Europa) sem trava circular.
+- Mutação: 29 alterações no código novo (e 1 no ExpoUtilsLayout); cada uma derruba ao menos um teste.
+- Não testado em aparelho nem em simulador.
+
+### Riscos anotados
+- Quem fica mais de 20 s no ATT (limite da cadeia) pode ver a localização antes da notificação com `appDialogsAfterOpen` (sempre um diálogo por vez; nada fica preso).
+- Na Europa, com o UMP depois, o formulário vem depois do ATT e da notificação (o Google recomenda antes).
+- Como antes: com o UMP em 1º na Europa, sem `appDialogsAfterOpen`, a localização da 1ª tela sai junto com o formulário (ele não passa pela trava nesse caminho); `requestUmpConsent`/`requestAttPermission` do app antes do handleReady também podem sair junto com ele.
+
+### Versão
+Ainda 1.5.8 no package.json; nada enviado; sem etiqueta.
