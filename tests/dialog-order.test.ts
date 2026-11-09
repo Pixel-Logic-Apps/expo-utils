@@ -6,8 +6,9 @@
 //
 // A 1ª parte prova que a ordem padrão, sem appDialogsAfterOpen, faz o mesmo que a a5dd560 (antes das opções novas): as
 // sequências esperadas foram gravadas rodando estes mesmos cenários no Utils.ts da a5dd560, e essa parte passa nele sem
-// mudança. Depois: a ordem nova no Brasil e na Europa, ordens inválidas, *DialogOnOpen false, appDialogsAfterOpen,
-// ads_wait_consent_enabled e todas as combinações sem trava circular.
+// mudança. Depois: a ordem nova no Brasil e na Europa (com o fim do consentimento depois do initialize), ordens inválidas,
+// *DialogOnOpen false, appDialogsAfterOpen (até a resposta de verdade do ATT e da notificação da abertura, com as
+// armadilhas de quem não deve esperar), ads_wait_consent_enabled e todas as combinações sem trava circular.
 import {afterAll, beforeAll, beforeEach, describe, expect, jest, mock, test} from "bun:test";
 
 type Dialog = "ump" | "att" | "push" | "location";
@@ -27,13 +28,19 @@ const state = {
     umpAllows: true, // canRequestAds depois do formulário
     infoMs: 0, // a consulta do UMP responde depois disso (rede)
     infoHang: false, // a consulta do UMP nunca responde
+    premium: false,
     premiumHang: false, // a leitura de premium nunca responde (a cadeia para no UMP)
     initMs: 0, // o initialize do SDK de anúncios responde depois disso (adapters de mediação)
     att: "undetermined",
     attDiscard: 0, // pedidos de ATT que o iOS descarta (voltam undetermined sem mostrar nada)
     push: -1, // AuthorizationStatus do RNFB no iOS: -1 não perguntado, 0 negado, 1 autorizado
     androidPush: false,
+    // Android: notificação negada para sempre. O check volta false e o pedido volta "never_ask_again" na hora, sem diálogo
+    // (o app nem sai de active).
+    androidPushBlocked: false,
+    androidPushHang: false, // Android: a promessa do pedido nunca resolve e nenhum diálogo aparece (o app segue active)
     pushHang: false, // iOS: a resposta da notificação não volta ao app (o RNFB lê o getNotificationSettings depois dela)
+    pushLost: false, // iOS: o pedido volta "não determinado" na hora, sem mostrar nada (pedido perdido)
     rcUtils: {} as Record<string, any>,
     storage: new Map<string, string>(),
 };
@@ -136,6 +143,8 @@ mock.module("react-native", () => ({
         request: () => {
             log("push:pede");
             if (state.androidPush) return Promise.resolve("granted");
+            if (state.androidPushBlocked) return Promise.resolve("never_ask_again");
+            if (state.androidPushHang) return never<string>();
             return show("push").then((value) => {
                 if (value === "granted") state.androidPush = true;
                 return value;
@@ -175,6 +184,7 @@ mock.module("@react-native-firebase/messaging", () => ({
     requestPermission: () => {
         log("push:pede");
         if (state.push !== -1) return Promise.resolve(state.push);
+        if (state.pushLost) return Promise.resolve(-1);
         const answered = show("push").then((value) => (state.push = value === "granted" ? 1 : 0));
         return state.pushHang ? answered.then(() => never<number>()) : answered;
     },
@@ -218,6 +228,7 @@ mock.module("react-native-google-mobile-ads", () => ({
                 return {status: "OBTAINED", canRequestAds: state.umpAllows};
             });
         },
+        reset: () => log("ump:reset"),
     },
     AdsConsentDebugGeography: {},
 }));
@@ -258,7 +269,7 @@ mock.module("../utils/PremiumUtils", () => ({
     PremiumUtils: {
         getIsPremiumStatus: () => {
             log("premium");
-            return state.premiumHang ? never() : Promise.resolve(false);
+            return state.premiumHang ? never() : Promise.resolve(state.premium);
         },
     },
 }));
@@ -375,6 +386,8 @@ const askLocation = (m: any) => {
 // Só as linhas do trace com um destes trechos.
 const only = (...parts: string[]) => trace.filter((line) => parts.some((part) => line.includes(part)));
 const dialogs = () => only(":aparece", ":responde");
+// Os instantes das linhas com o trecho, sem depender da ordem entre linhas do mesmo instante.
+const times = (part: string) => only(part).map((line) => line.split(" ")[0]);
 
 beforeAll(() => jest.useFakeTimers());
 afterAll(() => jest.useRealTimers());
@@ -395,13 +408,17 @@ const reset = () => {
         umpAllows: true,
         infoMs: 0,
         infoHang: false,
+        premium: false,
         premiumHang: false,
         initMs: 0,
         att: "undetermined",
         attDiscard: 0,
         push: -1,
         androidPush: false,
+        androidPushBlocked: false,
+        androidPushHang: false,
         pushHang: false,
+        pushLost: false,
         rcUtils: {},
         storage: new Map(),
     });
@@ -1021,6 +1038,115 @@ describe("dialogOrder", () => {
         await advance(4000);
         expect(m.isAttPending()).toBe(false);
     });
+
+    // O fim do consentimento (whenConsentFlowDone/waitAttFlowDone) segura a pré-carga do 1º intersticial, a do app open e o
+    // promo: na ordem padrão ele sempre veio depois do initialize do SDK (a cadeia espera o setupMobileAds na posição do UMP).
+    test("abertura seguinte (ATT e notificação já respondidos), initialize de 4 s: o consentimento termina aos 4 s nas duas ordens, no iPhone e no Android", async () => {
+        const results: string[] = [];
+        for (const os of ["ios", "android"] as const) {
+            for (const options of [undefined, ELEICAO]) {
+                reset();
+                state.os = os;
+                state.initMs = 4000;
+                state.att = "granted";
+                state.push = 1;
+                state.androidPush = true;
+                await open(options);
+                await advance(6000);
+                results.push(`${os} ${options ? "nova" : "padrão"}: consentimento ${times("consentimento:fim")}, cadeia ${times("cadeia:fim")}`);
+            }
+        }
+        // Na ordem nova a cadeia não espera o initialize (acaba aos 0 s); só o fim do consentimento espera.
+        expect(results).toEqual([
+            "ios padrão: consentimento 4s, cadeia 4s",
+            "ios nova: consentimento 4s, cadeia 0s",
+            "android padrão: consentimento 4s, cadeia 4s",
+            "android nova: consentimento 4s, cadeia 0s",
+        ]);
+    });
+
+    test("1ª abertura na ordem nova, ATT e notificação respondidos em 1 s cada e initialize de 6 s: o consentimento termina aos 6 s", async () => {
+        state.initMs = 6000;
+        autoAnswer = {att: [1000, "granted"], push: [1000, "granted"]};
+        await open(ELEICAO);
+        await advance(8000);
+        expect(dialogs()).toEqual(["0s att:aparece", "1s att:responde=granted", "1s push:aparece", "2s push:responde=granted"]);
+        expect([times("anuncios:initialize"), times("cadeia:fim"), times("consentimento:fim")]).toEqual([["0s"], ["2s"], ["6s"]]);
+
+        reset();
+        state.os = "android";
+        state.initMs = 6000;
+        autoAnswer = {push: [1000, "granted"]};
+        await open(ELEICAO);
+        await advance(8000);
+        expect(dialogs()).toEqual(["0s push:aparece", "1s push:responde=granted"]);
+        expect([times("anuncios:initialize"), times("cadeia:fim"), times("consentimento:fim")]).toEqual([["0s"], ["1s"], ["6s"]]);
+    });
+
+    test("ordem nova na Europa: o consentimento termina depois da resposta do formulário e do initialize", async () => {
+        state.region = "EU";
+        state.initMs = 3000;
+        autoAnswer = {att: [1000, "granted"], push: [1000, "granted"], ump: [2000, "aceita"]};
+        await open(ELEICAO);
+        await advance(12000);
+        expect(only("ump:responde", "anuncios:")).toEqual(["4s ump:responde=aceita", "4s anuncios:initialize"]);
+        expect([times("cadeia:fim"), times("consentimento:fim")]).toEqual([["4s"], ["7s"]]);
+    });
+
+    test("ordem nova: a cadeia, o diálogo seguinte, a localização e o ads_wait_consent_enabled não esperam o initialize", async () => {
+        state.initMs = 5000;
+        state.rcUtils = {ads_wait_consent_enabled: true};
+        autoAnswer = {att: [1000, "granted"], push: [1000, "granted"], location: [1000, "granted"]};
+        await open(ELEICAO_APP, {beforeReady: (m) => askLocation(m)});
+        await advance(7000);
+        expect(only(":aparece")).toEqual(["0s att:aparece", "1s push:aparece", "2s location:aparece"]);
+        expect([times("anuncio:liberado"), times("cadeia:fim"), times("consentimento:fim")]).toEqual([["1s"], ["2s"], ["5s"]]);
+    });
+
+    test("ordem nova com o resetAdsConsent (QA) no meio da abertura: o consentimento continua esperando o initialize do setup da cadeia", async () => {
+        state.initMs = 4000;
+        autoAnswer = {att: [2000, "granted"], push: [1000, "granted"]};
+        const m = await open(ELEICAO);
+        await advance(1000);
+        m.default.resetAdsConsent();
+        await advance(5000);
+        expect(only("ump:reset", "anuncios:", "cadeia:fim", "consentimento:fim")).toEqual([
+            "0s anuncios:initialize",
+            "1s ump:reset",
+            "3s cadeia:fim",
+            "4s consentimento:fim",
+        ]);
+    });
+
+    test("ordem nova com o requestUmpConsent do app antes do handleReady: o consentimento também espera o initialize desse UMP", async () => {
+        state.initMs = 3000;
+        autoAnswer = {att: [1000, "granted"], push: [1000, "granted"]};
+        await open(ELEICAO, {beforeReady: (m) => void m.default.requestUmpConsent()});
+        await advance(5000);
+        expect(only("anuncios:", "cadeia:fim", "consentimento:fim")).toEqual(["0s anuncios:initialize", "2s cadeia:fim", "3s consentimento:fim"]);
+    });
+
+    test("umpDialogOnOpen false fica como está: o consentimento termina com o ATT, sem UMP nem initialize", async () => {
+        state.initMs = 4000;
+        autoAnswer = {att: [1000, "granted"], push: [1000, "granted"]};
+        await open({...ELEICAO, umpDialogOnOpen: false});
+        await advance(6000);
+        expect(only("anuncios:", "ump:")).toEqual([]);
+        expect([times("cadeia:fim"), times("consentimento:fim")]).toEqual([["2s"], ["2s"]]);
+    });
+
+    test("premium e anúncio desligado na ordem nova: o consentimento termina com o ATT e a notificação, sem esperar nada do SDK", async () => {
+        for (const setup of [() => (state.premium = true), () => (state.rcUtils = {is_ads_enabled: false})]) {
+            reset();
+            setup();
+            state.initMs = 4000;
+            autoAnswer = {att: [1000, "granted"], push: [1000, "granted"]};
+            await open(ELEICAO);
+            await advance(5000);
+            expect(only("anuncios:")).toEqual([]);
+            expect([times("cadeia:fim"), times("consentimento:fim")]).toEqual([["2s"], ["2s"]]);
+        }
+    });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -1099,20 +1225,292 @@ describe("appDialogsAfterOpen", () => {
         expect(dialogs()).toEqual(["30s location:aparece", "31s location:responde=granted"]);
     });
 
-    test("diálogo que estoura o limite conta como fim: ATT na tela 25 s (iOS 27) → aos 20 s a localização entra na trava, atrás do ATT", async () => {
+    test("(a) ATT respondido depois do limite da cadeia (iOS 27, 25 s): a cadeia segue aos 20 s, mas a localização só sai depois do ATT e da notificação", async () => {
         autoAnswer = {att: [25000, "granted"], push: [2000, "granted"], location: [2000, "granted"]};
         await open(ELEICAO_APP, {beforeReady: (m) => askLocation(m)});
         await advance(20000);
         expect(only("cadeia:fim")).toEqual(["20s cadeia:fim"]);
         await advance(12000);
-        // Um diálogo por vez: a localização espera o ATT na trava e sai antes da notificação, que só pede depois do fim do ATT.
         expect(dialogs()).toEqual([
             "0s att:aparece",
             "25s att:responde=granted",
-            "25s location:aparece",
-            "27s location:responde=granted",
-            "27s push:aparece",
-            "29s push:responde=granted",
+            "25s push:aparece",
+            "27s push:responde=granted",
+            "27s location:aparece",
+            "29s location:responde=granted",
+        ]);
+        expect(mostOnScreen).toBe(1);
+    });
+
+    test("(a) localização pedida aos 25 s, depois do fim da cadeia, com o ATT ainda na tela: também espera o ATT e a notificação", async () => {
+        autoAnswer = {att: [30000, "granted"], push: [2000, "granted"], location: [2000, "granted"]};
+        const m = await open(ELEICAO_APP);
+        await advance(25000);
+        expect(only("cadeia:fim")).toEqual(["20s cadeia:fim"]);
+        askLocation(m);
+        await advance(10000);
+        expect(dialogs()).toEqual([
+            "0s att:aparece",
+            "30s att:responde=granted",
+            "30s push:aparece",
+            "32s push:responde=granted",
+            "32s location:aparece",
+            "34s location:responde=granted",
+        ]);
+        expect(mostOnScreen).toBe(1);
+    });
+
+    test("(b) iOS 27, ATT na tela 70 s: quando a trava solta (60 s), a localização não sai por cima dele", async () => {
+        autoAnswer = {att: [70000, "granted"], push: [2000, "granted"], location: [2000, "granted"]};
+        await open(ELEICAO_APP, {beforeReady: (m) => askLocation(m)});
+        await advance(80000, 1000);
+        expect(dialogs()).toEqual([
+            "0s att:aparece",
+            "70s att:responde=granted",
+            "70s push:aparece",
+            "72s push:responde=granted",
+            "72s location:aparece",
+            "74s location:responde=granted",
+        ]);
+        expect(mostOnScreen).toBe(1);
+    });
+
+    test("(b) iOS 27, notificação na tela 70 s: quando a trava solta (60 s), a localização espera a resposta dela", async () => {
+        autoAnswer = {att: [2000, "granted"], push: [70000, "granted"], location: [2000, "granted"]};
+        await open(ELEICAO_APP, {beforeReady: (m) => askLocation(m)});
+        await advance(80000, 1000);
+        expect(dialogs()).toEqual([
+            "0s att:aparece",
+            "2s att:responde=granted",
+            "2s push:aparece",
+            "72s push:responde=granted",
+            "72s location:aparece",
+            "74s location:responde=granted",
+        ]);
+        expect(mostOnScreen).toBe(1);
+    });
+
+    test("(b) ordem padrão com appDialogsAfterOpen, iOS 27, ATT na tela 70 s: a localização também espera", async () => {
+        autoAnswer = {att: [70000, "granted"], push: [2000, "granted"], location: [2000, "granted"]};
+        await open({appDialogsAfterOpen: true}, {beforeReady: (m) => askLocation(m)});
+        await advance(80000, 1000);
+        expect(shown()).toEqual(["att", "push", "location"]);
+        expect(only("location:aparece")).toEqual(["72s location:aparece"]);
+        expect(mostOnScreen).toBe(1);
+    });
+
+    test("(c) ATT descartado pelo iOS sem evento de active: a localização espera a nova tentativa (ATT e notificação antes dela)", async () => {
+        state.attDiscard = 1;
+        autoAnswer = {att: [1000, "granted"], push: [1000, "granted"], location: [1000, "granted"]};
+        await open(ELEICAO_APP, {beforeReady: (m) => askLocation(m)});
+        await advance(40000, 1000);
+        // A cadeia segue no limite dela; o ATT espera o próximo "ficou ativo" e a notificação espera o ATT.
+        expect(only("att:descartado", "cadeia:fim")).toEqual(["0s att:descartado", "20s cadeia:fim"]);
+        expect(dialogs()).toEqual([]);
+        // A pessoa sai do app e volta: o ATT sai de novo, depois a notificação e só então a localização.
+        await setAppState("background");
+        await setAppState("active");
+        await advance(4000, 1000);
+        expect(dialogs()).toEqual([
+            "40s att:aparece",
+            "41s att:responde=granted",
+            "41s push:aparece",
+            "42s push:responde=granted",
+            "42s location:aparece",
+            "43s location:responde=granted",
+        ]);
+        expect(mostOnScreen).toBe(1);
+    });
+
+    test("(c) sem evento de active nenhum: a localização sai no limite de segurança de 3 min com o app ativo (nunca fica presa)", async () => {
+        state.attDiscard = 1;
+        autoAnswer = {location: [1000, "granted"]};
+        await open(ELEICAO_APP, {beforeReady: (m) => askLocation(m)});
+        await advance(199000, 1000);
+        expect(only("location:")).toEqual([]);
+        await advance(3000, 1000);
+        // 3 min contados do fim da cadeia (20 s).
+        expect(only("location:")).toEqual(["200s location:aparece", "201s location:responde=granted"]);
+    });
+
+    test("limite de segurança só com o app ativo: iOS 26, ATT na tela 5 min (o app fica inactive) → a localização espera a resposta", async () => {
+        state.alerts = "ios26";
+        autoAnswer = {att: [300000, "granted"], push: [2000, "granted"], location: [1000, "granted"]};
+        await open(ELEICAO_APP, {beforeReady: (m) => askLocation(m)});
+        await advance(305000, 1000);
+        expect(dialogs()).toEqual([
+            "0s att:aparece",
+            "300s att:responde=granted",
+            "300s push:aparece",
+            "302s push:responde=granted",
+            "302s location:aparece",
+            "303s location:responde=granted",
+        ]);
+        expect(mostOnScreen).toBe(1);
+    });
+
+    test("o que sobra: iOS 27, ATT deixado na tela além do limite de segurança → a localização sai aos 3 min do fim da cadeia, por cima dele", async () => {
+        autoAnswer = {att: [300000, "granted"], push: [2000, "granted"], location: [1000, "granted"]};
+        await open(ELEICAO_APP, {beforeReady: (m) => askLocation(m)});
+        await advance(199000, 1000);
+        expect(only("location:")).toEqual([]);
+        await advance(2000, 1000);
+        expect(only("location:aparece")).toEqual(["200s location:aparece"]);
+        expect(onScreen).toEqual(["att"]);
+    });
+
+    test("armadilha: Android com a notificação negada para sempre (o pedido volta never_ask_again na hora, sem diálogo) → localização na hora", async () => {
+        state.os = "android";
+        state.androidPushBlocked = true;
+        autoAnswer = {location: [1000, "granted"]};
+        await open(ELEICAO_APP, {beforeReady: (m) => askLocation(m)});
+        await advance(2000);
+        // O portão da notificação fica esperando o próximo "ficou ativo" (pedido perdido), mas não segura a localização. Ela
+        // pausa a Activity, e a volta dela é esse "ficou ativo": a 2ª tentativa volta never_ask_again na hora, de novo sem nada.
+        expect(only("location:")).toEqual(["0s location:aparece", "1s location:responde=granted"]);
+        expect(only("push:", "consent_flow", "cadeia:fim")).toEqual([
+            "0s push:le",
+            "0s push:pede",
+            "0s consent_flow not_required|na|never_ask_again 0/1",
+            "0s cadeia:fim",
+            "1s push:le",
+            "1s push:pede",
+        ]);
+        expect(mostOnScreen).toBe(1);
+    });
+
+    test("iOS: notificação que volta perdida na hora, sem diálogo (não determinada) → localização na hora, sem esperar a nova tentativa", async () => {
+        state.pushLost = true;
+        autoAnswer = {att: [1000, "granted"], location: [1000, "granted"]};
+        await open(ELEICAO_APP, {beforeReady: (m) => askLocation(m)});
+        await advance(3000);
+        expect([times("push:pede"), times("cadeia:fim")]).toEqual([["1s"], ["1s"]]);
+        expect(only("location:")).toEqual(["1s location:aparece", "2s location:responde=granted"]);
+    });
+
+    test("Android: pedido de notificação com a promessa pendurada (sem diálogo, o app segue active) → a localização sai no limite da trava (20 s), sem espera a mais", async () => {
+        state.os = "android";
+        state.androidPushHang = true;
+        autoAnswer = {location: [1000, "granted"]};
+        await open(ELEICAO_APP, {beforeReady: (m) => askLocation(m)});
+        await advance(19000, 1000);
+        expect(only("location:")).toEqual([]);
+        await advance(2000, 1000);
+        expect([times("cadeia:fim"), times("location:aparece")]).toEqual([["20s"], ["20s"]]);
+    });
+
+    test("ATT da abertura sem a notificação depois dele (pushDialogOnOpen false, ou a notificação antes do ATT): a localização também espera o ATT na tela além de 60 s", async () => {
+        autoAnswer = {att: [70000, "granted"], push: [2000, "granted"], location: [2000, "granted"]};
+        await open({...ELEICAO_APP, pushDialogOnOpen: false}, {beforeReady: (m) => askLocation(m)});
+        await advance(75000, 1000);
+        expect(dialogs()).toEqual(["0s att:aparece", "70s att:responde=granted", "70s location:aparece", "72s location:responde=granted"]);
+
+        reset();
+        autoAnswer = {att: [70000, "granted"], push: [2000, "granted"], location: [2000, "granted"]};
+        await open({dialogOrder: ["push", "att", "ump"], appDialogsAfterOpen: true}, {beforeReady: (m) => askLocation(m)});
+        await advance(80000, 1000);
+        expect(dialogs()).toEqual([
+            "0s push:aparece",
+            "2s push:responde=granted",
+            "2s att:aparece",
+            "72s att:responde=granted",
+            "72s location:aparece",
+            "74s location:responde=granted",
+        ]);
+        expect(mostOnScreen).toBe(1);
+    });
+
+    test("2ª abertura com tudo respondido: localização na hora, no iPhone e no Android", async () => {
+        for (const os of ["ios", "android"] as const) {
+            reset();
+            state.os = os;
+            state.att = "denied";
+            state.push = 0;
+            state.androidPush = true;
+            autoAnswer = {location: [1000, "granted"]};
+            await open(ELEICAO_APP, {beforeReady: (m) => askLocation(m)});
+            await advance(2000);
+            expect(only("location:")).toEqual(["0s location:aparece", "1s location:responde=granted"]);
+        }
+    });
+
+    test("premium e anúncio desligado: nada a mais segura a localização (1ª abertura: depois do ATT e da notificação; 2ª: na hora)", async () => {
+        for (const setup of [() => (state.premium = true), () => (state.rcUtils = {is_ads_enabled: false})]) {
+            reset();
+            setup();
+            autoAnswer = {att: [1000, "granted"], push: [1000, "granted"], location: [1000, "granted"]};
+            await open(ELEICAO_APP, {beforeReady: (m) => askLocation(m)});
+            await advance(4000);
+            expect(dialogs()).toEqual([
+                "0s att:aparece",
+                "1s att:responde=granted",
+                "1s push:aparece",
+                "2s push:responde=granted",
+                "2s location:aparece",
+                "3s location:responde=granted",
+            ]);
+            expect(only("ump:", "anuncios:")).toEqual([]);
+
+            reset();
+            setup();
+            state.att = "granted";
+            state.push = 1;
+            autoAnswer = {location: [1000, "granted"]};
+            await open(ELEICAO_APP, {beforeReady: (m) => askLocation(m)});
+            await advance(2000);
+            expect(only("location:")).toEqual(["0s location:aparece", "1s location:responde=granted"]);
+            expect(times("consentimento:fim")).toEqual(["0s"]);
+        }
+    });
+
+    test("diálogo fora da abertura não segura nada: ATT do app (attDialogOnOpen false) descartado, e sem a notificação na abertura", async () => {
+        // ATT pedido pelo app e descartado pelo iOS (espera o próximo active): não é da abertura, a localização não espera por ele.
+        state.attDiscard = 1;
+        autoAnswer = {push: [1000, "granted"], location: [1000, "granted"]};
+        const m = await open({...ELEICAO_APP, attDialogOnOpen: false});
+        await advance(2000);
+        m.default.requestAttPermission();
+        await advance(1000);
+        askLocation(m);
+        await advance(2000);
+        expect(only("att:descartado", ":aparece")).toEqual(["0s push:aparece", "2s att:descartado", "3s location:aparece"]);
+
+        // pushDialogOnOpen false: a localização sai logo depois do ATT.
+        reset();
+        autoAnswer = {att: [1000, "granted"], location: [1000, "granted"]};
+        await open({...ELEICAO_APP, pushDialogOnOpen: false}, {beforeReady: (mm) => askLocation(mm)});
+        await advance(3000);
+        expect(dialogs()).toEqual(["0s att:aparece", "1s att:responde=granted", "1s location:aparece", "2s location:responde=granted"]);
+    });
+
+    test("iOS 27, resposta da notificação que não volta: a localização espera no máximo mais um limite da trava (60 s) depois do dela", async () => {
+        state.pushHang = true;
+        autoAnswer = {att: [2000, "granted"], push: [2000, "granted"], location: [2000, "granted"]};
+        await open(ELEICAO_APP, {beforeReady: (m) => askLocation(m)});
+        await advance(121000, 1000);
+        expect(only("location:")).toEqual([]);
+        await advance(4000, 1000);
+        // Pedido aos 2 s: 60 s da trava (62 s) e mais 60 s esperando a resposta, só com o app ativo (como o ATT da af6172a).
+        expect(only("location:")).toEqual(["122s location:aparece", "124s location:responde=granted"]);
+    });
+
+    test("pedidos da lib não esperam: requestAttPermission e requestPushPermission do app com o ATT da abertura na tela além do limite", async () => {
+        autoAnswer = {att: [25000, "granted"], push: [2000, "granted"], location: [2000, "granted"]};
+        const m = await open(ELEICAO_APP, {beforeReady: (mm) => askLocation(mm)});
+        await advance(21000, 1000);
+        m.default.requestAttPermission().then((status: string) => log(`app:att=${status}`));
+        m.default.requestPushPermission().then((status: string) => log(`app:push=${status}`));
+        await advance(10000, 1000);
+        // O ATT do app é o mesmo da abertura; a notificação do app espera o ATT e entra na trava junto com a da cadeia (a 2ª
+        // volta na hora, já respondida). Nenhum dos dois espera a localização nem o limite de 3 min.
+        expect([times("app:att="), times("app:push="), times("app:localizacao=")]).toEqual([["25s"], ["27s"], ["29s"]]);
+        expect(dialogs()).toEqual([
+            "0s att:aparece",
+            "25s att:responde=granted",
+            "25s push:aparece",
+            "27s push:responde=granted",
+            "27s location:aparece",
+            "29s location:responde=granted",
         ]);
         expect(mostOnScreen).toBe(1);
     });

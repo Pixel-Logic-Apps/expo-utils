@@ -297,8 +297,9 @@ export const waitAttFlowDone = (timeoutMs = 15000): Promise<void> => {
 };
 
 /**
- * Resolve quando o fluxo de consentimento da abertura termina (UMP e, no iOS, ATT respondido ou no limite da cadeia),
- * sem teto. Sem o boot da lib (handleReady), nunca resolve. Para pedir anúncio só depois do consentimento.
+ * Resolve quando o fluxo de consentimento da abertura termina (UMP com o initialize do SDK de anúncios, em qualquer ordem
+ * dos diálogos, e, no iOS, ATT respondido ou no limite da cadeia), sem teto. Sem o boot da lib (handleReady), nunca
+ * resolve. Para pedir anúncio só depois do consentimento.
  */
 export const whenConsentFlowDone = (): Promise<void> => attFlowDonePromise;
 
@@ -459,10 +460,12 @@ const promptInLock = async <T>(fn: () => Promise<T>): Promise<T> => {
     throw new Error("withPermissionPrompt: pedido de permissão sem resposta no limite");
 };
 
-// appDialogsAfterOpen (opção do prepare): os pedidos do app pela trava esperam o fim dos diálogos da abertura (o último passo
-// da ordem respondido, pulado ou no limite dele) e só então entram nela. Começa no prepare; solta no fim da cadeia, no aviso
-// de 30 s sem o handleReady e, por segurança, se a cadeia parar (premium ou initialize sem resposta), em 3 min fora do
-// segundo plano. Pedido depois disso sai na hora.
+// appDialogsAfterOpen (opção do prepare): os pedidos do app pela trava esperam os diálogos da abertura e só então entram
+// nela. Duas esperas. (1) O fim da cadeia (o último passo da ordem respondido, pulado ou no limite dele): começa no prepare;
+// solta no fim da cadeia, no aviso de 30 s sem o handleReady e, por segurança, se a cadeia parar (premium ou initialize sem
+// resposta), em 3 min fora do segundo plano. (2) O fim de verdade do ATT e da notificação que a cadeia pediu (abaixo),
+// também para o pedido feito depois do fim da cadeia: a cadeia dá como terminado o diálogo que passa do limite dela (20 s),
+// e ele pode seguir na tela (no iOS 27 o alerta não tira o app de `active`) ou ainda nem ter saído.
 let appDialogsWait = false;
 let openDialogsEnded = false;
 let resolveOpenDialogs: () => void = () => {};
@@ -472,10 +475,37 @@ const endOpenDialogs = (): void => {
     resolveOpenDialogs();
 };
 
+// (2) O ATT e a notificação da cadeia da abertura que ainda não terminaram (só com appDialogsAfterOpen; diálogo fora da
+// abertura não entra). ATT: até o fim do fluxo (resposta ou 3 pedidos perdidos), como a notificação já espera por ele; vale
+// também para o ATT descartado pelo iOS, que volta no próximo "ficou ativo". Notificação: até o 1º desfecho e, se o pedido
+// ainda estiver sem resposta no iOS (no iOS 27 o alerta pode seguir na tela depois do limite da trava), por mais um limite
+// da trava com o app ativo: a resposta que não volta (o RNFB lê o getNotificationSettings depois dela) não prende mais que
+// isso, como o ATT da cadeia com a notificação antes dele. A notificação que voltou perdida, sem diálogo na tela (Android
+// negada para sempre: "never_ask_again" na hora), não segura nada; a nova tentativa fica para o próximo "ficou ativo".
+const openRequestWaits = new Set<Promise<void>>();
+const holdForOpenRequest = (wait: Promise<unknown>): void => {
+    const done = wait.then(
+        () => {},
+        () => {},
+    );
+    openRequestWaits.add(done);
+    void done.then(() => openRequestWaits.delete(done));
+};
+// Pedidos de notificação do portão da abertura que o sistema ainda não respondeu.
+let pushAsking = 0;
+
+// Entra na trava depois do ATT e da notificação da abertura, por no máximo 3 min com o app ativo (o limite recomeça a cada
+// "ficou ativo"; com o alerta tirando o app de `active`, ele não corre). Sem nada pendente, entra na hora.
+const promptAfterOpenRequests = <T>(fn: () => Promise<T>): Promise<T> => {
+    if (!openRequestWaits.size) return promptInLock(fn);
+    return withActiveLimit(AppState, Promise.all([...openRequestWaits]), ADS_CONSENT_FALLBACK_MS).then(() => promptInLock(fn));
+};
+
 /**
  * Faz um pedido de permissão do app na mesma trava de ATT e notificação da lib: uma permissão de cada vez, nos dois
  * sistemas, quem pede primeiro vai primeiro. Espera a vez e o app ativo (por evento), roda `fn` e solta a trava. Com
- * `appDialogsAfterOpen` (opção do prepare), antes da trava espera os diálogos da abertura terminarem.
+ * `appDialogsAfterOpen` (opção do prepare), antes da trava espera os diálogos da abertura: o fim da cadeia e o fim de
+ * verdade do ATT e da notificação que ela pediu (no máximo 3 min com o app ativo), também depois do fim da cadeia.
  *
  * Todo pedido do app que possa sair na abertura passa por aqui. No Android, sem isso, ele pode cair na mesma janela do
  * pedido da lib: a resposta se perde, a promessa do Expo nunca resolve e todo pedido do Expo depois dele fica parado até
@@ -489,8 +519,10 @@ const endOpenDialogs = (): void => {
  *
  * @example const {status} = await Utils.withPermissionPrompt(() => Location.requestForegroundPermissionsAsync());
  */
-export const withPermissionPrompt = <T>(fn: () => Promise<T>): Promise<T> =>
-    appDialogsWait && !openDialogsEnded ? openDialogsDone.then(() => promptInLock(fn)) : promptInLock(fn);
+export const withPermissionPrompt = <T>(fn: () => Promise<T>): Promise<T> => {
+    if (!appDialogsWait) return promptInLock(fn);
+    return openDialogsEnded ? promptAfterOpenRequests(fn) : openDialogsDone.then(() => promptAfterOpenRequests(fn));
+};
 
 // AuthorizationStatus do RNFB: -1 não determinado, 0 negado, 1 autorizado, 2 provisório, 3 efêmero
 const pushStatusLabel = (status: number): string =>
@@ -588,7 +620,17 @@ const startAttFlow = (): PermissionFlow<string> => {
 const pushGate = createPermissionGate<string>({
     appState: AppState,
     read: Platform.OS === "android" ? readAndroidPushPermission : undefined,
-    request: askPushPermission,
+    // Conta o pedido até a resposta do sistema (appDialogsAfterOpen: pedido sem resposta pode ter o alerta na tela). O
+    // portão recebe a mesma promessa.
+    request: () => {
+        const asking = askPushPermission();
+        pushAsking += 1;
+        const answered = () => {
+            pushAsking -= 1;
+        };
+        void asking.then(answered, answered);
+        return asking;
+    },
     noAnswer: "undetermined",
     canAsk: (status) => (Platform.OS === "android" ? status !== "granted" : status === "undetermined"),
     lost: (status, leftActive) =>
@@ -1718,8 +1760,9 @@ const Utils = {
      * depois de outro diálogo, a consulta dele à internet sai no começo e o formulário na vez dele (runMobileAdsSetup); na
      * posição dele a cadeia espera a resposta (ou o limite de 20 s), sem o initialize. Com a notificação antes do ATT, o ATT
      * só pede depois do fim dela. O FB e a atribuição saem logo depois do ATT, onde ele estiver; o whenConsentFlowDone (e o
-     * waitAttFlowDone) depois do UMP e do ATT; o `consent_flow` depois do último. Com appDialogsAfterOpen, os pedidos do app
-     * (withPermissionPrompt) entram na trava depois do último diálogo da ordem.
+     * waitAttFlowDone) depois do UMP, com o initialize do SDK (como na padrão), e do ATT; o `consent_flow` depois do último.
+     * Com appDialogsAfterOpen, os pedidos do app (withPermissionPrompt) entram na trava depois do último diálogo da ordem e
+     * do fim de verdade do ATT e da notificação que a cadeia pediu (no máximo 3 min com o app ativo).
      *
      * @param appConfig   app.json (para FB App ID, bundle/package, etc.)
      * @param appStrings  Strings do app (de onde sai o rckey)
@@ -1760,10 +1803,24 @@ const Utils = {
         }
 
         // UMP depois de outro diálogo: a consulta à internet sai já (rápida, sem nada na tela); o formulário espera a vez dele.
-        if (askUmp && order[0] !== "ump" && !mobileAdsSetupPromise) {
-            umpTurnReached = false;
-            void runMobileAdsSetup(appConfig ?? bootAppConfig, new Promise<void>((resolve) => (releaseUmpTurn = resolve)));
+        // O setup (consulta, formulário e initialize; nunca rejeita) fica guardado aqui, porque o resetAdsConsent zera o
+        // mobileAdsSetupPromise. Se o app já pediu o UMP (requestUmpConsent antes do handleReady), vale o dele.
+        let umpSetup: Promise<void> | null = null;
+        if (askUmp && order[0] !== "ump") {
+            if (!mobileAdsSetupPromise) {
+                umpTurnReached = false;
+                umpSetup = runMobileAdsSetup(appConfig ?? bootAppConfig, new Promise<void>((resolve) => (releaseUmpTurn = resolve)));
+            } else umpSetup = mobileAdsSetupPromise;
         }
+        // Fim do consentimento da abertura (whenConsentFlowDone e waitAttFlowDone: pré-carga do 1º intersticial e do app open,
+        // promo), depois do UMP e do ATT. Com o UMP depois de outro diálogo, espera também o fim do setup dele, com o
+        // initialize do SDK (com mediação, o Google manda esperar o initialize antes de carregar anúncio), como na ordem
+        // padrão, onde a cadeia espera o setupMobileAds na posição do UMP. Só o fim do consentimento espera o initialize: a
+        // cadeia, o diálogo seguinte, os pedidos do app e o ads_wait_consent_enabled não.
+        const settleConsentFlow = (): void => {
+            if (umpSetup) void umpSetup.then(settleAttFlow, settleAttFlow);
+            else settleAttFlow();
+        };
 
         let umpPassed = false;
         let attPassed = false;
@@ -1778,19 +1835,21 @@ const Utils = {
                     if (askUmp && order[0] === "ump") await Utils.setupMobileAds(appConfig ?? bootAppConfig);
                     else if (askUmp) {
                         // Vez do formulário: as funções do app passam a esperar por ele, e a cadeia espera a resposta (ou o
-                        // limite de 20 s), sem o initialize.
+                        // limite de 20 s), sem o initialize (quem espera o initialize é o fim do consentimento).
                         umpTurnReached = true;
                         releaseUmpTurn();
                         await umpDialogEnded;
                     }
                     umpPassed = true;
-                    if (attPassed) settleAttFlow();
+                    if (attPassed) settleConsentFlow();
                 } else if (step === "att") {
                     attWaitingTurn = false; // daqui em diante quem diz é o portão (attGate.run logo abaixo, sem await no meio)
 
                     if (askAtt) {
                         try {
                             const attFlow = startAttFlow();
+                            // appDialogsAfterOpen: os pedidos do app esperam o fim de verdade deste ATT (withPermissionPrompt).
+                            if (appDialogsWait) holdForOpenRequest(attFlowEnded);
                             // Notificação antes do ATT e ainda pendente: o ATT só pede depois do fim dela, então a cadeia não
                             // espera mais 20 s por ele (como a notificação com o ATT pendente, abaixo).
                             const outcome =
@@ -1828,8 +1887,8 @@ const Utils = {
                     attPassed = true;
 
                     // ATT resolvido, no limite ou plataforma sem ATT (e o UMP já passou): libera o gate do promo
-                    // (waitAttFlowDone).
-                    if (umpPassed) settleAttFlow();
+                    // (waitAttFlowDone) e o whenConsentFlowDone (com o UMP depois de outro diálogo, depois do initialize).
+                    if (umpPassed) settleConsentFlow();
                     setUtilsUserProperty("att_status", consent.att);
 
                     rckey = usableRcKey(appStrings?.rckey);
@@ -1870,6 +1929,17 @@ const Utils = {
                     try {
                         const pushFlow = pushGate.run();
                         pushFlowShared = pushFlow;
+                        // appDialogsAfterOpen: os pedidos do app esperam o 1º desfecho e, com o pedido ainda sem resposta no iOS,
+                        // mais um limite da trava pela resposta (regras no openRequestWaits).
+                        if (appDialogsWait) {
+                            holdForOpenRequest(
+                                pushFlow.first.then(() =>
+                                    Platform.OS === "ios" && pushAsking > 0
+                                        ? withActiveLimit(AppState, pushFlow.final, PERMISSION_LOCK_LIMIT_MS)
+                                        : undefined,
+                                ),
+                            );
+                        }
                         // ATT antes da notificação e ainda pendente (a cadeia passou do limite dele): o push só pede depois do
                         // fim do ATT, então a cadeia não espera mais 20 s por ele; a resposta que vier depois atualiza o
                         // consent_flow.
@@ -1896,8 +1966,8 @@ const Utils = {
                 }
             }
         } finally {
-            // appDialogsAfterOpen: o último diálogo da ordem respondido, pulado ou no limite dele — os pedidos do app entram
-            // na trava.
+            // appDialogsAfterOpen: o último diálogo da ordem respondido, pulado ou no limite dele — os pedidos do app passam a
+            // esperar só o fim de verdade do ATT e da notificação da abertura (openRequestWaits) e entram na trava.
             endOpenDialogs();
         }
         consent.reported = true;

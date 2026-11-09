@@ -62,11 +62,15 @@ export type PrepareOptions = {
     dialogOrder?: readonly OpenDialog[];
     /**
      * Os pedidos do próprio app pela trava da lib (`withPermissionPrompt`: localização etc.) esperam os diálogos da
-     * abertura terminarem (o último da ordem respondido, pulado ou no limite de tempo dele) e só então entram na trava;
-     * pedido depois disso sai na hora. A espera começa no `prepare` e nunca prende para sempre: sem o `handleReady`, solta
-     * junto com o aviso de 30 s; com a cadeia parada (premium ou initialize sem resposta), em 3 min. Não vale para os
-     * pedidos da lib (`requestAttPermission`, `requestPushPermission`, `requestUmpConsent`). Padrão `false`: quem pede
-     * primeiro vai primeiro, como sempre.
+     * abertura e só então entram na trava: o fim da cadeia (o último da ordem respondido, pulado ou no limite de 20 s dele)
+     * e a resposta de verdade do ATT e da notificação que ela pediu, também depois desses 20 s e também para o pedido feito
+     * depois do fim da cadeia (o ATT descartado pelo iOS volta no próximo "ficou ativo", e o pedido espera por ele). A
+     * espera começa no `prepare` e nunca prende para sempre: sem o `handleReady`, solta junto com o aviso de 30 s; com a
+     * cadeia parada (premium ou initialize sem resposta), em 3 min; o ATT e a notificação seguram no máximo 3 min com o app
+     * ativo (a notificação cuja resposta não volta, no máximo um limite da trava depois do dela), e o pedido de notificação
+     * que volta perdido sem diálogo (Android negada para sempre) não segura nada. Não vale para os pedidos da lib
+     * (`requestAttPermission`, `requestPushPermission`, `requestUmpConsent`). Padrão `false`: quem pede primeiro vai
+     * primeiro, como sempre.
      */
     appDialogsAfterOpen?: boolean;
 };
