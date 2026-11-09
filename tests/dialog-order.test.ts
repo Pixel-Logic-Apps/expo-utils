@@ -33,6 +33,7 @@ const state = {
     attDiscard: 0, // pedidos de ATT que o iOS descarta (voltam undetermined sem mostrar nada)
     push: -1, // AuthorizationStatus do RNFB no iOS: -1 não perguntado, 0 negado, 1 autorizado
     androidPush: false,
+    pushHang: false, // iOS: a resposta da notificação não volta ao app (o RNFB lê o getNotificationSettings depois dela)
     rcUtils: {} as Record<string, any>,
     storage: new Map<string, string>(),
 };
@@ -174,7 +175,8 @@ mock.module("@react-native-firebase/messaging", () => ({
     requestPermission: () => {
         log("push:pede");
         if (state.push !== -1) return Promise.resolve(state.push);
-        return show("push").then((value) => (state.push = value === "granted" ? 1 : 0));
+        const answered = show("push").then((value) => (state.push = value === "granted" ? 1 : 0));
+        return state.pushHang ? answered.then(() => never<number>()) : answered;
     },
     onMessage: stub(),
     subscribeToTopic: resolved(),
@@ -399,6 +401,7 @@ const reset = () => {
         attDiscard: 0,
         push: -1,
         androidPush: false,
+        pushHang: false,
         rcUtils: {},
         storage: new Map(),
     });
@@ -838,6 +841,32 @@ describe("dialogOrder", () => {
         expect(mostOnScreen).toBe(1);
     });
 
+    test("notificação antes do ATT, na tela 70 s, e o requestAttPermission do app no 1º segundo: o ATT só depois da resposta dela", async () => {
+        autoAnswer = {push: [70000, "granted"], att: [1000, "granted"]};
+        const m = await open({dialogOrder: ["push", "att", "ump"]});
+        await advance(1000, 1000);
+        m.default.requestAttPermission().then((status: string) => log(`app:att=${status}`));
+        await advance(75000, 1000);
+        expect(dialogs()).toEqual(["0s push:aparece", "70s push:responde=granted", "70s att:aparece", "71s att:responde=granted"]);
+        expect(only("app:att")).toEqual(["71s app:att=granted"]);
+        expect(mostOnScreen).toBe(1);
+    });
+
+    test("notificação antes do ATT e a resposta dela que não volta ao app (iOS 27): o ATT sai mesmo assim, com limite", async () => {
+        state.pushHang = true;
+        autoAnswer = {push: [2000, "granted"], att: [1000, "granted"]};
+        const m = await open({dialogOrder: ["push", "att", "ump"]});
+        let appAtt = "sem resposta";
+        await advance(3000, 1000);
+        m.default.requestAttPermission().then((status: string) => (appAtt = status));
+        await advance(200000, 1000);
+        // 60 s da trava com a notificação (resposta presa) e mais 60 s esperando a resposta dela, só com o app ativo.
+        expect(dialogs()).toEqual(["0s push:aparece", "2s push:responde=granted", "120s att:aparece", "121s att:responde=granted"]);
+        expect(appAtt).toBe("granted");
+        // O anúncio de abertura não fica de fora a sessão inteira.
+        expect(m.isAttPending()).toBe(false);
+    });
+
     test("chamada direta da cadeia com a ordem no parâmetro (sem a opção no prepare): os portões seguem a ordem dela", async () => {
         autoAnswer = {push: [70000, "granted"], att: [1000, "granted"]};
         const m = await load();
@@ -935,6 +964,63 @@ describe("dialogOrder", () => {
             "22s cadeia:fim",
         ]);
     });
+
+    test("formulário na vez dele: segura a trava até a resposta, além do limite dos alertas (20 s no Android, 60 s no iOS)", async () => {
+        // O pedido do app feito com o formulário aberto espera ele fechar.
+        state.os = "android";
+        state.region = "EU";
+        autoAnswer = {push: [2000, "granted"], ump: [40000, "aceita"], location: [2000, "granted"]};
+        const m = await open(ELEICAO);
+        await advance(5000, 1000);
+        askLocation(m);
+        await advance(45000, 1000);
+        expect(dialogs()).toEqual([
+            "0s push:aparece",
+            "2s push:responde=granted",
+            "2s ump:aparece",
+            "42s ump:responde=aceita",
+            "42s location:aparece",
+            "44s location:responde=granted",
+        ]);
+        expect(mostOnScreen).toBe(1);
+
+        // O diálogo da lib que vem depois dele na ordem também (a cadeia segue no limite de 20 s, como sempre).
+        reset();
+        state.os = "android";
+        state.region = "EU";
+        autoAnswer = {push: [2000, "granted"], ump: [40000, "aceita"]};
+        await open({dialogOrder: ["att", "ump", "push"]});
+        await advance(50000, 1000);
+        expect(dialogs()).toEqual(["0s ump:aparece", "40s ump:responde=aceita", "40s push:aparece", "42s push:responde=granted"]);
+        expect(only("cadeia:fim")).toEqual(["40s cadeia:fim"]);
+        expect(mostOnScreen).toBe(1);
+    });
+
+    test("formulário na vez dele: o anúncio de abertura fica de fora até a resposta (isAttPending), no iPhone e no Android", async () => {
+        state.region = "EU";
+        autoAnswer = {att: [2000, "granted"], push: [2000, "granted"], ump: [4000, "aceita"]};
+        let m = await open(ELEICAO);
+        await advance(9000);
+        expect(only("attPendente", "ump:aparece", "ump:responde")).toEqual([
+            "0s attPendente=true",
+            "2s attPendente=false",
+            "4s ump:aparece",
+            "4s attPendente=true",
+            "8s ump:responde=aceita",
+            "8s attPendente=false",
+        ]);
+
+        reset();
+        state.os = "android";
+        state.region = "EU";
+        autoAnswer = {push: [2000, "granted"], ump: [4000, "aceita"]};
+        m = await open(ELEICAO);
+        await advance(3000);
+        expect(onScreen).toEqual(["ump"]);
+        expect(m.isAttPending()).toBe(true);
+        await advance(4000);
+        expect(m.isAttPending()).toBe(false);
+    });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -1029,6 +1115,43 @@ describe("appDialogsAfterOpen", () => {
             "29s push:responde=granted",
         ]);
         expect(mostOnScreen).toBe(1);
+    });
+
+    test("formulário aberto além do limite da cadeia: a localização espera a resposta dele (Android 40 s, iOS 27 90 s)", async () => {
+        state.os = "android";
+        state.region = "EU";
+        autoAnswer = {push: [2000, "granted"], ump: [40000, "aceita"], location: [2000, "granted"]};
+        await open(ELEICAO_APP, {beforeReady: (m) => askLocation(m)});
+        await advance(50000, 1000);
+        expect(dialogs()).toEqual([
+            "0s push:aparece",
+            "2s push:responde=granted",
+            "2s ump:aparece",
+            "42s ump:responde=aceita",
+            "42s location:aparece",
+            "44s location:responde=granted",
+        ]);
+        expect(only("cadeia:fim")).toEqual(["22s cadeia:fim"]);
+        expect(mostOnScreen).toBe(1);
+
+        reset();
+        state.region = "EU";
+        autoAnswer = {att: [1000, "granted"], push: [1000, "granted"], ump: [90000, "aceita"], location: [2000, "granted"]};
+        await open(ELEICAO_APP, {beforeReady: (m) => askLocation(m)});
+        await advance(100000, 1000);
+        expect(only("location:aparece", "ump:aparece", "ump:responde")).toEqual(["2s ump:aparece", "92s ump:responde=aceita", "92s location:aparece"]);
+        expect(mostOnScreen).toBe(1);
+    });
+
+    test("formulário que nunca responde: a localização sai no limite de segurança de 3 min da trava", async () => {
+        state.os = "android";
+        state.region = "EU";
+        autoAnswer = {push: [2000, "granted"], location: [2000, "granted"]};
+        await open(ELEICAO_APP, {beforeReady: (m) => askLocation(m)});
+        await advance(181000, 1000);
+        expect(only("location:")).toEqual([]);
+        await advance(3000, 1000);
+        expect(only("location:")).toEqual(["182s location:aparece", "184s location:responde=granted"]);
     });
 
     test("cadeia parada (premium sem resposta): a localização sai em 3 min mesmo assim", async () => {

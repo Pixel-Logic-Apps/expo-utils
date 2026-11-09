@@ -125,8 +125,11 @@ export const withActiveLimit = <T>(appState: AppStateLike, promise: Promise<T>, 
     return Promise.race([promise, limit.expired]).finally(limit.stop);
 };
 
-/** Roda `fn` quando chegar a vez e o app estiver ativo. Com o limite estourado devolve `TIMED_OUT` e solta a trava. */
-export type PermissionLock = <T>(fn: () => Promise<T>) => Promise<T | typeof TIMED_OUT>;
+/**
+ * Roda `fn` quando chegar a vez e o app estiver ativo. Com o limite estourado devolve `TIMED_OUT` e solta a trava. `limitMs`:
+ * o limite deste pedido, no lugar do da trava (ex.: o formulário do UMP, tela do app que não tira o app de `active`).
+ */
+export type PermissionLock = <T>(fn: () => Promise<T>, limitMs?: number) => Promise<T | typeof TIMED_OUT>;
 
 /**
  * A trava única dos pedidos de permissão: uma fila na ordem de chegada, um `fn` por vez. O app ativo é conferido depois de
@@ -136,10 +139,10 @@ export type PermissionLock = <T>(fn: () => Promise<T>) => Promise<T | typeof TIM
  */
 export const createPermissionLock = (appState: AppStateLike, limitMs: number): PermissionLock => {
     let tail: Promise<unknown> = Promise.resolve();
-    return <T>(fn: () => Promise<T>) => {
+    return <T>(fn: () => Promise<T>, ms = limitMs) => {
         const turn = tail.then(async () => {
             await waitForActive(appState);
-            const limit = limitWhileActive(appState, limitMs);
+            const limit = limitWhileActive(appState, ms);
             try {
                 return await Promise.race([fn(), limit.expired]);
             } finally {

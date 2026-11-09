@@ -3096,3 +3096,27 @@ Ainda 1.5.8 no package.json; nada enviado.
 
 ### Versão
 Ainda 1.5.8 no package.json; nada enviado; sem etiqueta.
+
+## 2026-11-09 — Revisão da d6f5f09: correções da ordem nova (1.5.9 em andamento, SEM push)
+
+### Pedido
+Avaliar com teste cada achado dos revisores na d6f5f09, corrigir os reais com o menor diff num commit novo e devolver como "decisão do Bruno" o que for escolha de comportamento.
+
+### Ações (commit local por cima da d6f5f09; nada enviado)
+- Formulário do UMP na vez dele (UMP depois de outro diálogo): segura a trava até a resposta, com limite de segurança de 3 min só com o app ativo (`createPermissionLock` aceita o limite do pedido). Antes, o limite dos alertas (20 s no Android, 60 s no iOS) corria com o formulário na tela (ele não tira o app de `active`) e a localização, ou a notificação da lib que vem depois dele, aparecia por cima.
+- O anúncio de abertura não sai por cima do formulário na vez dele (`isAttPending` cobre o formulário, da entrada na trava até a resposta). Na ordem padrão, nada muda.
+- Notificação antes do ATT: o ATT espera o 1º desfecho dela e, por mais um limite da trava só com o app ativo, a resposta. Antes a espera não tinha limite e, no iOS 27, a resposta da notificação que não volta (o RNFB lê o `getNotificationSettings` depois dela) deixava o ATT sem pedir na abertura e o `requestAttPermission` sem voltar.
+- README ("Diálogos na abertura"): o formulário segura a trava até a resposta e o anúncio de abertura não sai por cima dele.
+- Testes novos em `tests/dialog-order.test.ts` (6): formulário além de 20 s/60 s (com e sem `appDialogsAfterOpen`, e a notificação da lib depois dele), formulário que nunca responde (a localização sai em 3 min), anúncio de abertura durante o formulário (iPhone e Android), notificação com resposta presa e notificação na tela 70 s com o `requestAttPermission` do app no 1º segundo.
+
+### Não aplicado (decisão do Bruno)
+- FB e fase 2 da atribuição antes do formulário do UMP na Europa (ordem nova). Esperar o formulário poria a atribuição atrás da notificação, o que o AGENTS.md proíbe; não esperar coleta os identificadores antes de a pessoa ver o formulário.
+- iPhone no Brasil com `ads_wait_consent_enabled`: o 1º anúncio sai na resposta do ATT, às vezes antes do fim do initialize. É o "devem até sair antes" da proposta; no Android isso já acontece hoje.
+
+### Verificação
+- `./tests/run.sh`: TODOS OS TESTES PASSARAM (640 pass, 0 fail; eram 634); `tsc --noEmit` sem erro.
+- Os testes novos falham na d6f5f09 (5 de 6; o 6º protege o "um por vez" da notificação além de 60 s) e passam com a correção; cada parte da correção, desfeita de propósito, derruba ao menos um deles.
+- Não testado em aparelho nem em simulador.
+
+### Versão
+Ainda 1.5.8 no package.json; nada enviado; sem etiqueta.

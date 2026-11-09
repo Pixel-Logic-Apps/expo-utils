@@ -427,6 +427,9 @@ const umpFormSettled = (): Promise<void> | null => (umpTurnReached ? umpAnswered
 // que a cadeia espera na posição dele.
 let markUmpDialogEnded: () => void = () => {};
 const umpDialogEnded = new Promise<void>((resolve) => (markUmpDialogEnded = resolve));
+// Com o UMP depois de outro diálogo: o formulário na vez dele, da entrada na trava até a resposta (ou o limite de segurança
+// dela). O anúncio de abertura não sai por cima dele (isAttPending).
+let umpFormInTurn = false;
 
 // Quanto a cadeia espera o ATT e a notificação. É limite, não espera: o pedido sai assim que chega a vez dele com o app
 // ativo (utils/permission-gate.ts) e o limite só vale quando a resposta não vem — pedido na fila atrás de um diálogo,
@@ -538,17 +541,23 @@ let attFlowEnded: Promise<unknown> = Promise.resolve();
 let pushFlowShared: PermissionFlow<string> | null = null;
 
 // Ordem entre os portões do ATT e da notificação: cada um só pede depois do fim do fluxo do outro, se o outro vem antes na
-// ordem da abertura (sem limite: é ordem, não espera de tempo). Na ordem padrão, a notificação espera o ATT e o ATT não
-// espera nada (o UMP vem antes pela cadeia). undefined: nada a esperar. O formulário do UMP não entra aqui: ele segue a
-// vez dele na cadeia e a trava.
+// ordem da abertura. Na ordem padrão, a notificação espera o ATT sem limite (é ordem, não espera de tempo) e o ATT não
+// espera nada (o UMP vem antes pela cadeia). Com a notificação antes, o ATT espera o 1º desfecho dela (a resposta, ou a
+// trava no limite) e, por mais um limite da trava só com o app ativo, a resposta: no iOS 27 a resposta da notificação pode
+// não voltar (o requestPermission do RNFB lê o getNotificationSettings depois dela), e sem limite o ATT não sairia nesta
+// abertura. undefined: nada a esperar. O formulário do UMP não entra aqui: ele segue a vez dele na cadeia e a trava.
 const flowsBefore = (step: "att" | "push"): Promise<unknown> | undefined => {
     const other = step === "att" ? "push" : "att";
     if (dialogOrder.indexOf(other) > dialogOrder.indexOf(step)) return undefined;
     if (step === "push") return attFlowEnded;
-    return pushFlowShared?.final.then(
-        () => {},
-        () => {},
-    );
+    const pushFlow = pushFlowShared;
+    if (!pushFlow) return undefined;
+    return pushFlow.first
+        .then(() => withActiveLimit(AppState, pushFlow.final, PERMISSION_LOCK_LIMIT_MS))
+        .then(
+            () => {},
+            () => {},
+        );
 };
 
 // Fluxo do ATT da abertura: começa pela cadeia (attDialogOnOpen) ou pelo requestAttPermission do app, um só por abertura.
@@ -597,9 +606,9 @@ let attWaitingTurn = false;
 /**
  * O ATT ainda vai pedir (ou está pedindo) nesta abertura, inclusive enquanto os diálogos antes dele na ordem rodam (na
  * padrão, o UMP): o anúncio de abertura não aparece nessa volta ao app, para os dois não saírem juntos
- * (utils/appopen-ads.tsx).
+ * (utils/appopen-ads.tsx). Com o UMP depois de outro diálogo, vale também para o formulário dele, na vez dele.
  */
-export const isAttPending = (): boolean => attWaitingTurn || attGate.isPending();
+export const isAttPending = (): boolean => attWaitingTurn || attGate.isPending() || umpFormInTurn;
 
 // `consent_flow`: resultado do UMP, do ATT e do push num evento só — 1x por instalação e de
 // novo apenas quando algum dos três muda (taxa de opt-in por país/versão mexe direto no eCPM).
@@ -974,12 +983,21 @@ const runMobileAdsSetup = (appConfig?: any, formTurn?: Promise<void>): Promise<v
                     infoAnswered();
                 }
                 if (!formTurn || info?.status !== "REQUIRED") return AdsConsent.loadAndShowConsentFormIfRequired();
-                // Formulário na vez dele: um diálogo por vez, com o app ativo. A resposta é a dele: o limite da trava só a
-                // solta para o próximo pedido (o formulário espera a pessoa).
+                // Formulário na vez dele: um diálogo por vez, com o app ativo. Ele é tela do app (não tira o app de `active`)
+                // e espera a pessoa, então segura a trava até a resposta, com o limite de segurança de 3 min (só com o app
+                // ativo) no lugar do limite dos alertas do sistema. A resposta é a dele.
                 await formTurn;
                 const asked: {pending?: Promise<any>} = {};
-                const shown = await permissionLock(() => (asked.pending = AdsConsent.loadAndShowConsentFormIfRequired()));
-                return shown === TIMED_OUT ? asked.pending : shown;
+                umpFormInTurn = true;
+                try {
+                    const shown = await permissionLock(
+                        () => (asked.pending = AdsConsent.loadAndShowConsentFormIfRequired()),
+                        ADS_CONSENT_FALLBACK_MS,
+                    );
+                    return shown === TIMED_OUT ? asked.pending : shown;
+                } finally {
+                    umpFormInTurn = false;
+                }
             })();
             const umpAnswer = gathered.then((info: any) => info?.canRequestAds !== false, () => true);
             void umpAnswer.then(resolveUmpAllowsAds);
