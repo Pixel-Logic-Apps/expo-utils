@@ -3037,3 +3037,34 @@ Testar tudo; depois: "é o importante colocar um comentário dizendo isso: q iss
 
 ### Versão
 Continua 1.5.8; a etiqueta `v1.5.8` fica no bb3e49e (o comentário entra na próxima versão).
+
+## 2026-11-08/09 — ads_wait_consent_enabled e diálogos da abertura configuráveis (1.5.9 em andamento, SEM push)
+
+### Pedido
+- "Como é que fica essa questão do consentimento em mostrar um anúncio? O ATT antes e depois de mostrar o primeiro anúncio? Tem esse risco?" → "Aí você coloca uma variável no configurável [...] documentar essa variável no types [...] e o default dela é false. [...] se ela tiver false, ela não faz isso, só por segurança."
+- Escolhas dele: intersticial pedido antes do consentimento "Esperar até 10 s"; bloco das abas do iOS 26 "Esconder enquanto espera"; UMP que não responde "Libera depois de 1 minuto".
+- Diálogos da abertura (pergunta dele sobre o parâmetro que existia até 29/05, `prepare(..., requestPermissions=false)`, usado no Mec Idiomas com a 1.1.13): as três opções num objeto, com "Dialog" no nome. "Gostei desse jeito aí, pode ir. Aí se a pessoa passar o MP da Dialogue False, é responsabilidade dela lidar com isso."
+- "Lembra de testar isso para mim antes [...] Você não pode cometer erros."
+- 09/11 ~01:10: pausar tudo e salvar, porque ele vai reiniciar o Mac.
+
+### Ações (commits locais na main, por cima de 622f18c; NADA enviado ao GitHub)
+- 956128f: chave `ads_wait_consent_enabled` (bloco utils, padrão false). Ligada: banner (safe-banner-ad e banner-ad), intersticial e rewarded (LoadAdsManager), app open e pré-cargas esperam o consentimento. Funções novas `whenAdsConsentReady()` e `isAdsConsentReady(strict)`.
+- 5caffbc: achados da 1ª revisão — espera a resposta real do UMP (não o limite de 20 s da cadeia) e o "não" deixa a sessão sem anúncio; limite fora do segundo plano; chave lida depois do Remote Config; rewarded devolve false sem anúncio.
+- d62c6c7: escolhas dele — intersticial/rewarded esperam até 10 s; UMP com limite de 1 min; limite do ATT a partir do alerta de verdade (3 min se o alerta não sair).
+- 6ad8c99: 4º argumento do `Utils.prepare` vira objeto `PrepareOptions {umpDialogOnOpen, attDialogOnOpen, pushDialogOnOpen}` (padrão true; boolean antigo = push) e props iguais no `ExpoUtilsLayout` (`fcmTrackingAllowed` vira nome antigo); `Utils.requestUmpConsent()` e `Utils.requestAttPermission()` novas; `requestPushPermission` entra no consent_flow; fluxo do ATT compartilhado (`startAttFlow`).
+- ee604cc: achados da 2ª revisão — limite do UMP só no pedido de rede (o formulário espera a pessoa; o gatherConsent virou requestInfoUpdate + loadAndShowConsentFormIfRequired); "não" do UMP sem esperar os 10 s (`isAdsConsentDenied`/`whenAdsConsentDenied`); limite de 3 min cancelado quando o alerta sai e também com attDialogOnOpen false sem o app pedir; consent_flow sem ir e voltar (UMP não pedido = "not_asked"; notificação pedida pelo app não vira "skipped"); funções do app esperam o formulário do UMP e a notificação espera o ATT; ATT descartado volta em até 60 s no requestAttPermission.
+- Docs: `utils/types.ts` (chave e `PrepareOptions`), README (seção "Diálogos na abertura" e linha da chave), `templates/RootLayout.tsx`, `docs/UPGRADE-EXPO57-EXPO-UTILS.md`.
+
+### Verificação
+- `./tests/run.sh`: todos passam (consent-flow 42, interstitial-preload 20, appopen 19, safe-banner 9, handle-ready 2); `tsc --noEmit` 0 erros. Cada correção foi conferida com mutação (o teste falha sem ela).
+- Duas revisões adversariais com verificação de cada achado (3 revisores + céticos cada); tudo confirmado foi corrigido.
+- Teste no iPhone (Eleições) com a 5caffbc: chave ligada = 0 pedidos de anúncio antes da resposta do ATT; desligada = igual a hoje (`~/Downloads/claude/anuncio-consentimento/ios`).
+- Teste final com a ee604cc nos aparelhos: INTERROMPIDO no começo (só builds) a pedido dele.
+
+### Pendências (na ordem)
+1. Rodar de novo o teste final nos aparelhos (iPhone: Eleições R1–R7; Android: Diego e Eleições A1–A6) — roteiro em `~/Downloads/claude/CONTINUAR-DEPOIS.md`.
+2. Mostrar o resultado a ele. Só com o OK: push da main, versão 1.5.9 e etiqueta `v1.5.9`, apps em `#v1.5.9` (o Eleições tem mudanças sem commit que dependem disso), `ads_wait_consent_enabled: false` no settings dos 5 projetos do Remote Config.
+- Backup: `~/Downloads/claude/backup-0911/expo-utils-ee604cc.bundle` (622f18c..ee604cc) e a cópia de trabalho `~/appdata/p159-trabalho/w/expo-utils`.
+
+### Versão
+Ainda 1.5.8 no package.json; nada enviado.
