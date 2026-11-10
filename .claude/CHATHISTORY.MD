@@ -3277,3 +3277,25 @@ Duas revisões independentes da c7bacc0 (lentes "nada muda fora do caso-alvo" e 
 
 ### Versão
 Ainda 1.5.8 no package.json; nada enviado; sem etiqueta.
+
+## 2026-11-10 — 1.5.9 publicada (versão, etiqueta e push) e aplicada nos 3 apps de eleição
+
+### Pedido
+"Show, pode colocar desse jeito e atualizar nos aplicativos da eleição todos. Aí você coloca já na 1.5.9." e "Lembra de testar isso para mim antes, né? (...) Você não pode cometer erros." Depois do teste nos aparelhos (iPhone e Android, conferido de forma independente), sobre os 2 pontos abertos: "Yeah, you can leave this as it is. It's okay."
+
+### Ações
+- `package.json` 1.5.8 → 1.5.9 (`ea6637e`, "chore: versão 1.5.9"); etiqueta anotada `v1.5.9` (objeto `a608b02`) na `ea6637e`; push da main (`622f18c..ea6637e`) e da etiqueta. As menções a "1.5.8" nos docs são de coisas que saíram mesmo na 1.5.8 e ficam.
+- Apps (Eleições `expo-eleicoes-v2`, Diego `expo-eleicao`, Urna `expo-urna-v2`): `expo-utils#v1.5.9` e `bun install` (o `bun.lock` só muda a linha da lib), commit das mudanças paradas desde 08 e 09/11 e push. Histórico em cada app.
+- Remote Config: `ads_wait_consent_enabled: false` no `utils` da condição nova dos 5 alvos: Eleições Android (principal-2c264, v113), Eleições iOS (ludmila-apps, v23), Urna Android e iOS (hubiratan-apps, v117) e Diego Android (diego-adrian-apps, v156). É o padrão da lib; fica no RC só para poder ligar. Backups e conferência em `~/Downloads/claude/rc-1-5-9/`.
+
+### Decisões dele (ficam como estão, sem mudar a lib)
+- Android, ordem nova: o intersticial que o app pede ao abrir a 1ª tela pode abrir por cima do diálogo de localização (Eleições: em 2 de 5 aberturas rápidas cobriu o diálogo antes da resposta; na 1.5.8 só com o diálogo parado). A opção de o intersticial pronto esperar o diálogo da trava com `appDialogsAfterOpen` não foi feita.
+- Europa: o intersticial pode sair antes do formulário do UMP quando o formulário espera muito tempo pela vez dele (já no README).
+
+### Verificação
+- Lib na `ea6637e`: `./tests/run.sh` TODOS OS TESTES PASSARAM (688 pass, 0 fail); `tsc --noEmit` 0 erros.
+- Apps com os arquivos da `ea6637e` (antes da etiqueta, por cópia; depois, instalada do GitHub e igual arquivo por arquivo, fora o `.bun-tag` do bun): Eleições, tsc só com o erro antigo de `loja/prints-anonimos` e jest 28 suítes / 309; Diego, tsc 0, `test-ads` 4/4 e `calendario` 42/42; Urna, tsc só com os 2 erros antigos de rota e `bun test src/services/__tests__` 53/53.
+- Aparelhos (09/11, na `faaf571`; a `c7bacc0` e a `d62a013` vieram depois, revisadas e com testes de unidade): iPhone, 27 aberturas; Android, 33 rodadas. Tabelas e vídeos em `~/Downloads/claude/anuncio-consentimento-final/`.
+
+### Versão
+1.5.9 no package.json, etiqueta `v1.5.9` no GitHub.
